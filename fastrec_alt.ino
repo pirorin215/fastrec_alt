@@ -140,10 +140,7 @@ void handleIdle() {
     return;
   }
 
-  // Simple debounce for momentary upload button
-  static unsigned long lastUploadButtonPressTime = 0;
-  if (digitalRead(UPLOAD_BUTTON_GPIO) == HIGH && (millis() - lastUploadButtonPressTime > STATE_CHANGE_DEBOUNCE_MS)) {
-    lastUploadButtonPressTime = millis();
+  if (digitalRead(UPLOAD_BUTTON_GPIO) == HIGH) {
     startVibrationSync(VIBRA_STARTUP_MS);
     g_isForceUpload = true;
     setAppState(UPLOAD); // UPLOAD状態に遷移
