@@ -114,7 +114,6 @@ void startRecording() {
 
 void stopRecording() {
   Serial.println("Stopping recording.");
-  startVibrationSync(VIBRA_REC_STOP_MS);
   onboard_led(false);
   updateWavHeader(g_audioFile, g_totalBytesRecorded);
   g_audioFile.close();
