@@ -78,7 +78,7 @@ void initI2SMicrophone() {
 
 
 void startRecording() {
-  g_startButtonPressedISR = false;
+
   Serial.println("Starting recording.");
 
   if (!checkFreeSpace()) {

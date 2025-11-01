@@ -44,11 +44,10 @@ void synchronizeTime(bool waitForNTP) {
     // Wait for time to be set, with a timeout
     while (!ntp_sync_successful && (millis() - startTryTime < NTP_TIMEOUT_MS)) {
       // Check for button presses to cancel NTP synchronization
-      if (g_startButtonPressedISR) {
+      if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
         Serial.println("Start Button pressed during NTP sync. Aborting.");
-        return; // Abort synchronization try
+        return;
       }
-
       if (getLocalTime(&timeinfo)) {
         if (timeinfo.tm_year > (2000 - 1900)) {  // Check if year is after 2000 (epoch is 1970)
           ntp_sync_successful = true;
@@ -120,10 +119,11 @@ bool connectToWiFi() {
   wifiReset();
 
   while (!isWiFiConnected() && (millis() - startWiFiWaitTime < WIFI_CONNECT_TIMEOUT_MS)) {
-    if (g_startButtonPressedISR) {
+    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
       Serial.println("Start Button pressed during WiFi connection. Aborting.");
       return false;
     }
+
     wifiReset();
 
     Serial.printf("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
@@ -132,7 +132,7 @@ bool connectToWiFi() {
     unsigned long connectionAttemptStartTime = millis();
 
     while (WiFi.status() != WL_CONNECTED && (millis() - connectionAttemptStartTime < PER_AP_ATTEMPT_TIMEOUT_MS)) {
-      if (g_startButtonPressedISR) {
+      if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
         Serial.println("Start Button pressed during WiFi connection. Aborting.");
         return false;
       }

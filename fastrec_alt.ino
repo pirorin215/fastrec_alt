@@ -11,23 +11,7 @@
 
 #define BUTTON_PIN_BITMASK(GPIO) (1ULL << GPIO)
 
-IRAM_ATTR void startButtonISR() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - g_lastStartTimeDebounceTime > START_BUTTON_DEBOUNCE_DELAY_MS) {
-    g_lastStartTimeDebounceTime = currentMillis;
-    g_startButtonPressedISR = true;
-    //Serial.println("ISR: Start button pressed!");
-  }
-}
 
-IRAM_ATTR void stopButtonISR() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - g_lastStopTimeDebounceTime > STOP_BUTTON_DEBOUNCE_DELAY_MS) { // Assuming a similar debounce delay for stop button
-    g_lastStopTimeDebounceTime = currentMillis;
-    g_stopButtonPressedISR = true;
-    //Serial.println("ISR: Stop button pressed!");
-  }
-}
 
 // --- Function Implementations ---
 void serialWait() {
@@ -105,13 +89,13 @@ void goDeepSleep() {
   updateDisplay("");
 
   // 録音開始や録音停止ボタンを押したらディープスリープ復帰するコード
-  esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(START_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
-  rtc_gpio_pulldown_en(START_BUTTON_GPIO);
-  rtc_gpio_pullup_dis(START_BUTTON_GPIO);
+  esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(REC_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+  rtc_gpio_pulldown_en(REC_BUTTON_GPIO);
+  rtc_gpio_pullup_dis(REC_BUTTON_GPIO);
 
-  esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(STOP_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
-  rtc_gpio_pulldown_en(STOP_BUTTON_GPIO);
-  rtc_gpio_pullup_dis(STOP_BUTTON_GPIO);
+  esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
+  rtc_gpio_pulldown_en(UPLOAD_BUTTON_GPIO);
+  rtc_gpio_pullup_dis(UPLOAD_BUTTON_GPIO);
 
   esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(USB_DETECT_PIN), ESP_EXT1_WAKEUP_ANY_HIGH);
   rtc_gpio_pulldown_en(USB_DETECT_PIN);
@@ -120,6 +104,7 @@ void goDeepSleep() {
   wifiSetSleep(true);  // wifiモデムスリープ
   displaySleep(true); // LCDスリープ
   // esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); でタイマー復帰できる：今は使わないけどこのメモ消さないで
+
   esp_deep_sleep_start();
 }
 
@@ -150,18 +135,17 @@ void handleIdle() {
     lastDisplayUpdateTime = millis();
   }
 
-  if (g_startButtonPressedISR) {
-    g_startButtonPressedISR = false;
+  if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // Recording switch is pressed
     startRecording();
-    // After starting recording, we should not immediately transition to UPLOAD
-    // if USB is connected and WiFi is not. The system is now in REC state.
-    return; // Exit handleIdle to allow handleRec to run in the next loop iteration
+    return;
   }
 
-  if (g_stopButtonPressedISR) {
-    g_stopButtonPressedISR = false;
+  // Simple debounce for momentary upload button
+  static unsigned long lastUploadButtonPressTime = 0;
+  if (digitalRead(UPLOAD_BUTTON_GPIO) == HIGH && (millis() - lastUploadButtonPressTime > STATE_CHANGE_DEBOUNCE_MS)) {
+    lastUploadButtonPressTime = millis();
     startVibrationSync(VIBRA_STARTUP_MS);
-    g_isForceUpload = true; // 強制UPLOAD
+    g_isForceUpload = true;
     setAppState(UPLOAD); // UPLOAD状態に遷移
   }
   
@@ -173,10 +157,14 @@ void handleIdle() {
 }
 
 void handleRec() {
-  // If stop button is pressed, force scheduled stop time to 1 second from now
-  if (g_stopButtonPressedISR) {
-    g_stopButtonPressedISR = false;
-    g_scheduledStopTimeMillis = millis() - 1;
+
+
+  // If recording switch is turned off, stop recording
+  if (digitalRead(REC_BUTTON_GPIO) == LOW) {
+    Serial.println("Recording switch turned OFF. Stopping recording.");
+    stopRecording();
+    g_scheduledStopTimeMillis = 0;  // Reset for next recording
+    return;
   }
 
   // Check if it's time to stop recording
@@ -197,7 +185,7 @@ void handleUpload() {
 
   while (isUploadOrSyncNeeded()) {
     g_isForceUpload = false;
-    if (g_startButtonPressedISR) {
+    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
       Serial.println("Start button pressed during upload. Cancelling upload and starting recording.");
       setAppState(IDLE);
       return;
@@ -232,12 +220,16 @@ void wakeupLogic() {
   switch (wakeup_reason) {
     case ESP_SLEEP_WAKEUP_EXT1: {
       uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
-      if (wakeup_pin_mask & BUTTON_PIN_BITMASK(START_BUTTON_GPIO)) {
-        Serial.println("Start Button pressed on wake-up");
-        startRecording();
-      } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(STOP_BUTTON_GPIO)) {
+      if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
+        Serial.println("Start Button caused wake-up.");
+        if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
+            startRecording();
+        } else { // If button is not pressed (e.g., was pressed and released quickly)
+            setAppState(IDLE, false);
+        }
+      } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
         Serial.println("Stop Button pressed on wake-up");
-        setAppState(IDLE, false);
+        setAppState(UPLOAD, false);
       } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
         Serial.println("USB connected on wake-up");
         setAppState(UPLOAD, false);
@@ -261,8 +253,8 @@ void initPins() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH); // LED消灯
 
-  pinMode(START_BUTTON_GPIO, INPUT_PULLDOWN);
-  pinMode(STOP_BUTTON_GPIO, INPUT_PULLDOWN);
+  pinMode(REC_BUTTON_GPIO, INPUT_PULLDOWN);
+  pinMode(UPLOAD_BUTTON_GPIO, INPUT_PULLDOWN);
 
   pinMode(MOTOR_GPIO, OUTPUT);
   pinMode(USB_DETECT_PIN, INPUT);  // Initialize USB connect pin
@@ -292,8 +284,7 @@ void setup() {
   tzset();
   
   initPins();
-  attachInterrupt(digitalPinToInterrupt(START_BUTTON_GPIO), startButtonISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(STOP_BUTTON_GPIO), stopButtonISR, RISING);
+
   
   initAdc();
   

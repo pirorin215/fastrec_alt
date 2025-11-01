@@ -5,8 +5,8 @@
 #include "LittleFS.h"
 
 // GPIO settings
-#define START_BUTTON_GPIO  GPIO_NUM_1
-#define STOP_BUTTON_GPIO   GPIO_NUM_2
+#define REC_BUTTON_GPIO  GPIO_NUM_1
+#define UPLOAD_BUTTON_GPIO   GPIO_NUM_2
 #define MOTOR_GPIO         GPIO_NUM_3
 #define USB_DETECT_PIN     GPIO_NUM_4
 #define BATTERY_DIV_PIN     GPIO_NUM_5
@@ -62,8 +62,7 @@ unsigned long VIBRA_REC_STOP_MS = 600;
 // Other Timings/Debounce
 const unsigned long UPLOAD_RETRY_DELAY_MS = 60000; // 1 minute delay for upload retries
 const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state changes
-const unsigned long START_BUTTON_DEBOUNCE_DELAY_MS = 200; // ISR for the start button 200ms debounce
-const unsigned long STOP_BUTTON_DEBOUNCE_DELAY_MS = 200;  // ISR for the stop button 200ms debounce
+
 
 // RSSI levels (adjusted for positive values from getWifiRSSI() where smaller value = stronger signal)
 #define RSSI_LEVEL_4_THRESHOLD -55 // Excellent
@@ -128,10 +127,11 @@ volatile unsigned long g_scheduledStopTimeMillis;
 
 volatile bool g_isForceUpload = false;
 
-volatile bool g_startButtonPressedISR = false; // Flag to indicate start button press from ISR
-volatile unsigned long g_lastStartTimeDebounceTime = 0; // Last time the start button was pressed
-volatile bool g_stopButtonPressedISR = false;  // Flag to indicate stop button press from ISR
-volatile unsigned long g_lastStopTimeDebounceTime = 0;  // Last time the stop button was pressed
+
+
+
+
+
 
 // audio
 int16_t g_i2s_read_buffer[I2S_BUFFER_SIZE / sizeof(int16_t)];
