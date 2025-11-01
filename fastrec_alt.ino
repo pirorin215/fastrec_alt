@@ -67,20 +67,13 @@ void setAppState(AppState newState, bool applyDebounce = true) {
   }
 }
 
-void startVibration(unsigned long duration_ms) {
-  digitalWrite(MOTOR_GPIO, HIGH);
-  Serial.printf("startVibration %dms\r\n", duration_ms);
-  g_isVibrating = true;
-}
+
 
 void startVibrationSync(unsigned long duration_ms) {
   Serial.printf("startVibrationSync %dms\r\n", duration_ms);
   digitalWrite(MOTOR_GPIO, HIGH);
-  g_isVibrating = true;
   delay(duration_ms);
   digitalWrite(MOTOR_GPIO, LOW);
-  g_isVibrating = false;
-  g_vibrationStopTime = millis();
 }
 
 void goDeepSleep() {
@@ -328,11 +321,7 @@ void loop() {
     setAppState(DSLEEP, false);
   }
 
-  if (g_isVibrating && millis() >= g_vibrationStopTime) {
-    digitalWrite(MOTOR_GPIO, LOW);
-    Serial.printf("stopVibration \r\n", g_vibrationStopTime);
-    g_isVibrating = false;
-  }
+
 
   g_currentBatteryVoltage = getBatteryVoltage();
 }

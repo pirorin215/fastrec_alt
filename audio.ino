@@ -89,7 +89,7 @@ void startRecording() {
   
   setAppState(REC, false);
   onboard_led(true);
-  startVibration(VIBRA_REC_START_MS);  // Vibrate on record start
+  startVibrationSync(VIBRA_REC_START_MS);  // Vibrate on record start
 
   float usagePercentage = getLittleFSUsagePercentage();
   updateDisplay("");

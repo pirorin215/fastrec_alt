@@ -119,8 +119,7 @@ volatile AppState g_currentAppState;
 
 unsigned long g_lastActivityTime;
 
-volatile bool g_isVibrating;
-unsigned long g_vibrationStopTime;
+
 
 float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
