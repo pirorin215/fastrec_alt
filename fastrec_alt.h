@@ -5,8 +5,8 @@
 #include "LittleFS.h"
 
 // GPIO settings
-#define UPLOAD_BUTTON_GPIO GPIO_NUM_1
-#define REC_BUTTON_GPIO    GPIO_NUM_2
+#define REC_BUTTON_GPIO    GPIO_NUM_1
+#define UPLOAD_BUTTON_GPIO GPIO_NUM_2
 #define MOTOR_GPIO         GPIO_NUM_3
 #define USB_DETECT_PIN     GPIO_NUM_4
 #define BATTERY_DIV_PIN    GPIO_NUM_5
