@@ -283,6 +283,7 @@ void setup() {
   initLittleFS();
   
   loadSettingsFromLittleFS();
+  updateMinAudioFileSize(); // Initialize MIN_AUDIO_FILE_SIZE_BYTES after loading settings
   
   start_ble_server();
   

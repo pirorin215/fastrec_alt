@@ -154,6 +154,15 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         } else {
           responseData = "ERROR: Failed to open setting.ini for writing";
         }
+      } else if (value.rfind("SET:REC_MIN_S:", 0) == 0) {
+        int newMinRecDuration = atoi(value.substr(std::string("SET:REC_MIN_S:").length()).c_str());
+        if (newMinRecDuration > 0) {
+          REC_MIN_S = newMinRecDuration;
+          updateMinAudioFileSize();
+          responseData = "OK: REC_MIN_S set to " + std::to_string(REC_MIN_S);
+        } else {
+          responseData = "ERROR: Invalid REC_MIN_S value";
+        }
       }
       // --- End of Command Parsing and Data Retrieval ---
 
@@ -287,11 +296,15 @@ void loadSettingsFromLittleFS() {
     } else if (strcmp(key, "I2S_SAMPLE_RATE") == 0) {
       I2S_SAMPLE_RATE = atoi(value);
       Serial.printf("Setting I2S_SAMPLE_RATE to %d\r\n", I2S_SAMPLE_RATE);
-    } else if (strcmp(key, "REC_DURATION_S") == 0) {
-      REC_DURATION_S = atoi(value);
-      Serial.printf("Setting REC_DURATION_S to %d\r\n", REC_DURATION_S);
-      MAX_REC_DURATION_MS = REC_DURATION_S * 1000; // Recalculate MAX_RECORDING_DURATION_MS
+    } else if (strcmp(key, "REC_MAX_S") == 0) {
+      REC_MAX_S = atoi(value);
+      Serial.printf("Setting REC_MAX_S to %d\r\n", REC_MAX_S);
+      MAX_REC_DURATION_MS = REC_MAX_S * 1000; // Recalculate MAX_RECORDING_DURATION_MS
       Serial.printf("Recalculated MAX_REC_DURATION_MS to %lu\n", MAX_REC_DURATION_MS);
+    } else if (strcmp(key, "REC_MIN_S") == 0) {
+      REC_MIN_S = atoi(value);
+      Serial.printf("Setting REC_MIN_S to %d\r\n", REC_MIN_S);
+      updateMinAudioFileSize(); // Recalculate MIN_AUDIO_FILE_SIZE_BYTES
     } else if (strcmp(key, "AUDIO_GAIN") == 0) {
       AUDIO_GAIN = atof(value);
       Serial.printf("Setting AUDIO_GAIN to %f\r\n", AUDIO_GAIN);

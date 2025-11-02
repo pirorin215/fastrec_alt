@@ -32,16 +32,17 @@ const long SERIAL_BAUD_RATE = 115200;
 const long SERIAL_TIMEOUT_MS = 5000;  // 5 seconds timeout for serial connection
 
 // Power/Battery
-unsigned long DEEP_SLEEP_DELAY_MS = 20000;
+unsigned long DEEP_SLEEP_DELAY_MS = 15000;
 float BAT_VOL_MIN = 3.0f;
 float BAT_VOL_MULT = 2.1f;
 
 // Audio/Recording
-int REC_DURATION_S = 20;
+int REC_MAX_S = 20;
+int REC_MIN_S = 1; // Default minimum recording duration in seconds
 int I2S_SAMPLE_RATE = 8000;
 float AUDIO_GAIN = 8.0f;
-const size_t MIN_AUDIO_FILE_SIZE_BYTES = 16044; // 0.5 seconds at 8kHz, 32-bit, mono + 44-byte WAV header
-unsigned long MAX_REC_DURATION_MS = REC_DURATION_S * 1000;  // Max recording duration in milliseconds
+size_t MIN_AUDIO_FILE_SIZE_BYTES; // Calculated based on REC_MIN_S
+unsigned long MAX_REC_DURATION_MS = REC_MAX_S * 1000;  // Max recording duration in milliseconds
 const size_t I2S_BUFFER_SIZE = 1024; // Defined here as it's a constant
 
 // LittleFS
@@ -50,7 +51,7 @@ const unsigned long MIN_FREE_SPACE_MB = 1;  // Minimum 1MB free space required o
 // HTTP Server for Upload
 char* HS_HOST = (char*)"yoshi1108.ddns.net";
 int HS_PORT = 55443;
-char* HS_PATH = (char*)"/fastrec/upload.php";
+char* HS_PATH = (char*)"/fastrec/upload";
 char* HS_USER = (char*)"fastrec";
 char* HS_PASS = (char*)"Fjfj1108";
 
@@ -143,4 +144,5 @@ uint32_t g_totalBytesRecorded = 0;
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // --- Function Prototypes ---
+void updateMinAudioFileSize();
 #endif // FASTREC_INO_H

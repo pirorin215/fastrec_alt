@@ -107,7 +107,7 @@ void startRecording() {
   writeWavHeader(g_audioFile, 0);  // Write a placeholder header
   g_audioFileCount = countAudioFiles();            // Update file counts after creating a new file
 
-  g_scheduledStopTimeMillis = millis() + MAX_REC_DURATION_MS;
+  g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
   g_totalBytesRecorded = 0;
   Serial.println("Recording audio data...");
 }
@@ -117,6 +117,26 @@ void stopRecording() {
   onboard_led(false);
   updateWavHeader(g_audioFile, g_totalBytesRecorded);
   g_audioFile.close();
+
+  // Check if the recorded file is too short and delete it if necessary
+  File recordedFile = LittleFS.open(g_audio_filename, FILE_READ);
+  if (recordedFile) {
+    size_t fileSize = recordedFile.size();
+    recordedFile.close();
+
+    if (fileSize < MIN_AUDIO_FILE_SIZE_BYTES) {
+      Serial.printf("File %s is too short (size: %u bytes). Deleting from LittleFS.\r\n", g_audio_filename, fileSize);
+      if (!LittleFS.remove(g_audio_filename)) {
+        Serial.printf("Failed to delete short file %s from LittleFS.\r\n", g_audio_filename);
+      }
+      g_audioFileCount = countAudioFiles(); // Update file counts after deletion
+    } else {
+      Serial.printf("Recorded file %s saved (size: %u bytes).\r\n", g_audio_filename, fileSize);
+    }
+  } else {
+    Serial.printf("ERROR: Could not open recorded file %s to check size.\r\n", g_audio_filename);
+  }
+
   Serial.printf("Debug: Filename in stopRecording: %s\r\n", g_audio_filename);  // Debug print
   float usagePercentage = getLittleFSUsagePercentage();
   updateDisplay("");
@@ -139,4 +159,11 @@ void addRecording() {
     g_audioFile.write((uint8_t*)g_i2s_read_buffer, bytes_read / 2);
     g_totalBytesRecorded += (bytes_read / 2);
   }
+}
+
+void updateMinAudioFileSize() {
+  // Assuming 16-bit, mono audio, plus 44-byte WAV header
+  // bitsPerSample is 16, numChannels is 1
+  MIN_AUDIO_FILE_SIZE_BYTES = (size_t)REC_MIN_S * I2S_SAMPLE_RATE * (16 / 8) * 1 + 44;
+  Serial.printf("MIN_AUDIO_FILE_SIZE_BYTES updated to: %u bytes (for %d seconds)\r\n", MIN_AUDIO_FILE_SIZE_BYTES, REC_MIN_S);
 }
