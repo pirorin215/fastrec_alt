@@ -76,7 +76,6 @@ void initI2SMicrophone() {
   Serial.println("I2S bus initialized.");
 }
 
-
 void startRecording() {
 
   Serial.println("Starting recording.");

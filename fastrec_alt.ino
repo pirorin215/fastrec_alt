@@ -11,8 +11,6 @@
 
 #define BUTTON_PIN_BITMASK(GPIO) (1ULL << GPIO)
 
-
-
 // --- Function Implementations ---
 void serialWait() {
   unsigned long startTime = millis();
