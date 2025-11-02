@@ -318,7 +318,7 @@ void loop() {
       break;
   }
 
-  if (g_currentAppState == IDLE && (millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && !isConnectUSB()) {
+  if (g_currentAppState == IDLE && (millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && !isConnectUSB() && (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)) {
     setAppState(DSLEEP, false);
   }
 

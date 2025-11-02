@@ -24,6 +24,7 @@ class MyCallbacks : public BLECharacteristicCallbacks {
     else if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       Serial.print("COMMAND_UUID received: ");
       Serial.println(value.c_str());
+      g_lastActivityTime = millis(); // Reset activity timer on BLE command reception
 
       // --- Command Parsing and Data Retrieval (Example) ---
       // In a real application, you would parse 'value' (e.g., "GET:sensor_data:0")
@@ -200,7 +201,7 @@ void trim_whitespace(char* str) {
 // --- BLEサーバー開始処理 ---
 void start_ble_server() {
   BLEDevice::init(DEVICE_NAME);
-  BLEServer *pServer = BLEDevice::createServer();
+  pBLEServer = BLEDevice::createServer(); // Assign to global pointer
   BLEDevice::setMTU(517); // Set maximum MTU size
 
   class MyServerCallbacks: public BLEServerCallbacks {
@@ -210,13 +211,13 @@ void start_ble_server() {
 
     void onDisconnect(BLEServer* pServer) {
       Serial.println("Client Disconnected - Restarting Advertising");
-      BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+      BLEAdvertising *pAdvertising = pServer->getAdvertising(); // Use the pServer argument
       pAdvertising->start();
     }
   };
 
-  pServer->setCallbacks(new MyServerCallbacks());
-  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pBLEServer->setCallbacks(new MyServerCallbacks()); // Use global pointer
+  BLEService *pService = pBLEServer->createService(SERVICE_UUID);
 
   // New COMMAND_UUID characteristic
   pCommandCharacteristic = pService->createCharacteristic(
@@ -235,7 +236,7 @@ void start_ble_server() {
   pService->start();
 
   // BLEアドバタイズ（広告）の開始
-  BLEAdvertising *pAdvertising = pServer->getAdvertising();
+  BLEAdvertising *pAdvertising = pBLEServer->getAdvertising(); // Use global pBLEServer
   pAdvertising->start();
 }
 

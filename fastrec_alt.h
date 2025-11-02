@@ -3,6 +3,7 @@
 
 #include "FS.h"
 #include "LittleFS.h"
+#include <BLEDevice.h> // Required for BLEServer type
 
 // GPIO settings
 #define REC_BUTTON_GPIO    GPIO_NUM_1
@@ -126,8 +127,7 @@ float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
 
 volatile bool g_isForceUpload = false;
-
-
+BLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 
 
