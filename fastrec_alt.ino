@@ -317,3 +317,4 @@ void loop() {
   }
   g_currentBatteryVoltage = getBatteryVoltage();
 }
+
