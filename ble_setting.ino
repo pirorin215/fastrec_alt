@@ -24,7 +24,6 @@ class MyCallbacks : public BLECharacteristicCallbacks {
     else if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       Serial.print("COMMAND_UUID received: ");
       Serial.println(value.c_str());
-      g_lastActivityTime = millis(); // Reset activity timer on BLE command reception
 
       // --- Command Parsing and Data Retrieval (Example) ---
       // In a real application, you would parse 'value' (e.g., "GET:sensor_data:0")

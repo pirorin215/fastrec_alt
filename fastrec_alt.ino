@@ -67,8 +67,6 @@ void setAppState(AppState newState, bool applyDebounce = true) {
   }
 }
 
-
-
 void startVibrationSync(unsigned long duration_ms) {
   Serial.printf("startVibrationSync %dms\r\n", duration_ms);
   digitalWrite(MOTOR_GPIO, HIGH);
@@ -147,8 +145,6 @@ void handleIdle() {
 }
 
 void handleRec() {
-
-
   // If recording switch is turned off, stop recording
   if (digitalRead(REC_BUTTON_GPIO) == LOW) {
     Serial.println("Recording switch turned OFF. Stopping recording.");
@@ -321,8 +317,5 @@ void loop() {
   if (g_currentAppState == IDLE && (millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && !isConnectUSB() && (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)) {
     setAppState(DSLEEP, false);
   }
-
-
-
   g_currentBatteryVoltage = getBatteryVoltage();
 }
