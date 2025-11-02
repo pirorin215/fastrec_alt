@@ -65,66 +65,61 @@ def getch():
     return ch
 
 # --- 新しいデータ取得処理 ---
-async def run_ble_command(command_str: str, verbose: bool = False):
+async def run_ble_command(client: BleakClient, command_str: str, verbose: bool = False):
     global received_response_data
-    received_response_data = None # 新しいリクエストごとに応答データをリセット
-    response_event.clear() # イベントをクリアして、次の応答を待機できるようにする
+    received_response_data = None  # Reset response data for each new request
+    response_event.clear()  # Clear the event to await the next response
 
     if verbose:
         print(f"\n--- BLEコマンド実行: コマンド='{command_str}' ---")
-    if verbose:
-        print(f"1. BLEデバイス '{DEVICE_NAME}' をスキャン中...")
 
-    device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=10.0)
-
-    if not device:
-        print(f"{RED}エラー: '{DEVICE_NAME}' デバイスが見つかりませんでした。{RESET}")
-        print(f"{RED}マイコンの電源が入っているか、BLE設定モードかを確認してください。{RESET}")
-        return
-
-    if verbose:
-        print(f"{GREEN}   -> 発見: {device.address}{RESET}")
-
-    async with BleakClient(device.address) as client:
-        if verbose:
-            print(f"2. {device.address} に接続し、通知を有効化中...")
-        # 応答特性の通知を有効にする
-        await client.start_notify(RESPONSE_UUID, notification_handler)
-        if verbose:
-            print(f"{GREEN}   -> '{RESPONSE_UUID}' の通知を有効化しました。{RESET}")
-
-        # コマンドを送信
-        if verbose:
-            print(f"3. コマンド '{command_str}' を '{COMMAND_UUID}' に送信中...")
-        await client.write_gatt_char(
-            COMMAND_UUID,
-            bytes(command_str, 'utf-8'),
-            response=True # 書き込み応答を要求 (書き込み成功の確認)
-        )
-        if verbose:
-            print(f"{GREEN}   -> コマンド送信完了。応答を待機中...{RESET}")
+    # Ensure notifications are started if not already
+    if not client.is_connected:
+        print(f"{RED}BLEクライアントが切断されています。再接続を試みます...{RESET}")
         try:
-            # 応答が来るまで待機 (最大15秒)
-            await asyncio.wait_for(response_event.wait(), timeout=15.0)
-            if not received_response_data:
-                print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。{RESET}")
-        except asyncio.TimeoutError:
-            print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。{RESET}")
-        finally:
-            # 通知を停止
-            if verbose:
-                print(f"{GREEN}5. '{RESPONSE_UUID}' の通知を停止中...{RESET}")
-            await client.stop_notify(RESPONSE_UUID)
-    return received_response_data # 応答データを返す
+            # Explicitly disconnect to clear any lingering state before reconnecting
+            if client.is_connected:
+                await client.disconnect()
+            await client.connect()
+            # Explicitly stop notifications before starting them again to clear any lingering state
+            try:
+                await client.stop_notify(RESPONSE_UUID)
+            except Exception as stop_e:
+                # Ignore error if notifications were not active, or if client was not fully connected
+                print(f"Warning: Error stopping notifications during reconnect (may be harmless): {stop_e}")
+            await client.start_notify(RESPONSE_UUID, notification_handler)
+            print(f"{GREEN}再接続に成功しました。{RESET}")
+        except Exception as e:
+            print(f"{RED}再接続に失敗しました: {e}{RESET}")
+            return None
 
-async def send_setting_ini(file_path: str, verbose: bool = False):
+    # コマンドを送信
+    if verbose:
+        print(f"3. コマンド '{command_str}' を '{COMMAND_UUID}' に送信中...")
+    await client.write_gatt_char(
+        COMMAND_UUID,
+        bytes(command_str, 'utf-8'),
+        response=True  # Request write response (confirmation of write success)
+    )
+    if verbose:
+        print(f"{GREEN}   -> コマンド送信完了。応答を待機中...{RESET}")
+    try:
+        # 応答が来るまで待機 (最大15秒)
+        await asyncio.wait_for(response_event.wait(), timeout=15.0)
+        if not received_response_data:
+            print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。{RESET}")
+    except asyncio.TimeoutError:
+        print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。{RESET}")
+    return received_response_data  # Return response data
+
+async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = False):
     try:
         with open(file_path, 'r') as f:
             content = f.read()
         command = f"SET:setting_ini:{content}"
         print(f"送信するsetting.iniの内容:\n{content}")
         print(f"{file_path} から setting.ini を送信中...")
-        await run_ble_command(command, verbose)
+        await run_ble_command(client, command, verbose)
         print(f"{GREEN}setting.ini を正常に送信しました。{RESET}")
     except FileNotFoundError:
         print(f"{RED}Error: File not found at {file_path}{RESET}")
@@ -135,9 +130,9 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
         else:
             print(f"{RED}Error sending setting.ini: {e}{RESET}")
 
-async def get_setting_ini(verbose: bool = False):
+async def get_setting_ini(client: BleakClient, verbose: bool = False):
     print("デバイスから setting.ini を要求中...")
-    device_response = await run_ble_command("GET:setting_ini", verbose)
+    device_response = await run_ble_command(client, "GET:setting_ini", verbose)
 
     if device_response:
         print(f"\n\n")
@@ -159,9 +154,9 @@ async def get_setting_ini(verbose: bool = False):
         print(f"{RED}setting.ini の取得に失敗しました。{RESET}")
     return device_response
 
-async def get_device_info(verbose: bool = False):
+async def get_device_info(client: BleakClient, verbose: bool = False):
     print("デバイスから各種情報を要求中...")
-    response = await run_ble_command("GET:info", verbose)
+    response = await run_ble_command(client, "GET:info", verbose)
     if response:
         if verbose:
             print(f"{GREEN}マイコンからの情報:{RESET}\n{response}")
@@ -196,39 +191,67 @@ if __name__ == "__main__":
     args = parser.parse_args()
     verbose = args.verbose
 
-    try:
-        while True:
-            print("\n--- BLE Tool Menu ---")
-            print("1. 録音レコーダに setting.ini を送信")
-            print("2. 録音レコーダの setting.ini を表示")
-            print("3. 録音レコーダの情報取得")
-            print("0. 終了")
+    async def main_loop():
+        client = None
+        try:
+            print(f"BLEデバイス '{DEVICE_NAME}' をスキャン中...")
+            device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=10.0)
 
-            sys.stdout.write("Enter your choice: ")
-            sys.stdout.flush()
-            choice = getch()
-            print(choice) # Echo the choice back to the user
+            if not device:
+                print(f"{RED}エラー: '{DEVICE_NAME}' デバイスが見つかりませんでした。{RESET}")
+                print(f"{RED}マイコンの電源が入っているか、BLE設定モードかを確認してください。{RESET}")
+                return
 
-            if choice == '1':
-                try:
-                    asyncio.run(send_setting_ini("setting.ini", verbose))
-                except Exception as e:
-                    print(f"{RED}Error during send_setting_ini: {e}{RESET}")
-            elif choice == '2':
-                try:
-                    asyncio.run(get_setting_ini(verbose))
-                except Exception as e:
-                    print(f"{RED}Error during get_setting_ini: {e}{RESET}")
-            elif choice == '3':
-                try:
-                    asyncio.run(get_device_info(verbose))
-                except Exception as e:
-                    print(f"{RED}Error during get_littlefs_ls: {e}{RESET}")
-            elif choice == '0':
-                print("BLEツールを終了します。")
-                break
-            else:
-                print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+            print(f"{GREEN}デバイス発見: {device.address}{RESET}")
 
-    except Exception as e:
-        print(f"{RED}致命的なエラーが発生しました: {e}{RESET}")
+            client = BleakClient(device.address)
+            print(f"{device.address} に接続中...通知を有効化中...")
+            await client.connect()
+            await client.start_notify(RESPONSE_UUID, notification_handler)
+            print(f"{GREEN}'{RESPONSE_UUID}' の通知を有効化しました。{RESET}")
+
+            while True:
+                print("\n--- BLE Tool Menu ---")
+                print("1. 録音レコーダに setting.ini を送信")
+                print("2. 録音レコーダの setting.ini を表示")
+                print("3. 録音レコーダの情報取得")
+                print("0. 終了")
+
+                sys.stdout.write("Enter your choice: ")
+                sys.stdout.flush()
+                choice = getch()
+                print(choice) # Echo the choice back to the user
+
+                if choice == '1':
+                    try:
+                        await send_setting_ini(client, "setting.ini", verbose)
+                    except Exception as e:
+                        print(f"{RED}Error during send_setting_ini: {e}{RESET}")
+                elif choice == '2':
+                    try:
+                        await get_setting_ini(client, verbose)
+                    except Exception as e:
+                        print(f"{RED}Error during get_setting_ini: {e}{RESET}")
+                elif choice == '3':
+                    try:
+                        await get_device_info(client, verbose)
+                    except Exception as e:
+                        print(f"{RED}Error during get_littlefs_ls: {e}{RESET}")
+                elif choice == '0':
+                    print("BLEツールを終了します。")
+                    break
+                else:
+                    print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+
+        except Exception as e:
+            print(f"{RED}致命的なエラーが発生しました: {e}{RESET}")
+        finally:
+            if client and client.is_connected:
+                if verbose:
+                    print(f"{GREEN}5. '{RESPONSE_UUID}' の通知を停止し、切断中...{RESET}")
+                await client.stop_notify(RESPONSE_UUID)
+                await client.disconnect()
+                if verbose:
+                    print(f"{GREEN}   -> 切断完了。{RESET}")
+
+    asyncio.run(main_loop())
