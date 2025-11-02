@@ -112,6 +112,27 @@ async def run_ble_command(client: BleakClient, command_str: str, verbose: bool =
         print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。{RESET}")
     return received_response_data  # Return response data
 
+async def reconnect_ble_client(client: BleakClient, verbose: bool = False) -> bool:
+    print(f"{RED}BLEクライアントが切断されました。再接続を試みます...{RESET}")
+    try:
+        # Explicitly disconnect to clear any lingering state before reconnecting
+        if client.is_connected:
+            await client.disconnect()
+        await client.connect()
+        # Explicitly stop notifications before starting them again to clear any lingering state
+        try:
+            await client.stop_notify(RESPONSE_UUID)
+        except Exception as stop_e:
+            # Ignore error if notifications were not active, or if client was not fully connected
+            if verbose:
+                print(f"Warning: Error stopping notifications during reconnect (may be harmless): {stop_e}")
+        await client.start_notify(RESPONSE_UUID, notification_handler)
+        print(f"{GREEN}再接続に成功しました。{RESET}")
+        return True
+    except Exception as e:
+        print(f"{RED}再接続に失敗しました: {e}{RESET}")
+        return False
+
 async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = False):
     try:
         with open(file_path, 'r') as f:
@@ -126,6 +147,8 @@ async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = 
     except Exception as e:
         if "disconnected" in str(e) and "setting.ini" in file_path:
             print(f"デバイスがリセットされました")
+            print(f"再接続を試みます...")
+            await reconnect_ble_client(client, verbose)
             print(f"「2. デバイスから setting.ini を取得」で反映されたか確認できます")
         else:
             print(f"{RED}Error sending setting.ini: {e}{RESET}")
