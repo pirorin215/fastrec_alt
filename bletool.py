@@ -75,22 +75,7 @@ async def run_ble_command(client: BleakClient, command_str: str, verbose: bool =
 
     # Ensure notifications are started if not already
     if not client.is_connected:
-        print(f"{RED}BLEクライアントが切断されています。再接続を試みます...{RESET}")
-        try:
-            # Explicitly disconnect to clear any lingering state before reconnecting
-            if client.is_connected:
-                await client.disconnect()
-            await client.connect()
-            # Explicitly stop notifications before starting them again to clear any lingering state
-            try:
-                await client.stop_notify(RESPONSE_UUID)
-            except Exception as stop_e:
-                # Ignore error if notifications were not active, or if client was not fully connected
-                print(f"Warning: Error stopping notifications during reconnect (may be harmless): {stop_e}")
-            await client.start_notify(RESPONSE_UUID, notification_handler)
-            print(f"{GREEN}再接続に成功しました。{RESET}")
-        except Exception as e:
-            print(f"{RED}再接続に失敗しました: {e}{RESET}")
+        if not await reconnect_ble_client(client, verbose):
             return None
 
     # コマンドを送信
