@@ -144,6 +144,54 @@ uint32_t g_totalBytesRecorded = 0;
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // --- Function Prototypes ---
+
+// utils.ino
 void applog(const char *format, ...);
+void onboard_led(bool bOn);
+void amplifyAudio(int16_t* samples, size_t sampleCount, float gain);
+bool checkFreeSpace();
+void setRtcToDefaultTime();
+void generateFilenameFromRTC(char* filenameBuffer, size_t bufferSize);
+bool isConnectUSB();
+bool getValidRtcTime(struct tm* timeinfo);
+bool getFormattedRtcTime(char* buffer, size_t bufferSize);
+float getLittleFSUsagePercentage();
+void initLittleFS();
+void deleteAllRecordings();
+float getBatteryVoltage();
+int countAudioFiles();
+bool parseFilenameToTm(const char* filename, struct tm* timeinfo);
+int sortedFilenames(char sortedArray[][MAX_FILENAME_LENGTH], int currentCount, int maxLimit, const char* newFilename, bool ascending);
+int getLatestAudioFilenames(char outputArray[][MAX_FILENAME_LENGTH], int maxFiles, bool ascending);
+void execUpload();
+
+// audio.ino
+void writeWavHeader(File& file, uint32_t dataSize);
+void updateWavHeader(File& file, uint32_t dataSize);
+void initI2SMicrophone();
+void startRecording();
+void stopRecording();
+void addRecording();
+void updateMinAudioFileSize();
+
+// ble_setting.ino
+void trim_whitespace(char* str);
+void start_ble_server();
+void loadSettingsFromLittleFS();
+void createDefaultSettingsFile();
+
+// lcd_display.ino
+void initSSD();
+void displaySleep(bool flag);
+void updateDisplay(const char* msg);
+
+// wifi.ino
+bool isWiFiConnected();
+void wifiSetSleep(bool flag);
+bool connectToWiFi();
+void synchronizeTime(bool waitForNTP);
+void initWifi();
+bool checkAuthentication(const char* host, int port, const char* path, const char* user, const char* password);
+bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, const char* path, const char* user, const char* password);
 
 #endif // FASTREC_INO_H

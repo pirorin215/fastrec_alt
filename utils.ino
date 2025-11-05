@@ -27,7 +27,6 @@ void applog(const char *format, ...) {
     }
 }
 
-
 void onboard_led(bool bOn) {
   // LOWで点灯、HIGHで消灯で紛らわしいので関数化してる
   applog("onboard_led %d\r\n", bOn);
@@ -375,4 +374,28 @@ void execUpload() {
     g_audioFileCount = countAudioFiles(); // Update file counts after deletion/upload attempt
   }
   applog("Finished processing WAV files for upload.\n");
+}
+
+const char b64_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+char* base64_encode_new(const unsigned char* input, int length) {
+    int i = 0, j = 0;
+    int b64_len = (length + 2) / 3 * 4;
+    char* b64_str = (char*)malloc(b64_len + 1);
+    if (!b64_str) return NULL;
+
+    for (i = 0; i < length; i += 3) {
+        uint32_t val = 0;
+        val |= (i < length) ? input[i] << 16 : 0;
+        val |= (i + 1 < length) ? input[i + 1] << 8 : 0;
+        val |= (i + 2 < length) ? input[i + 2] : 0;
+
+        b64_str[j++] = b64_alphabet[(val >> 18) & 0x3F];
+        b64_str[j++] = b64_alphabet[(val >> 12) & 0x3F];
+        b64_str[j++] = (i + 1 < length) ? b64_alphabet[(val >> 6) & 0x3F] : '=';
+        b64_str[j++] = (i + 2 < length) ? b64_alphabet[val & 0x3F] : '=';
+    }
+
+    b64_str[b64_len] = '\0';
+    return b64_str;
 }

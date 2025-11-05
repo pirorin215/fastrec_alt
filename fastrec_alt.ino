@@ -199,7 +199,7 @@ void handleUpload() {
 void wakeupLogic() {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-  log_i("Wakeup was caused by: %d\r\n", wakeup_reason);
+  applog("Wakeup was caused by: %d\r\n", wakeup_reason);
        
   switch (wakeup_reason) {
     case ESP_SLEEP_WAKEUP_EXT1: {
