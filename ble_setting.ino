@@ -207,6 +207,51 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         } else {
           responseData = "ERROR: Invalid REC_MIN_S value";
         }
+      } else if (value.rfind("CMD:wipe_all", 0) == 0) {
+        if (!LittleFS.begin(true)) {
+          pResponseCharacteristic->setValue("LittleFS Mount Failed");
+          pResponseCharacteristic->notify();
+          return;
+        }
+
+        File root = LittleFS.open("/");
+        if (!root) {
+          pResponseCharacteristic->setValue("Failed to open root directory");
+          pResponseCharacteristic->notify();
+          return;
+        }
+
+        int deleted_count = 0;
+        while (true) {
+          File file = root.openNextFile();
+          if (!file) {
+            break; // No more files
+          }
+
+          if (file.isDirectory()) {
+            file.close();
+            continue;
+          }
+
+          String filePath = file.name(); // Copy file name
+          file.close(); // Close file before deleting
+
+          if (!filePath.startsWith("/")) {
+            filePath = "/" + filePath;
+          }
+
+          if (LittleFS.remove(filePath)) {
+            applog("Deleted file: %s", filePath.c_str());
+            deleted_count++;
+          } else {
+            applog("Failed to delete file: %s", filePath.c_str());
+          }
+        }
+        root.close();
+        
+        char response[50];
+        sprintf(response, "Deleted %d files.", deleted_count);
+        responseData = response;
       }
 
       pResponseCharacteristic->setValue(responseData.c_str());
