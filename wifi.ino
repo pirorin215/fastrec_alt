@@ -170,13 +170,14 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
   snprintf(authBuffer, sizeof(authBuffer), "%s:%s", user, password);
 
   // Send GET request
-  client.print("GET ");
-  client.print(path);
-  client.println(" HTTP/1.1");
-  client.print("Host: ");
-  client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // ここのString型使用は仕方ない
+  char* encoded_auth = base64_encode_new((const unsigned char*)authBuffer, strlen(authBuffer));
+  if (encoded_auth) {
+    client.println(encoded_auth);
+    free(encoded_auth);
+  } else {
+    client.println();
+  }
   client.println("Connection: close"); // Close connection after response
   client.println(); // End of headers
 
@@ -213,14 +214,14 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
 
 // Function to upload audio data via HTTP POST with multipart/form-data
 bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, const char* path, const char* user, const char* password) {
-  log_i("Uploading file %s to https://%s:%d%s\r\n", filename, host, port, path);
+  applog("Uploading file %s to https://%s:%d%s\r\n", filename, host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure();
 
   File audioFile = LittleFS.open(filename, FILE_READ);
   if (!client.connect(host, port)) {
-    log_i("Connection failed!\n");
+    applog("Connection failed!\n");
     client.stop();
     audioFile.close();
     return false;
@@ -247,7 +248,13 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   client.print("Host: ");
   client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // ここのString型使用は仕方ない
+  char* encoded_auth = base64_encode_new((const unsigned char*)authBuffer, strlen(authBuffer));
+  if (encoded_auth) {
+    client.println(encoded_auth);
+    free(encoded_auth);
+  } else {
+    client.println();
+  }
   client.print("Content-Type: ");
   client.println(contentTypeBuffer);
 
@@ -284,13 +291,13 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
 
     int uploadProgress = (totalBytesSent * 100) / audioFileSize;
     if (uploadProgress >= lastReportedProgress + 10) {
-      log_i("Upload progress: %d%%\r\n", uploadProgress);
+      applog("Upload progress: %d%%\r\n", uploadProgress);
       snprintf(cTmp, sizeof(cTmp), "%3d", uploadProgress);
       updateDisplay(cTmp);
       lastReportedProgress = uploadProgress - (uploadProgress % 10); // Round down to nearest 10
     }
   }
-  log_i("Upload progress: 100%%\n");
+  applog("Upload progress: 100%%\n");
 
   client.print(footerPartBuffer);
 
@@ -302,14 +309,14 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0';  // Null-terminate the received line
-        log_i("%s\n", responseLineBuffer);
+        applog("%s\n", responseLineBuffer);
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {  // Check for successful HTTP response
-          log_i("File uploaded successfully!\n");
+          applog("File uploaded successfully!\n");
           client.stop();
           audioFile.close();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          log_i("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.\n");
+          applog("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.\n");
           audioFile.close();
           client.stop();
           return false; // Indicate failure
@@ -320,7 +327,7 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
     delay(10);
   }
 
-  log_i("Upload failed or timed out!\n");
+  applog("Upload failed or timed out!\n");
   audioFile.close(); // Ensure file is closed on timeout/failure
   client.stop();
   return false;
