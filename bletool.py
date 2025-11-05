@@ -166,7 +166,7 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
                 print(f"{RED}送信前に再接続できませんでした。{RESET}")
                 return
 
-        await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=False)
+        await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=True)
         print("setting.ini を送信しました。デバイスが再起動します。")
 
         if g_client and g_client.is_connected:
@@ -295,6 +295,25 @@ async def get_log_file(verbose: bool = False):
         print(f"{RED}{filename} の取得に失敗しました。{RESET}")
 
 
+async def wipe_all_files(verbose: bool = False):
+    print(f"\n{RED}これはデバイス上のすべてのログファイルを消去します。本当に続行しますか？ (y/N){RESET}")
+    sys.stdout.write("Enter your choice: ")
+    sys.stdout.flush()
+    choice = getch()
+    print(choice)
+
+    if choice.lower() != 'y':
+        print("\nキャンセルしました。")
+        return
+
+    print("\nデバイスの全ファイルを消去するコマンドを送信中...")
+    response = await run_ble_command("CMD:wipe_all", verbose)
+    if response:
+        print(f"\n{GREEN}デバイスからの応答:{RESET} {response}")
+    else:
+        print(f"\n{RED}コマンドの実行に失敗しました。{RESET}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='BLE Tool for fastrec device.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output.')
@@ -324,6 +343,7 @@ if __name__ == "__main__":
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
                 print("4. 録音レコーダのログファイルを取得")
+                print(f"{RED}5. デバイスの全ファイルを消去{RESET}")
                 print("0. 終了")
                 sys.stdout.write("Enter your choice: ")
                 sys.stdout.flush()
@@ -338,6 +358,8 @@ if __name__ == "__main__":
                     await get_device_info(verbose)
                 elif choice == '4':
                     await get_log_file(verbose)
+                elif choice == '5':
+                    await wipe_all_files(verbose)
                 elif choice == '0':
                     print("BLEツールを終了します。")
                     break
