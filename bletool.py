@@ -22,18 +22,21 @@ received_response_data = bytearray()
 response_event = asyncio.Event()
 is_receiving_file = False
 received_chunk_count = 0
+total_received_bytes = 0 # Add this
 g_client = None  # Global client object
+DEVICE_ADDRESS = None # Global device address
 
 # Notification handler function
 def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
-    global received_response_data, is_receiving_file, received_chunk_count, g_client
+    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes
     if is_receiving_file:
         if data == b'EOF':  # End of file transfer
-            print("End of file transfer signal received.")
+            print("\nEnd of file transfer signal received.") # Added newline
             response_event.set()
         else:
             received_chunk_count += 1
-            print(f"Received chunk {received_chunk_count}, size: {len(data)}")
+            total_received_bytes += len(data) # Update total received bytes
+            print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes}", end="", flush=True) # Modified line
             received_response_data.extend(data)
             if g_client:
                 asyncio.create_task(g_client.write_gatt_char(ACK_UUID, b'ACK'))
@@ -71,21 +74,21 @@ def getch():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
 
-async def run_ble_command(client: BleakClient, command_str: str, verbose: bool = False, timeout: float = 15.0):
-    global received_response_data, is_receiving_file
+async def run_ble_command(command_str: str, verbose: bool = False, timeout: float = 15.0):
+    global received_response_data, is_receiving_file, g_client
     is_receiving_file = False
     received_response_data.clear()
     response_event.clear()
 
     if verbose:
         print(f"\n--- BLEコマンド実行: コマンド='{command_str}' ---")
-    if not client.is_connected:
-        if not await reconnect_ble_client(client, verbose):
+    if not g_client or not g_client.is_connected:
+        if not await reconnect_ble_client(verbose):
             return None
 
     if verbose:
         print(f"3. コマンド '{command_str}' を '{COMMAND_UUID}' に送信中...")
-    await client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
+    await g_client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
     if verbose:
         print(f"{GREEN}   -> コマンド送信完了。応答を待機中...{RESET}")
     try:
@@ -95,19 +98,20 @@ async def run_ble_command(client: BleakClient, command_str: str, verbose: bool =
         print(f"{RED}タイムアウト: 応答データが受信されませんでした。{RESET}")
         return None
 
-async def run_ble_command_for_file(client: BleakClient, command_str: str, verbose: bool = False, timeout: float = 120.0): # Increased timeout
-    global received_response_data, is_receiving_file
+async def run_ble_command_for_file(command_str: str, verbose: bool = False, timeout: float = 120.0): # Increased timeout
+    global received_response_data, is_receiving_file, total_received_bytes, g_client
     is_receiving_file = True
     received_response_data.clear()
     response_event.clear()
+    total_received_bytes = 0 # Reset total_received_bytes here
 
     if verbose:
         print(f"\n--- BLEファイル転送コマンド実行: コマンド='{command_str}' ---")
-    if not client.is_connected:
-        if not await reconnect_ble_client(client, verbose):
+    if not g_client or not g_client.is_connected:
+        if not await reconnect_ble_client(verbose):
             return None
 
-    await client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
+    await g_client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
     if verbose:
         print(f"{GREEN}   -> ファイル転送コマンド送信完了。応答を待機中...{RESET}")
     try:
@@ -119,43 +123,65 @@ async def run_ble_command_for_file(client: BleakClient, command_str: str, verbos
     finally:
         is_receiving_file = False
 
-async def reconnect_ble_client(client: BleakClient, verbose: bool = False) -> bool:
-    global g_client
+async def reconnect_ble_client(verbose: bool = False) -> bool:
+    global g_client, DEVICE_ADDRESS
     print(f"{RED}BLEクライアントが切断されました。再接続を試みます...{RESET}")
+
+    address = DEVICE_ADDRESS
+    if not address and g_client:
+        address = g_client.address
+
     try:
-        if client.is_connected:
-            await client.disconnect()
-        g_client = BleakClient(client.address)
+        if g_client and g_client.is_connected:
+            await g_client.disconnect()
+
+        if not address:
+            print(f"{RED}エラー: デバイスアドレスが不明です。{RESET}")
+            return False
+
+        if not DEVICE_ADDRESS:
+            DEVICE_ADDRESS = address
+
+        g_client = BleakClient(address)
         await g_client.connect()
         await g_client.start_notify(RESPONSE_UUID, notification_handler)
         print(f"{GREEN}再接続に成功しました。{RESET}")
         return True
     except Exception as e:
         print(f"{RED}再接続に失敗しました: {e}{RESET}")
+        g_client = None
         return False
 
-async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = False):
+async def send_setting_ini(file_path: str, verbose: bool = False):
+    global g_client
     try:
         with open(file_path, 'r') as f:
             content = f.read()
         command = f"SET:setting_ini:{content}"
         print(f"送信するsetting.iniの内容:\n{content}")
         print(f"{file_path} から setting.ini を送信中...")
-        await run_ble_command(client, command, verbose)
-        print(f"{GREEN}setting.ini を正常に送信しました。{RESET}")
+
+        if not g_client or not g_client.is_connected:
+            if not await reconnect_ble_client(verbose):
+                print(f"{RED}送信前に再接続できませんでした。{RESET}")
+                return
+
+        await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=False)
+        print("setting.ini を送信しました。デバイスは再起動します。")
+        print("次回のコマンド実行時に自動で再接続されます。")
+
+        # Known disconnect, so just disconnect gracefully from client side
+        if g_client and g_client.is_connected:
+            await g_client.disconnect()
+
     except FileNotFoundError:
         print(f"{RED}Error: File not found at {file_path}{RESET}")
     except Exception as e:
-        if "disconnected" in str(e):
-            print("デバイスがリセットされました。再接続を試みます...")
-            await reconnect_ble_client(client, verbose)
-            print("「2. デバイスから setting.ini を取得」で反映されたか確認できます")
-        else:
-            print(f"{RED}Error sending setting.ini: {e}{RESET}")
+        print(f"{RED}予期せぬエラーが発生しました: {e}{RESET}")
 
-async def get_setting_ini(client: BleakClient, verbose: bool = False):
+async def get_setting_ini(verbose: bool = False):
     print("デバイスから setting.ini を要求中...")
-    device_response = await run_ble_command(client, "GET:setting_ini", verbose)
+    device_response = await run_ble_command("GET:setting_ini", verbose)
     if device_response:
         print(f"\n{GREEN}マイコンのsetting.ini:\n{RESET}{device_response}")
         try:
@@ -167,10 +193,10 @@ async def get_setting_ini(client: BleakClient, verbose: bool = False):
     else:
         print(f"{RED}setting.ini の取得に失敗しました。{RESET}")
 
-async def get_device_info(client: BleakClient, verbose: bool = False, silent: bool = False):
+async def get_device_info(verbose: bool = False, silent: bool = False):
     if not silent:
         print("デバイスから各種情報を要求中...")
-    response = await run_ble_command(client, "GET:info", verbose)
+    response = await run_ble_command("GET:info", verbose)
     if response:
         if verbose:
             print(f"{GREEN}マイコンからの情報:{RESET}\n{response}")
@@ -203,10 +229,10 @@ async def get_device_info(client: BleakClient, verbose: bool = False, silent: bo
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
-async def get_log_file(client: BleakClient, verbose: bool = False):
+async def get_log_file(verbose: bool = False):
     global received_chunk_count
     received_chunk_count = 0 # Reset counter before each download
-    info = await get_device_info(client, verbose, silent=True)
+    info = await get_device_info(verbose, silent=True)
     if not info or 'ls' not in info:
         print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
         return
@@ -244,7 +270,7 @@ async def get_log_file(client: BleakClient, verbose: bool = False):
 
     print(f"デバイスから {filename} を要求中...")
     command = f"GET:log:{filename}"
-    file_content = await run_ble_command_for_file(client, command, verbose)
+    file_content = await run_ble_command_for_file(command, verbose)
 
     if file_content is not None:
         print(f"Total received file size: {len(file_content)} bytes")
@@ -274,10 +300,11 @@ if __name__ == "__main__":
                 print(f"{RED}エラー: '{DEVICE_NAME}' デバイスが見つかりませんでした。{RESET}")
                 return
             print(f"{GREEN}デバイス発見: {device.address}{RESET}")
-            g_client = client = BleakClient(device.address)
-            print(f"{device.address} に接続中...通知を有効化中...")
-            await client.connect()
-            await client.start_notify(RESPONSE_UUID, notification_handler)
+            DEVICE_ADDRESS = device.address # Store device address globally
+            g_client = BleakClient(DEVICE_ADDRESS)
+            print(f"{DEVICE_ADDRESS} に接続中...通知を有効化中...")
+            await g_client.connect()
+            await g_client.start_notify(RESPONSE_UUID, notification_handler)
             print(f"{GREEN}'{RESPONSE_UUID}' の通知を有効化しました。{RESET}")
 
             while True:
@@ -293,13 +320,13 @@ if __name__ == "__main__":
                 print(choice)
 
                 if choice == '1':
-                    await send_setting_ini(client, "setting.ini", verbose)
+                    await send_setting_ini("setting.ini", verbose)
                 elif choice == '2':
-                    await get_setting_ini(client, verbose)
+                    await get_setting_ini(verbose)
                 elif choice == '3':
-                    await get_device_info(client, verbose)
+                    await get_device_info(verbose)
                 elif choice == '4':
-                    await get_log_file(client, verbose)
+                    await get_log_file(verbose)
                 elif choice == '0':
                     print("BLEツールを終了します。")
                     break
@@ -309,8 +336,8 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"{RED}致命的なエラーが発生しました: {e}{RESET}")
         finally:
-            if client and client.is_connected:
-                await client.stop_notify(RESPONSE_UUID)
-                await client.disconnect()
+            if g_client and g_client.is_connected:
+                await g_client.stop_notify(RESPONSE_UUID)
+                await g_client.disconnect()
 
     asyncio.run(main_loop())
