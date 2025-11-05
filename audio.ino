@@ -35,7 +35,7 @@ void updateWavHeader(File& file, uint32_t dataSize) {
 }
 
 void initI2SMicrophone() {
-  Serial.println("Initializing I2S bus for waveform");
+  applog("Initializing I2S bus for waveform\n");
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = I2S_SAMPLE_RATE,
@@ -58,30 +58,30 @@ void initI2SMicrophone() {
   };
 
   if (i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL) != ESP_OK) {
-    Serial.println("Failed to install I2S driver!");
+    applog("Failed to install I2S driver!\n");
     while (1)
       ;
   }
   if (i2s_set_pin(I2S_NUM_0, &pin_config) != ESP_OK) {
-    Serial.println("Failed to set I2S pins!");
+    applog("Failed to set I2S pins!\n");
     while (1)
       ;
   }
   // Set clock for 16-bit samples, mono channel
   if (i2s_set_clk(I2S_NUM_0, I2S_SAMPLE_RATE, I2S_BITS_PER_SAMPLE_32BIT, I2S_CHANNEL_MONO) != ESP_OK) {  // Use I2S_CHANNEL_MONO as per existing code
-    Serial.println("Failed to set I2S clock!");
+    applog("Failed to set I2S clock!\n");
     while (1)
       ;
   }
-  Serial.println("I2S bus initialized.");
+  applog("I2S bus initialized.\n");
 }
 
 void startRecording() {
 
-  Serial.println("Starting recording.");
+  applog("Starting recording.\n");
 
   if (!checkFreeSpace()) {
-    Serial.println("Not enough free space to start recording. Entering IDLE state.");
+    applog("Not enough free space to start recording. Entering IDLE state.\n");
     setAppState(IDLE);  // Go to IDLE state if not enough space
     return;
   }
@@ -94,11 +94,11 @@ void startRecording() {
   updateDisplay("");
 
   generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));  // Generate filename before recording
-  Serial.printf("Opening file %s for writing...\r\n", g_audio_filename);
+  applog("Opening file %s for writing...\r\n", g_audio_filename);
 
   g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
   if (!g_audioFile) {
-    Serial.println("Failed to open file for writing!");
+    applog("Failed to open file for writing!\n");
     setAppState(DSLEEP);  // Cannot record, go to deep sleep
     return;
   }
@@ -108,11 +108,11 @@ void startRecording() {
 
   g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
   g_totalBytesRecorded = 0;
-  Serial.println("Recording audio data...");
+  applog("Recording audio data...\n");
 }
 
 void stopRecording() {
-  Serial.println("Stopping recording.");
+  applog("Stopping recording.\n");
   onboard_led(false);
   updateWavHeader(g_audioFile, g_totalBytesRecorded);
   g_audioFile.close();
@@ -124,19 +124,19 @@ void stopRecording() {
     recordedFile.close();
 
     if (fileSize < MIN_AUDIO_FILE_SIZE_BYTES) {
-      Serial.printf("File %s is too short (size: %u bytes). Deleting from LittleFS.\r\n", g_audio_filename, fileSize);
+      applog("File %s is too short (size: %u bytes). Deleting from LittleFS.\r\n", g_audio_filename, fileSize);
       if (!LittleFS.remove(g_audio_filename)) {
-        Serial.printf("Failed to delete short file %s from LittleFS.\r\n", g_audio_filename);
+        applog("Failed to delete short file %s from LittleFS.\r\n", g_audio_filename);
       }
       g_audioFileCount = countAudioFiles(); // Update file counts after deletion
     } else {
-      Serial.printf("Recorded file %s saved (size: %u bytes).\r\n", g_audio_filename, fileSize);
+      applog("Recorded file %s saved (size: %u bytes).\r\n", g_audio_filename, fileSize);
     }
   } else {
-    Serial.printf("ERROR: Could not open recorded file %s to check size.\r\n", g_audio_filename);
+    applog("ERROR: Could not open recorded file %s to check size.\r\n", g_audio_filename);
   }
 
-  Serial.printf("Debug: Filename in stopRecording: %s\r\n", g_audio_filename);  // Debug print
+  applog("Debug: Filename in stopRecording: %s\r\n", g_audio_filename);
   float usagePercentage = getLittleFSUsagePercentage();
   updateDisplay("");
   setAppState(IDLE);
@@ -164,5 +164,5 @@ void updateMinAudioFileSize() {
   // Assuming 16-bit, mono audio, plus 44-byte WAV header
   // bitsPerSample is 16, numChannels is 1
   MIN_AUDIO_FILE_SIZE_BYTES = (size_t)REC_MIN_S * I2S_SAMPLE_RATE * (16 / 8) * 1 + 44;
-  Serial.printf("MIN_AUDIO_FILE_SIZE_BYTES updated to: %u bytes (for %d seconds)\r\n", MIN_AUDIO_FILE_SIZE_BYTES, REC_MIN_S);
+  applog("MIN_AUDIO_FILE_SIZE_BYTES updated to: %u bytes (for %d seconds)\r\n", MIN_AUDIO_FILE_SIZE_BYTES, REC_MIN_S);
 }

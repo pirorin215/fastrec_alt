@@ -8,16 +8,16 @@
 // 詳細な接続情報を表示
 void printWiFiDiagnostics() {
   if (!isWiFiConnected()) {
-    Serial.println("WiFi not connected.");
+    applog("WiFi not connected.\n");
     return;
   }
-  Serial.println("\n=== WiFi Diagnostics ===");
-  Serial.printf("SSID: %s\r\n", WiFi.SSID().c_str());
-  Serial.printf("RSSI: %d dBm\r\n", WiFi.RSSI());
-  Serial.printf("Channel: %d\r\n", WiFi.channel());
-  Serial.printf("IP: %s\r\n", WiFi.localIP().toString().c_str());
-  Serial.printf("Gateway: %s\r\n", WiFi.gatewayIP().toString().c_str());
-  Serial.printf("MAC: %s\r\n", WiFi.macAddress().c_str());
+  applog("\n=== WiFi Diagnostics ===\n");
+  applog("SSID: %s\r\n", WiFi.SSID().c_str());
+  applog("RSSI: %d dBm\r\n", WiFi.RSSI());
+  applog("Channel: %d\r\n", WiFi.channel());
+  applog("IP: %s\r\n", WiFi.localIP().toString().c_str());
+  applog("Gateway: %s\r\n", WiFi.gatewayIP().toString().c_str());
+  applog("MAC: %s\r\n", WiFi.macAddress().c_str());
 }
 
 bool isWiFiConnected() {
@@ -33,7 +33,7 @@ void synchronizeTime(bool waitForNTP) {
   struct tm timeinfo;
 
   if (waitForNTP) {
-    Serial.println("Setting up time synchronization (NTP)...");
+    applog("Setting up time synchronization (NTP)...");
     configTime(9 * 60 * 60, 0, "ntp.jst.mfeed.ad.jp", "ntp.nict.jp", "time.google.com");
 
     const long NTP_TIMEOUT_MS = 10000;  // 10 seconds timeout for NTP sync
@@ -45,7 +45,7 @@ void synchronizeTime(bool waitForNTP) {
     while (!ntp_sync_successful && (millis() - startTryTime < NTP_TIMEOUT_MS)) {
       // Check for button presses to cancel NTP synchronization
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        Serial.println("Start Button pressed during NTP sync. Aborting.");
+        applog("Start Button pressed during NTP sync. Aborting.\n");
         return;
       }
       if (getLocalTime(&timeinfo)) {
@@ -55,25 +55,25 @@ void synchronizeTime(bool waitForNTP) {
       }
       if (!ntp_sync_successful) {
         if (millis() - lastCheckTime >= 500) {
-          Serial.print(".");
           lastCheckTime = millis();
         }
       }
     }
-    Serial.println();  // Newline after dots
 
     if (ntp_sync_successful) {
-      Serial.println(&timeinfo, "Current time from NTP: %A, %B %d %Y %H:%M:%S");
+      char time_buf[64];
+      strftime(time_buf, sizeof(time_buf), "%A, %B %d %Y %H:%M:%S", &timeinfo);
+      applog("Current time from NTP: %s\n", time_buf);
       g_hasTimeBeenSynchronized = true; // Set flag on successful NTP sync
     } else {
-      Serial.println("Failed to obtain time from NTP within timeout. Time might be incorrect.");
+      applog("Failed to obtain time from NTP within timeout. Time might be incorrect.\n");
     }
   } else {  // Not waiting for NTP, so it's not web-synchronized.
     if (getValidRtcTime(&timeinfo)) {
-      Serial.println("RTC has a valid time, but no web synchronization was try.");
+      applog("RTC has a valid time, but no web synchronization was try.\n");
     }
     else {
-      Serial.println("RTC time is not set or invalid, and no web synchronization was try.");
+      applog("RTC time is not set or invalid, and no web synchronization was try.\n");
     }
   }
 }
@@ -93,12 +93,12 @@ void initWifi() {
 
 // Function to connect to WiFi
 bool connectToWiFi() {
-  Serial.println("Waiting for WiFi connection...");
+  applog("Waiting for WiFi connection...\n");
   updateDisplay("");
 
-  Serial.println("Available WiFi APs:");
+  applog("Available WiFi APs:\n");
   for (int i = 0; i < g_num_wifi_aps; i++) {
-    Serial.printf("- %s\r\n", g_wifi_ssids[i]);
+    applog("- %s\r\n", g_wifi_ssids[i]);
   }
   
   unsigned long startWiFiWaitTime = millis();
@@ -106,9 +106,9 @@ bool connectToWiFi() {
   int initialApIndex = -1; // Will store the AP index to try first
   if (0 <= g_lastConnectedSSIDIndexRTC && g_lastConnectedSSIDIndexRTC < g_num_wifi_aps) {
     initialApIndex = g_lastConnectedSSIDIndexRTC;
-    Serial.printf("Prioritizing connection to previously connected SSID index: %d (%s)\r\n", initialApIndex, g_wifi_ssids[initialApIndex]);
+    applog("Prioritizing connection to previously connected SSID index: %d (%s)\r\n", initialApIndex, g_wifi_ssids[initialApIndex]);
   } else {
-    Serial.println("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.");
+    applog("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.\n");
     initialApIndex = 0; // Start from the first AP if no prior connection or invalid index
   }
 
@@ -120,50 +120,49 @@ bool connectToWiFi() {
 
   while (!isWiFiConnected() && (millis() - startWiFiWaitTime < WIFI_CONNECT_TIMEOUT_MS)) {
     if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-      Serial.println("Start Button pressed during WiFi connection. Aborting.");
+      applog("Start Button pressed during WiFi connection. Aborting.\n");
       return false;
     }
 
     wifiReset();
 
-    Serial.printf("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
+    applog("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
     WiFi.begin(g_wifi_ssids[currentApIndex], g_wifi_passwords[currentApIndex]);
 
     unsigned long connectionAttemptStartTime = millis();
 
     while (WiFi.status() != WL_CONNECTED && (millis() - connectionAttemptStartTime < PER_AP_ATTEMPT_TIMEOUT_MS)) {
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        Serial.println("Start Button pressed during WiFi connection. Aborting.");
+        applog("Start Button pressed during WiFi connection. Aborting.\n");
         return false;
       }
       yield();
     }
-    Serial.print(".");
 
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\nWiFi connected successfully!");
+      applog("\nWiFi connected successfully!\n");
       g_connectedSSIDIndex = currentApIndex; // Use the already known index
       g_lastConnectedSSIDIndexRTC = currentApIndex; // Store the successfully connected index in RTC
       printWiFiDiagnostics(); // 詳細情報を表示
       return true; // Connected to an AP, return true
     } else {
-      Serial.printf("\nFailed to connect to %s within %ldms. Trying next AP.\r\n", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
+      applog("\nFailed to connect to %s within %ldms. Trying next AP.\r\n", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
       currentApIndex = (currentApIndex + 1) % g_num_wifi_aps;
     }
   }
 
-  Serial.println("\nFailed to connect to any configured WiFi AP within timeout.");
+  applog("\nFailed to connect to any configured WiFi AP within timeout.\n");
   return false; // Failed to connect to any AP
 }
 
 bool checkAuthentication(const char* host, int port, const char* path, const char* user, const char* password) {
-  Serial.printf("Checking authentication to https://%s:%d%s\r\n", host, port, path);
+  applog("Checking authentication to https://%s:%d%s\r\n", host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure(); // Allow self-signed certificates
 
   if (!client.connect(host, port)) {
-    Serial.println("Authentication check: Connection failed!");
+    applog("Authentication check: Connection failed!\n");
     return false;
   }
 
@@ -189,37 +188,39 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0'; // Null-terminate the received line
-        Serial.println(responseLineBuffer);
+        applog("%s\n", responseLineBuffer);
 
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {
-          Serial.println("Authentication check: Success (200 OK).");
+          applog("Authentication check: Success (200 OK).\n");
           client.stop();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          Serial.println("Authentication check: Failed (401 Unauthorized).");
+          applog("Authentication check: Failed (401 Unauthorized).\n");
           client.stop();
           return false;
         }
         // If other response codes are received, continue reading or handle as failure
       }
     }
+    // Add a small delay to prevent busy-waiting
+    delay(10);
   }
 
-  Serial.println("Authentication check: Failed or timed out!");
+  applog("Authentication check: Failed or timed out!\n");
   client.stop();
   return false;
 }
 
 // Function to upload audio data via HTTP POST with multipart/form-data
 bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, const char* path, const char* user, const char* password) {
-  Serial.printf("Uploading file %s to https://%s:%d%s\r\n", filename, host, port, path);
+  log_i("Uploading file %s to https://%s:%d%s\r\n", filename, host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure();
 
   File audioFile = LittleFS.open(filename, FILE_READ);
   if (!client.connect(host, port)) {
-    Serial.println("Connection failed!");
+    log_i("Connection failed!\n");
     client.stop();
     audioFile.close();
     return false;
@@ -253,7 +254,7 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   // Construct the multipart body parts
   char headerPartBuffer[256];
   snprintf(headerPartBuffer, sizeof(headerPartBuffer),
-           "--%s\r\nContent-Disposition: form-data; name=\"audio_data\"; filename=\"%s\"\r\nContent-Type: audio/wav\r\n\r\n",
+           "--%s\r\nContent-Disposition: form-data; name=\"audio_data\"; filename=\" %s\"\r\nContent-Type: audio/wav\r\n\r\n",
            boundaryBuffer, filename);
 
   // Calculate content length, including the footer that will be sent later
@@ -283,15 +284,15 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
 
     int uploadProgress = (totalBytesSent * 100) / audioFileSize;
     if (uploadProgress >= lastReportedProgress + 10) {
-      Serial.printf("Upload progress: %d%%\r\n", uploadProgress);
+      log_i("Upload progress: %d%%\r\n", uploadProgress);
       snprintf(cTmp, sizeof(cTmp), "%3d", uploadProgress);
       updateDisplay(cTmp);
       lastReportedProgress = uploadProgress - (uploadProgress % 10); // Round down to nearest 10
     }
   }
-  Serial.println("Upload progress: 100%"); // Ensure 100% is always printed at the end
+  log_i("Upload progress: 100%%\n");
 
-  client.print(footerPartBuffer); // Send the multipart footer part
+  client.print(footerPartBuffer);
 
   // Read server response
   unsigned long timeout = millis();
@@ -301,25 +302,26 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0';  // Null-terminate the received line
-        Serial.println(responseLineBuffer);
+        log_i("%s\n", responseLineBuffer);
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {  // Check for successful HTTP response
-          Serial.println("File uploaded successfully!");
+          log_i("File uploaded successfully!\n");
           client.stop();
           audioFile.close();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          Serial.println("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.");
+          log_i("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.\n");
           audioFile.close();
           client.stop();
           return false; // Indicate failure
         }
       }
     }
+    // Add a small delay to prevent busy-waiting
+    delay(10);
   }
 
-  Serial.println("Upload failed or timed out!");
+  log_i("Upload failed or timed out!\n");
   audioFile.close(); // Ensure file is closed on timeout/failure
   client.stop();
   return false;
 }
-

@@ -144,4 +144,6 @@ uint32_t g_totalBytesRecorded = 0;
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // --- Function Prototypes ---
+void applog(const char *format, ...);
+
 #endif // FASTREC_INO_H
