@@ -6,6 +6,8 @@ echo "--- extern宣言 ---------------"
 grep -h -E "^extern" *.ino *.h
 echo "--- String型利用 ---------------"
 grep -h -E "[^a-zA-Z]String[^a-zA-Z]" *.ino *.h
+echo "--- log_i検索 ---------------"
+grep log_i *.ino
 echo "--- 2行以上の空白 ---------------"
 
 # --- find_empty_lines.sh の内容を統合 ---
