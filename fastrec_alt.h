@@ -49,6 +49,11 @@ const size_t I2S_BUFFER_SIZE = 1024; // Defined here as it's a constant
 // LittleFS
 const unsigned long MIN_FREE_SPACE_MB = 1;  // Minimum 1MB free space required on LittleFS
 
+// Logging
+const char* LOG_FILE_0 = "/log.0.txt";
+const char* LOG_FILE_1 = "/log.1.txt";
+const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
+
 // HTTP Server for Upload
 char* HS_HOST = (char*)"yoshi1108.ddns.net";
 int HS_PORT = 55443;
@@ -144,6 +149,4 @@ uint32_t g_totalBytesRecorded = 0;
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // --- Function Prototypes ---
-void applog(const char *format, ...);
-
 #endif // FASTREC_INO_H

@@ -10,32 +10,91 @@
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define COMMAND_UUID "beb5483e-36e1-4688-b7f5-ea07361b26aa"
 #define RESPONSE_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+#define ACK_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 
 // Global characteristic pointers to allow access from callbacks
 BLECharacteristic *pCommandCharacteristic;
 BLECharacteristic *pResponseCharacteristic;
+BLECharacteristic *pAckCharacteristic;
+
+SemaphoreHandle_t ackSemaphore = NULL;
+volatile bool g_start_log_transfer = false;
+std::string g_log_filename_to_transfer;
+
+
+void handleLogTransfer() {
+  if (LittleFS.exists(g_log_filename_to_transfer.c_str())) {
+    File file = LittleFS.open(g_log_filename_to_transfer.c_str(), "r");
+    if (file) {
+      applog("Starting to send file: %s", g_log_filename_to_transfer.c_str());
+      const size_t chunkSize = 512;
+      uint8_t buffer[chunkSize];
+      size_t bytesRead;
+      int chunkIndex = 0;
+
+      while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
+        pResponseCharacteristic->setValue(buffer, bytesRead);
+        pResponseCharacteristic->notify();
+        //applog("Sent chunk %d, size: %d. Waiting for ACK...", chunkIndex, bytesRead);
+
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) == pdTRUE) {
+          //applog("ACK received for chunk %d.", chunkIndex);
+        } else {
+          applog("ACK timeout for chunk %d. Aborting transfer.", chunkIndex);
+          file.close();
+          g_start_log_transfer = false;
+          return;
+        }
+        chunkIndex++;
+      }
+      file.close();
+      
+      pResponseCharacteristic->setValue("EOF");
+      pResponseCharacteristic->notify();
+      applog("Log file sent: %s", g_log_filename_to_transfer.c_str());
+    } else {
+      pResponseCharacteristic->setValue("ERROR: Failed to open log file");
+      pResponseCharacteristic->notify();
+      applog("Error: Failed to open log file %s", g_log_filename_to_transfer.c_str());
+    }
+  } else {
+    pResponseCharacteristic->setValue("ERROR: Log file not found");
+    pResponseCharacteristic->notify();
+    applog("Error: Log file not found %s", g_log_filename_to_transfer.c_str());
+  }
+  g_start_log_transfer = false;
+}
 
 class MyCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
     std::string value = pCharacteristic->getValue().c_str();
+
+    if (pCharacteristic->getUUID().toString() == ACK_UUID) {
+      if (value == "ACK") {
+        xSemaphoreGive(ackSemaphore);
+      }
+      return;
+    }
+
     if (value.empty()) return;
 
-    // Handle COMMAND_UUID writes (new functionality)
-    else if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
-      log_i("COMMAND_UUID received: %s\n", value.c_str());
+    if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
+      applog("BLE Command Received: %s", value.c_str());
 
-      // --- Command Parsing and Data Retrieval (Example) ---
-      // In a real application, you would parse 'value' (e.g., "GET:sensor_data:0")
-      // to extract category and index, then retrieve actual data.
-      std::string responseData = "ERROR: Invalid Command"; // Default error response
+      if (value.rfind("GET:log:", 0) == 0) {
+        g_log_filename_to_transfer = "/";
+        g_log_filename_to_transfer += value.substr(std::string("GET:log:").length());
+        g_start_log_transfer = true;
+        return;
+      }
 
-      if (value.rfind("GET:", 0) == 0) { // Check if command starts with "GET:"
-        // Handle GET:setting_ini as a special case
+      std::string responseData = "ERROR: Invalid Command";
+
+      if (value.rfind("GET:", 0) == 0) {
         if (value == "GET:setting_ini") {
           if (LittleFS.exists("/setting.ini")) {
             File file = LittleFS.open("/setting.ini", "r");
             if (file) {
-              // Read file content directly into std::string
               size_t fileSize = file.size();
               if (fileSize > 0) {
                 char* buffer = new char[fileSize + 1];
@@ -44,112 +103,98 @@ class MyCallbacks : public BLECharacteristicCallbacks {
                   buffer[fileSize] = '\0';
                   responseData = buffer;
                   delete[] buffer;
-                  // Replace all '\n' with '\r\n' for console output readability
                   size_t pos = 0;
                   while ((pos = responseData.find("\n", pos)) != std::string::npos) {
                     responseData.replace(pos, 1, "\r\n");
-                    pos += 2; // Move past the inserted "\r\n"
+                    pos += 2;
                   }
                 } else {
-                  responseData = "ERROR: Memory allocation failed for reading setting.ini";
+                  responseData = "ERROR: Memory allocation failed";
                 }
               } else {
                 responseData = ""; // Empty file
               }
               file.close();
             } else {
-              responseData = "ERROR: Failed to open setting.ini for reading";
+              responseData = "ERROR: Failed to open setting.ini";
             }
           } else {
             responseData = "ERROR: setting.ini not found";
           }
-                  } else if (value == "GET:ls") { // Handle GET:ls command
-                    File root = LittleFS.open("/", "r");
-                    if (root) {
-                      responseData = "";
-                      File file = root.openNextFile();
-                      while (file) {
-                        responseData += file.name();
-                        if (file.isDirectory()) {
-                          responseData += "/";
-                        }
-                        responseData += "\n"; // Use \n for newline in the response string
-                        file = root.openNextFile();
-                      }
-                      root.close();
-                    } else {
-                      responseData = "ERROR: Failed to open LittleFS root directory";
-                    }
-                  } else if (value == "GET:info") { // Handle GET:info command
-                    StaticJsonDocument<1024> doc; // Increased size to accommodate all info
-        
-                    // 1. ディレクトリ一覧 (Directory listing)
-                    std::string littlefs_ls_std = "";
-                    File root = LittleFS.open("/", "r");
-                    if (root) {
-                      File file = root.openNextFile();
-                      while (file) {
-                        littlefs_ls_std += file.name();
-                        if (file.isDirectory()) {
-                          littlefs_ls_std += "/";
-                        }
-                        littlefs_ls_std += "\n";
-                        file = root.openNextFile();
-                      }
-                      root.close();
-                    } else {
-                      littlefs_ls_std = "ERROR: Failed to open LittleFS root directory";
-                    }
-                    doc["ls"] = littlefs_ls_std;
-        
-                    // 2. バッテリーレベル (Battery level)
-                    float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
-                    if (batteryLevel < 0.0f) batteryLevel = 0.0f;
-                    if (batteryLevel > 100.0f) batteryLevel = 100.0f;                    doc["battery_level"] = batteryLevel;
-        
-                    // 3. バッテリー電圧 (Battery voltage)
-                    doc["battery_voltage"] = g_currentBatteryVoltage;
-        
-                    // 4. アプリ状態 (App state)
-                    doc["app_state"] = appStateStrings[g_currentAppState];
-        
-                    // 5. WiFi接続状態 (WiFi connection status)
-                    doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
-                    if (isWiFiConnected()) {
-                      if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
-                        doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
-                      } else {
-                        doc["connected_ssid"] = "N/A"; // Should not happen if isWiFiConnected() is true, but as a safeguard
-                      }
-                      doc["wifi_rssi"] = WiFi.RSSI();
-                    } else {
-                      doc["connected_ssid"] = "N/A";
-                      doc["wifi_rssi"] = 0; // Or some other indicator for no signal
-                    }
-        
-                    // 6. LittleFS使用率 (LittleFS usage)
-                    unsigned long totalBytes = LittleFS.totalBytes();
-                    unsigned long usedBytes = LittleFS.usedBytes();
-                    doc["littlefs_total_bytes"] = totalBytes;
-                    doc["littlefs_used_bytes"] = usedBytes;
-                    doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
-        
-                    // Serialize JSON to string
-                    std::string jsonResponseStd;
-                    serializeJson(doc, jsonResponseStd);
-                    responseData = jsonResponseStd;
-        
-        } else {
-          responseData = "ERROR: Invalid GET command format"; // Or a more specific error
+        } else if (value == "GET:ls") {
+          File root = LittleFS.open("/", "r");
+          if (root) {
+            responseData = "";
+            File file = root.openNextFile();
+            while (file) {
+              responseData += file.name();
+              if (file.isDirectory()) {
+                responseData += "/";
+              }
+              responseData += "\n";
+              file = root.openNextFile();
+            }
+            root.close();
+          } else {
+            responseData = "ERROR: Failed to open root directory";
+          }
+        } else if (value == "GET:info") {
+          StaticJsonDocument<1024> doc;
+          std::string littlefs_ls_std = "";
+          File root = LittleFS.open("/", "r");
+          if (root) {
+            File file = root.openNextFile();
+            while (file) {
+              littlefs_ls_std += file.name();
+              if (file.isDirectory()) {
+                littlefs_ls_std += "/";
+              }
+              littlefs_ls_std += "\n";
+              file = root.openNextFile();
+            }
+            root.close();
+          } else {
+            littlefs_ls_std = "ERROR: Failed to open root directory";
+          }
+          doc["ls"] = littlefs_ls_std;
+          float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
+          if (batteryLevel < 0.0f) batteryLevel = 0.0f;
+          if (batteryLevel > 100.0f) batteryLevel = 100.0f;
+          doc["battery_level"] = batteryLevel;
+          doc["battery_voltage"] = g_currentBatteryVoltage;
+          doc["app_state"] = appStateStrings[g_currentAppState];
+          doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
+          if (isWiFiConnected()) {
+            if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
+              doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
+            } else {
+              doc["connected_ssid"] = "N/A";
+            }
+            doc["wifi_rssi"] = WiFi.RSSI();
+          } else {
+            doc["connected_ssid"] = "N/A";
+            doc["wifi_rssi"] = 0;
+          }
+          unsigned long totalBytes = LittleFS.totalBytes();
+          unsigned long usedBytes = LittleFS.usedBytes();
+          doc["littlefs_total_bytes"] = totalBytes;
+          doc["littlefs_used_bytes"] = usedBytes;
+          doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
+          std::string jsonResponseStd;
+          serializeJson(doc, jsonResponseStd);
+          responseData = jsonResponseStd;
         }
-      } else if (value.rfind("SET:setting_ini:", 0) == 0) { // Handle SET:setting_ini
+      } else if (value.rfind("SET:setting_ini:", 0) == 0) {
         std::string settingContent = value.substr(std::string("SET:setting_ini:").length());
         File file = LittleFS.open("/setting.ini", "w");
         if (file) {
           file.print(settingContent.c_str());
           file.close();
           responseData = "OK: setting.ini saved. Restarting...";
-          ESP.restart(); // Restart to apply new settings
+          pResponseCharacteristic->setValue(responseData.c_str());
+          pResponseCharacteristic->notify();
+          delay(100);
+          ESP.restart();
         } else {
           responseData = "ERROR: Failed to open setting.ini for writing";
         }
@@ -163,16 +208,10 @@ class MyCallbacks : public BLECharacteristicCallbacks {
           responseData = "ERROR: Invalid REC_MIN_S value";
         }
       }
-      // --- End of Command Parsing and Data Retrieval ---
 
-      // Send response via notification
-      if (pResponseCharacteristic != nullptr) {
-        pResponseCharacteristic->setValue(responseData.c_str()); // Fix: Convert std::string to C-style string for setValue
-        pResponseCharacteristic->notify(); // Send notification to client
-        log_i("Sent notification: %s\n", responseData.c_str());
-      } else {
-        log_i("Error: pResponseCharacteristic is null!\n");
-      }
+      pResponseCharacteristic->setValue(responseData.c_str());
+      pResponseCharacteristic->notify();
+      applog("Sent notification: %s", responseData.c_str());
     }
   }
 };
@@ -197,17 +236,19 @@ void trim_whitespace(char* str) {
 
 // --- BLEサーバー開始処理 ---
 void start_ble_server() {
+  ackSemaphore = xSemaphoreCreateBinary();
+
   BLEDevice::init(DEVICE_NAME);
   pBLEServer = BLEDevice::createServer(); // Assign to global pointer
   BLEDevice::setMTU(517); // Set maximum MTU size
 
   class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
-      log_i("Client Connected\n");
+      applog("Client Connected");
     };
 
     void onDisconnect(BLEServer* pServer) {
-      log_i("Client Disconnected - Restarting Advertising\n");
+      applog("Client Disconnected - Restarting Advertising");
       BLEAdvertising *pAdvertising = pServer->getAdvertising(); // Use the pServer argument
       pAdvertising->start();
     }
@@ -230,6 +271,13 @@ void start_ble_server() {
   );
   pResponseCharacteristic->setValue("Ready for commands"); // Initial value
 
+  // New ACK_UUID characteristic
+  pAckCharacteristic = pService->createCharacteristic(
+      ACK_UUID,
+      BLECharacteristic::PROPERTY_WRITE
+  );
+  pAckCharacteristic->setCallbacks(new MyCallbacks());
+
   pService->start();
 
   // BLEアドバタイズ（広告）の開始
@@ -238,7 +286,7 @@ void start_ble_server() {
 }
 
 void loadSettingsFromLittleFS() {
-  log_i("Loading settings from /setting.ini...\n");
+  applog("Loading settings from /setting.ini...");
 
   // Initialize global WiFi AP arrays
   for (int i = 0; i < WIFI_MAX_APS; ++i) {
@@ -248,13 +296,13 @@ void loadSettingsFromLittleFS() {
   g_num_wifi_aps = 0; // Reset count before loading
 
   if (!LittleFS.begin()) {
-    log_i("LittleFS Mount Failed. Using default settings.\n");
+    applog("LittleFS Mount Failed. Using default settings.");
     return;
   }
 
   File configFile = LittleFS.open("/setting.ini", "r");
   if (!configFile) {
-    log_i("Failed to open /setting.ini. Using default settings.\n");
+    applog("Failed to open /setting.ini. Using default settings.");
     return;
   }
 
@@ -271,7 +319,7 @@ void loadSettingsFromLittleFS() {
 
     char* separator = strchr(lineBuffer, '=');
     if (separator == nullptr) {
-      log_i("Invalid line in setting.ini: %s\r\n", lineBuffer);
+      applog("Invalid line in setting.ini: %s", lineBuffer);
       continue;
     }
 
@@ -284,68 +332,68 @@ void loadSettingsFromLittleFS() {
 
     if (strcmp(key, "DEEP_SLEEP_DELAY_MS") == 0) {
       DEEP_SLEEP_DELAY_MS = atol(value);
-      log_i("Setting DEEP_SLEEP_DELAY_MS to %lu\r\n", DEEP_SLEEP_DELAY_MS);
+      applog("Setting DEEP_SLEEP_DELAY_MS to %lu", DEEP_SLEEP_DELAY_MS);
     } else if (strcmp(key, "BAT_VOL_MIN") == 0) {
       BAT_VOL_MIN = atof(value);
-      log_i("Setting BAT_VOL_MIN to %f\r\n", BAT_VOL_MIN);
+      applog("Setting BAT_VOL_MIN to %f", BAT_VOL_MIN);
     } else if (strcmp(key, "BAT_VOL_MULT") == 0) {
       BAT_VOL_MULT = atof(value);
-      log_i("Setting BAT_VOL_MULT to %f\r\n", BAT_VOL_MULT);
+      applog("Setting BAT_VOL_MULT to %f", BAT_VOL_MULT);
     } else if (strcmp(key, "I2S_SAMPLE_RATE") == 0) {
       I2S_SAMPLE_RATE = atoi(value);
-      log_i("Setting I2S_SAMPLE_RATE to %d\r\n", I2S_SAMPLE_RATE);
+      applog("Setting I2S_SAMPLE_RATE to %d", I2S_SAMPLE_RATE);
     } else if (strcmp(key, "REC_MAX_S") == 0) {
       REC_MAX_S = atoi(value);
-      log_i("Setting REC_MAX_S to %d\r\n", REC_MAX_S);
+      applog("Setting REC_MAX_S to %d", REC_MAX_S);
       MAX_REC_DURATION_MS = REC_MAX_S * 1000; // Recalculate MAX_RECORDING_DURATION_MS
-      log_i("Recalculated MAX_REC_DURATION_MS to %lu\n", MAX_REC_DURATION_MS);
+      applog("Recalculated MAX_REC_DURATION_MS to %lu", MAX_REC_DURATION_MS);
     } else if (strcmp(key, "REC_MIN_S") == 0) {
       REC_MIN_S = atoi(value);
-      log_i("Setting REC_MIN_S to %d\r\n", REC_MIN_S);
+      applog("Setting REC_MIN_S to %d", REC_MIN_S);
       updateMinAudioFileSize(); // Recalculate MIN_AUDIO_FILE_SIZE_BYTES
     } else if (strcmp(key, "AUDIO_GAIN") == 0) {
       AUDIO_GAIN = atof(value);
-      log_i("Setting AUDIO_GAIN to %f\r\n", AUDIO_GAIN);
+      applog("Setting AUDIO_GAIN to %f", AUDIO_GAIN);
     } else if (strcmp(key, "VIBRA_STARTUP_MS") == 0) {
       VIBRA_STARTUP_MS = atol(value);
-      log_i("Setting VIBRA_STARTUP_MS to %lu\r\n", VIBRA_STARTUP_MS);
+      applog("Setting VIBRA_STARTUP_MS to %lu", VIBRA_STARTUP_MS);
     } else if (strcmp(key, "VIBRA_REC_START_MS") == 0) {
       VIBRA_REC_START_MS = atol(value);
-      log_i("Setting VIBRA_REC_START_MS to %lu\r\n", VIBRA_REC_START_MS);
+      applog("Setting VIBRA_REC_START_MS to %lu", VIBRA_REC_START_MS);
     } else if (strcmp(key, "VIBRA_REC_STOP_MS") == 0) {
       VIBRA_REC_STOP_MS = atol(value);
-      log_i("Setting VIBRA_REC_STOP_MS to %lu\r\n", VIBRA_REC_STOP_MS);
+      applog("Setting VIBRA_REC_STOP_MS to %lu", VIBRA_REC_STOP_MS);
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
-      log_i("Setting HS_HOST to %s\r\n", HS_HOST);
+      applog("Setting HS_HOST to %s", HS_HOST);
     } else if (strcmp(key, "HS_PORT") == 0) {
       HS_PORT = atoi(value);
-      log_i("Setting HS_PORT to %d\r\n", HS_PORT);
+      applog("Setting HS_PORT to %d", HS_PORT);
     } else if (strcmp(key, "HS_PATH") == 0) {
       HS_PATH = strdup(value);
-      log_i("Setting HS_PATH to %s\r\n", HS_PATH);
+      applog("Setting HS_PATH to %s", HS_PATH);
     } else if (strcmp(key, "HS_USER") == 0) {
       HS_USER = strdup(value);
-      log_i("Setting HS_USER to %s\r\n", HS_USER);
+      applog("Setting HS_USER to %s", HS_USER);
     } else if (strcmp(key, "HS_PASS") == 0) {
       HS_PASS = strdup(value);
-      log_i("Setting HS_PASS to %s\r\n", HS_PASS);
+      applog("Setting HS_PASS to %s", HS_PASS);
     } else if (strncmp(key, "W_SSID_", strlen("W_SSID_")) == 0) {
       int apIndex = atoi(key + strlen("W_SSID_"));
       if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
         strncpy(g_wifi_ssids[apIndex], value, sizeof(g_wifi_ssids[apIndex]) - 1);
         g_wifi_ssids[apIndex][sizeof(g_wifi_ssids[apIndex]) - 1] = '\0'; // Ensure null termination
-        log_i("Setting W_SSID_%d to %s\r\n", apIndex, g_wifi_ssids[apIndex]);
+        applog("Setting W_SSID_%d to %s", apIndex, g_wifi_ssids[apIndex]);
       }
     } else if (strncmp(key, "W_PASS_", strlen("W_PASS_")) == 0) {
       int apIndex = atoi(key + strlen("W_PASS_"));
       if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
         strncpy(g_wifi_passwords[apIndex], value, sizeof(g_wifi_passwords[apIndex]) - 1);
         g_wifi_passwords[apIndex][sizeof(g_wifi_passwords[apIndex]) - 1] = '\0'; // Ensure null termination
-        log_i("Setting W_PASS_%d to %s\r\n", apIndex, g_wifi_passwords[apIndex]);
+        applog("Setting W_PASS_%d to %s", apIndex, g_wifi_passwords[apIndex]);
       }
     } else {
-      log_i("Unknown setting in setting.ini: %s\r\n", key);
+      applog("Unknown setting in setting.ini: %s", key);
     }
   }
 
@@ -360,9 +408,8 @@ void loadSettingsFromLittleFS() {
       break;
     }
   }
-  log_i("Configured %d WiFi APs.\r\n", g_num_wifi_aps);
+  applog("Configured %d WiFi APs.", g_num_wifi_aps);
 
   configFile.close();
-  log_i("Settings loaded.\n");
+  applog("Settings loaded.");
 }
-

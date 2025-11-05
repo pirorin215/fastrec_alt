@@ -8,16 +8,16 @@
 // 詳細な接続情報を表示
 void printWiFiDiagnostics() {
   if (!isWiFiConnected()) {
-    applog("WiFi not connected.\n");
+    applog("WiFi not connected.");
     return;
   }
-  applog("\n=== WiFi Diagnostics ===\n");
-  applog("SSID: %s\r\n", WiFi.SSID().c_str());
-  applog("RSSI: %d dBm\r\n", WiFi.RSSI());
-  applog("Channel: %d\r\n", WiFi.channel());
-  applog("IP: %s\r\n", WiFi.localIP().toString().c_str());
-  applog("Gateway: %s\r\n", WiFi.gatewayIP().toString().c_str());
-  applog("MAC: %s\r\n", WiFi.macAddress().c_str());
+  applog("=== WiFi Diagnostics ===");
+  applog("SSID: %s", WiFi.SSID().c_str());
+  applog("RSSI: %d dBm", WiFi.RSSI());
+  applog("Channel: %d", WiFi.channel());
+  applog("IP: %s", WiFi.localIP().toString().c_str());
+  applog("Gateway: %s", WiFi.gatewayIP().toString().c_str());
+  applog("MAC: %s", WiFi.macAddress().c_str());
 }
 
 bool isWiFiConnected() {
@@ -45,7 +45,7 @@ void synchronizeTime(bool waitForNTP) {
     while (!ntp_sync_successful && (millis() - startTryTime < NTP_TIMEOUT_MS)) {
       // Check for button presses to cancel NTP synchronization
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        applog("Start Button pressed during NTP sync. Aborting.\n");
+        applog("Start Button pressed during NTP sync. Aborting.");
         return;
       }
       if (getLocalTime(&timeinfo)) {
@@ -63,17 +63,17 @@ void synchronizeTime(bool waitForNTP) {
     if (ntp_sync_successful) {
       char time_buf[64];
       strftime(time_buf, sizeof(time_buf), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-      applog("Current time from NTP: %s\n", time_buf);
+      applog("Current time from NTP: %s", time_buf);
       g_hasTimeBeenSynchronized = true; // Set flag on successful NTP sync
     } else {
-      applog("Failed to obtain time from NTP within timeout. Time might be incorrect.\n");
+      applog("Failed to obtain time from NTP within timeout. Time might be incorrect.");
     }
   } else {  // Not waiting for NTP, so it's not web-synchronized.
     if (getValidRtcTime(&timeinfo)) {
-      applog("RTC has a valid time, but no web synchronization was try.\n");
+      applog("RTC has a valid time, but no web synchronization was try.");
     }
     else {
-      applog("RTC time is not set or invalid, and no web synchronization was try.\n");
+      applog("RTC time is not set or invalid, and no web synchronization was try.");
     }
   }
 }
@@ -93,12 +93,12 @@ void initWifi() {
 
 // Function to connect to WiFi
 bool connectToWiFi() {
-  applog("Waiting for WiFi connection...\n");
+  applog("Waiting for WiFi connection...");
   updateDisplay("");
 
-  applog("Available WiFi APs:\n");
+  applog("Available WiFi APs:");
   for (int i = 0; i < g_num_wifi_aps; i++) {
-    applog("- %s\r\n", g_wifi_ssids[i]);
+    applog("- %s", g_wifi_ssids[i]);
   }
   
   unsigned long startWiFiWaitTime = millis();
@@ -106,9 +106,9 @@ bool connectToWiFi() {
   int initialApIndex = -1; // Will store the AP index to try first
   if (0 <= g_lastConnectedSSIDIndexRTC && g_lastConnectedSSIDIndexRTC < g_num_wifi_aps) {
     initialApIndex = g_lastConnectedSSIDIndexRTC;
-    applog("Prioritizing connection to previously connected SSID index: %d (%s)\r\n", initialApIndex, g_wifi_ssids[initialApIndex]);
+    applog("Prioritizing connection to previously connected SSID index: %d (%s)", initialApIndex, g_wifi_ssids[initialApIndex]);
   } else {
-    applog("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.\n");
+    applog("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.");
     initialApIndex = 0; // Start from the first AP if no prior connection or invalid index
   }
 
@@ -120,49 +120,49 @@ bool connectToWiFi() {
 
   while (!isWiFiConnected() && (millis() - startWiFiWaitTime < WIFI_CONNECT_TIMEOUT_MS)) {
     if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-      applog("Start Button pressed during WiFi connection. Aborting.\n");
+      applog("Start Button pressed during WiFi connection. Aborting.");
       return false;
     }
 
     wifiReset();
 
-    applog("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
+    applog("Attempting to connect to SSID: %s", g_wifi_ssids[currentApIndex]);
     WiFi.begin(g_wifi_ssids[currentApIndex], g_wifi_passwords[currentApIndex]);
 
     unsigned long connectionAttemptStartTime = millis();
 
     while (WiFi.status() != WL_CONNECTED && (millis() - connectionAttemptStartTime < PER_AP_ATTEMPT_TIMEOUT_MS)) {
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        applog("Start Button pressed during WiFi connection. Aborting.\n");
+        applog("Start Button pressed during WiFi connection. Aborting.");
         return false;
       }
       yield();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-      applog("\nWiFi connected successfully!\n");
+      applog("\nWiFi connected successfully!");
       g_connectedSSIDIndex = currentApIndex; // Use the already known index
       g_lastConnectedSSIDIndexRTC = currentApIndex; // Store the successfully connected index in RTC
       printWiFiDiagnostics(); // 詳細情報を表示
       return true; // Connected to an AP, return true
     } else {
-      applog("\nFailed to connect to %s within %ldms. Trying next AP.\r\n", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
+      applog("\nFailed to connect to %s within %ldms. Trying next AP.", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
       currentApIndex = (currentApIndex + 1) % g_num_wifi_aps;
     }
   }
 
-  applog("\nFailed to connect to any configured WiFi AP within timeout.\n");
+  applog("\r\nFailed to connect to any configured WiFi AP within timeout.");
   return false; // Failed to connect to any AP
 }
 
 bool checkAuthentication(const char* host, int port, const char* path, const char* user, const char* password) {
-  applog("Checking authentication to https://%s:%d%s\r\n", host, port, path);
+  applog("Checking authentication to https://%s:%d%s", host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure(); // Allow self-signed certificates
 
   if (!client.connect(host, port)) {
-    applog("Authentication check: Connection failed!\n");
+    applog("Authentication check: Connection failed!");
     return false;
   }
 
@@ -188,14 +188,14 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0'; // Null-terminate the received line
-        applog("%s\n", responseLineBuffer);
+        applog("%s", responseLineBuffer);
 
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {
-          applog("Authentication check: Success (200 OK).\n");
+          applog("Authentication check: Success (200 OK).");
           client.stop();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          applog("Authentication check: Failed (401 Unauthorized).\n");
+          applog("Authentication check: Failed (401 Unauthorized).");
           client.stop();
           return false;
         }
@@ -206,21 +206,21 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
     delay(10);
   }
 
-  applog("Authentication check: Failed or timed out!\n");
+  applog("Authentication check: Failed or timed out!");
   client.stop();
   return false;
 }
 
 // Function to upload audio data via HTTP POST with multipart/form-data
 bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, const char* path, const char* user, const char* password) {
-  log_i("Uploading file %s to https://%s:%d%s\r\n", filename, host, port, path);
+  applog("Uploading file %s to https://%s:%d%s", filename, host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure();
 
   File audioFile = LittleFS.open(filename, FILE_READ);
   if (!client.connect(host, port)) {
-    log_i("Connection failed!\n");
+    applog("Connection failed!");
     client.stop();
     audioFile.close();
     return false;
@@ -284,13 +284,13 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
 
     int uploadProgress = (totalBytesSent * 100) / audioFileSize;
     if (uploadProgress >= lastReportedProgress + 10) {
-      log_i("Upload progress: %d%%\r\n", uploadProgress);
+      applog("Upload progress: %d%%", uploadProgress);
       snprintf(cTmp, sizeof(cTmp), "%3d", uploadProgress);
       updateDisplay(cTmp);
       lastReportedProgress = uploadProgress - (uploadProgress % 10); // Round down to nearest 10
     }
   }
-  log_i("Upload progress: 100%%\n");
+  applog("Upload progress: 100%%");
 
   client.print(footerPartBuffer);
 
@@ -302,14 +302,14 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0';  // Null-terminate the received line
-        log_i("%s\n", responseLineBuffer);
+        applog("%s", responseLineBuffer);
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {  // Check for successful HTTP response
-          log_i("File uploaded successfully!\n");
+          applog("File uploaded successfully!");
           client.stop();
           audioFile.close();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          log_i("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.\n");
+          applog("Upload failed: 401 Unauthorized. Check HS_USER and HS_PASS.");
           audioFile.close();
           client.stop();
           return false; // Indicate failure
@@ -320,7 +320,7 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
     delay(10);
   }
 
-  log_i("Upload failed or timed out!\n");
+  applog("Upload failed or timed out!");
   audioFile.close(); // Ensure file is closed on timeout/failure
   client.stop();
   return false;

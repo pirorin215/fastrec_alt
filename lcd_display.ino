@@ -56,7 +56,7 @@ void drawWifiSignal() {
     level = 1;
   }
 
-  //applog("RSSI: %2d, Level: %d\r\n", rssi, level);
+  //applog("RSSI: %2d, Level: %d", rssi, level);
 
   // Bar 1
   if (level >= 1) display.drawRect(61, 6, 62, 8, true);
