@@ -16,26 +16,16 @@ DEVICE_NAME = "fastrec"
 COMMAND_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26aa" # コマンド送信用のUUID
 RESPONSE_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26ab" # 応答データ受信用のUUID
 
-# 応答データと状態管理のためのグローバル変数
-ble_mode = 'normal'  # 'normal' or 'file_transfer'
+# 応答データを受け取るためのグローバル変数とイベント
 received_response_data = None
-response_event = asyncio.Event()
+response_event = asyncio.Event() # 応答があったことを通知するためのイベント
 
-file_data = bytearray()
-file_size = 0
-file_transfer_event = asyncio.Event()
-
-# 状態に応じた単一の通知ハンドラ
-def notification_handler(sender, data):
-    global ble_mode, received_response_data, response_event, file_data, file_transfer_event
-
-    if ble_mode == 'file_transfer':
-        file_data.extend(data)
-        file_transfer_event.set() # Signal that a chunk has been received
-    else: # normal mode
-        received_response_data = data.decode('utf-8')
-        response_event.set()
-
+# 通知ハンドラ関数
+# マイコンから応答特性を通じてデータが送信されると、この関数が呼び出されます。
+def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
+    global received_response_data
+    received_response_data = data.decode('utf-8')
+    response_event.set() # 応答があったことをイベントに通知
 
 def compare_and_print_diff(device_content: str, local_content: str):
     device_lines = device_content.splitlines()
@@ -61,6 +51,7 @@ def compare_and_print_diff(device_content: str, local_content: str):
     if not has_diff:
         print("なし")
             
+# Function to get a single character input without pressing Enter
 def getch():
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
@@ -73,43 +64,54 @@ def getch():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     return ch
 
+# --- 新しいデータ取得処理 ---
 async def run_ble_command(client: BleakClient, command_str: str, verbose: bool = False):
-    global received_response_data, ble_mode
-    ble_mode = 'normal'
-    received_response_data = None
-    response_event.clear()
+    global received_response_data
+    received_response_data = None  # Reset response data for each new request
+    response_event.clear()  # Clear the event to await the next response
 
     if verbose:
         print(f"\n--- BLEコマンド実行: コマンド='{command_str}' ---")
 
+    # Ensure notifications are started if not already
     if not client.is_connected:
         if not await reconnect_ble_client(client, verbose):
             return None
 
-    await client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
+    # コマンドを送信
+    if verbose:
+        print(f"3. コマンド '{command_str}' を '{COMMAND_UUID}' に送信中...")
+    await client.write_gatt_char(
+        COMMAND_UUID,
+        bytes(command_str, 'utf-8'),
+        response=True  # Request write response (confirmation of write success)
+    )
     if verbose:
         print(f"{GREEN}   -> コマンド送信完了。応答を待機中...{RESET}")
     try:
+        # 応答が来るまで待機 (最大15秒)
         await asyncio.wait_for(response_event.wait(), timeout=15.0)
+        if not received_response_data:
+            print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。{RESET}")
     except asyncio.TimeoutError:
-        print(f"{RED}タイムアウト: 応答データが受信されませんでした。{RESET}")
-    return received_response_data
+        print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。{RESET}")
+    return received_response_data  # Return response data
 
 async def reconnect_ble_client(client: BleakClient, verbose: bool = False) -> bool:
     print(f"{RED}BLEクライアントが切断されました。再接続を試みます...{RESET}")
     try:
+        # Explicitly disconnect to clear any lingering state before reconnecting
         if client.is_connected:
             await client.disconnect()
         await client.connect()
+        # Explicitly stop notifications before starting them again to clear any lingering state
         try:
-            await client.start_notify(RESPONSE_UUID, notification_handler)
-        except Exception as e:
-            if "notifications already started" not in str(e):
-                raise e # Re-raise other errors
-            else:
-                if verbose:
-                    print("Notifications were already started, continuing.")
-
+            await client.stop_notify(RESPONSE_UUID)
+        except Exception as stop_e:
+            # Ignore error if notifications were not active, or if client was not fully connected
+            if verbose:
+                print(f"Warning: Error stopping notifications during reconnect (may be harmless): {stop_e}")
+        await client.start_notify(RESPONSE_UUID, notification_handler)
         print(f"{GREEN}再接続に成功しました。{RESET}")
         return True
     except Exception as e:
@@ -144,11 +146,14 @@ async def get_setting_ini(client: BleakClient, verbose: bool = False):
         print(f"\n\n")
         print(f"{GREEN}マイコンのsetting.ini:\n{RESET}{device_response}")
 
-        local_setting_ini_path = "setting.ini"
+        local_setting_ini_path = "setting.ini" # Assuming local setting.ini is in the same directory
         try:
             with open(local_setting_ini_path, 'r') as f:
                 local_content = f.read()
+            
+            # Compare and print differences
             compare_and_print_diff(device_response, local_content)
+
         except FileNotFoundError:
             print(f"{RED}ローカルの {local_setting_ini_path} が見つかりませんでした。{RESET}")
         except Exception as e:
@@ -166,129 +171,27 @@ async def get_device_info(client: BleakClient, verbose: bool = False):
         try:
             print(f"\n")
             info = json.loads(response)
-            print(f"{ 'バッテリーレベル'} : {int(info.get('battery_level', 0))} %")
-            print(f"{ 'バッテリー電圧'}   : {info.get('battery_voltage', 0.0):.1f} V")
-            print(f"{ 'アプリ状態'}       : {info.get('app_state', 'N/A')}")
-            print(f"{ 'WiFi接続状態'}     : {info.get('wifi_status', 'N/A')}")
-            print(f"{ '接続済みSSID'}     : {info.get('connected_ssid', 'N/A')}")
-            print(f"{ 'WiFi RSSI'}        : {info.get('wifi_rssi', 'N/A')}")
-            print(f"{ 'LittleFS使用率'}   : {info.get('littlefs_usage_percent', 'N/A')} %")
+            print(f"{'バッテリーレベル'} : {int(info.get('battery_level', 0))} %")
+            print(f"{'バッテリー電圧'}   : {info.get('battery_voltage', 0.0):.1f} V")
+            print(f"{'アプリ状態'}       : {info.get('app_state', 'N/A')}")
+            print(f"{'WiFi接続状態'}     : {info.get('wifi_status', 'N/A')}")
+            print(f"{'接続済みSSID'}     : {info.get('connected_ssid', 'N/A')}")
+            print(f"{'WiFi RSSI'}        : {info.get('wifi_rssi', 'N/A')}")
+            print(f"{'LittleFS使用率'}   : {info.get('littlefs_usage_percent', 'N/A')} %")
             
             ls_content = info.get('ls', '')
             if ls_content:
-                print(f"{ 'ディレクトリ一覧'}:")
+                print(f"{'ディレクトリ一覧'}:")
                 for item in ls_content.strip().split('\n'):
                     if item:
                         print(f"  - {item}")
             else:
-                print(f"  { 'ディレクトリ一覧'}: N/A")
+                print(f"  {'ディレクトリ一覧'}: N/A")
         except json.JSONDecodeError:
             print(f"{RED}エラー: 受信した情報がJSON形式ではありません。{RESET}")
     else:
         print(f"{RED}各種情報の取得に失敗しました。{RESET}")
     return response
-
-async def progress_reporter(total_size):
-    global file_data
-    while True:
-        try:
-            progress = len(file_data)
-            if total_size > 0:
-                percentage = (progress / total_size) * 100
-                print(f"受信中: {progress} / {total_size} bytes ({percentage:.1f}%)", end='\r')
-            else:
-                print(f"受信中: {progress} bytes", end='\r')
-            await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            break
-
-async def get_log_file(client: BleakClient, verbose: bool = False):
-    global ble_mode, file_data, file_transfer_event
-
-    print("デバイス上のログファイル一覧を取得中...")
-    ls_response = await run_ble_command(client, "GET:ls", verbose)
-    if not ls_response:
-        print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
-        return
-
-    files = [f for f in ls_response.strip().split('\n') if f.startswith('log.')]
-    if not files:
-        print("取得可能なログファイルがありません。")
-        return
-
-    print("取得するログファイルを選択してください:")
-    for i, f in enumerate(files):
-        print(f"{i + 1}. {f}")
-    
-    sys.stdout.write("番号を選択: ")
-    sys.stdout.flush()
-    choice = getch()
-    print(choice)
-
-    try:
-        choice_index = int(choice) - 1
-        filename_to_get = files[choice_index]
-        full_path = f"/{filename_to_get}"
-    except (ValueError, IndexError):
-        print(f"{RED}無効な選択です。{RESET}")
-        return
-
-    print(f"'{filename_to_get}' を取得中...")
-    
-    # 1. Get file size
-    size_response = await run_ble_command(client, f"GET:log_size:{full_path}", verbose)
-    if not size_response or not size_response.startswith("LOG_SIZE:"):
-        print(f"{RED}ファイルサイズの取得に失敗しました: {size_response}{RESET}")
-        return
-    
-    total_size = int(size_response.split(':')[1])
-    print(f"ファイルサイズ: {total_size} bytes")
-
-    # 2. Receive file chunk by chunk
-    ble_mode = 'file_transfer'
-    file_data.clear()
-    progress_task = asyncio.create_task(progress_reporter(total_size))
-
-    try:
-        offset = 0
-        while offset < total_size:
-            file_transfer_event.clear()
-            await client.write_gatt_char(COMMAND_UUID, f"GET:log:{full_path}:{offset}".encode('utf-8'))
-            await asyncio.wait_for(file_transfer_event.wait(), timeout=5.0)
-            offset += len(file_data) - offset # Bleak can sometimes merge notifications
-
-        print(f"\n{GREEN}ファイル転送完了。{RESET}")
-
-    except asyncio.TimeoutError:
-        print(f"\n{RED}チャンクの受信中にタイムアウトしました。{RESET}")
-    except Exception as e:
-        print(f"\n{RED}ファイル取得中にエラーが発生しました: {e}{RESET}")
-    finally:
-        progress_task.cancel()
-        ble_mode = 'normal'
-
-    if len(file_data) > 0:
-        with open(filename_to_get, 'wb') as f:
-            f.write(file_data)
-        print(f"{GREEN}ファイル '{filename_to_get}' として {len(file_data)} バイト保存しました。{RESET}")
-
-async def format_filesystem(client: BleakClient, verbose: bool = False):
-    print(f"{RED}警告: これにより、デバイス上のすべてのファイルが消去されます。{RESET}")
-    sys.stdout.write("本当によろしいですか？ (y/n): ")
-    sys.stdout.flush()
-    confirm = getch()
-    print(confirm)
-
-    if confirm.lower() == 'y':
-        print("ファイルシステムをフォーマット中...")
-        response = await run_ble_command(client, "CMD:format_fs:format_now", verbose)
-        if response:
-            print(f"{GREEN}デバイスからの応答: {response}{RESET}")
-            print("デバイスが再起動するため、接続が切断されます。")
-        else:
-            print(f"{RED}コマンドの送信に失敗しました。{RESET}")
-    else:
-        print("フォーマットをキャンセルしました。")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='BLE Tool for fastrec device.')
@@ -320,14 +223,12 @@ if __name__ == "__main__":
                 print("1. 録音レコーダに setting.ini を送信")
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
-                print(f"{RED}4. ファイルシステムを初期化{RESET}")
-                print("5. ログファイルを取得")
                 print("0. 終了")
 
                 sys.stdout.write("Enter your choice: ")
                 sys.stdout.flush()
                 choice = getch()
-                print(choice)
+                print(choice) # Echo the choice back to the user
 
                 if choice == '1':
                     try:
@@ -343,18 +244,7 @@ if __name__ == "__main__":
                     try:
                         await get_device_info(client, verbose)
                     except Exception as e:
-                        print(f"{RED}Error during get_device_info: {e}{RESET}")
-                elif choice == '4':
-                    try:
-                        await format_filesystem(client, verbose)
-                        break
-                    except Exception as e:
-                        print(f"{RED}Error during format_filesystem: {e}{RESET}")
-                elif choice == '5':
-                    try:
-                        await get_log_file(client, verbose)
-                    except Exception as e:
-                        print(f"{RED}Error during get_log_file: {e}{RESET}")
+                        print(f"{RED}Error during get_littlefs_ls: {e}{RESET}")
                 elif choice == '0':
                     print("BLEツールを終了します。")
                     break
