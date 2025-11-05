@@ -169,26 +169,35 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
         await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=True)
         print("setting.ini を送信しました。デバイスが再起動します。")
 
+    except Exception as e:
+        if "disconnected" in str(e).lower():
+            # This is expected when the device reboots after receiving the settings.
+            print("setting.ini を送信しました。デバイスが再起動します。")
+        else:
+            # For any other error, print it and stop.
+            print(f"{RED}予期せぬエラーが発生しました: {e}{RESET}")
+            return
+
+    # --- Reconnection Logic ---
+    try:
+        # The client might already be disconnected, but we can try to disconnect cleanly if it's not.
         if g_client and g_client.is_connected:
             await g_client.disconnect()
 
         print("デバイスの再起動後、自動で再接続します...")
-        await asyncio.sleep(2.0)
 
         reconnect_attempts = 10
         for i in range(reconnect_attempts):
             print(f"再接続試行 ({i + 1}/{reconnect_attempts})...")
             if await reconnect_ble_client(verbose=False):
-                return
+                return # Success, reconnect_ble_client prints success message
             await asyncio.sleep(1.0)
 
         print(f"{RED}自動再接続に失敗しました。{RESET}")
         print("デバイスの準備ができてから、他のメニュー項目を選択して手動で再接続してください。")
 
-    except FileNotFoundError:
-        print(f"{RED}Error: File not found at {file_path}{RESET}")
     except Exception as e:
-        print(f"{RED}予期せぬエラーが発生しました: {e}{RESET}")
+        print(f"{RED}再接続中にエラーが発生しました: {e}{RESET}")
 
 async def get_setting_ini(verbose: bool = False):
     print("デバイスから setting.ini を要求中...")
