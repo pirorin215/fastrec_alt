@@ -1,29 +1,6 @@
 #include "fastrec_alt.h"
 #include <stdarg.h>
 
-void rotateLogs() {
-  if (LittleFS.exists("/log.0.txt")) {
-    File log0 = LittleFS.open("/log.0.txt", "r");
-    if (log0.size() > LOG_FILE_SIZE) {
-      log0.close();
-      applog("Rotating logs.\n");
-      // Shift old log files
-      for (int i = LOG_FILE_GENERATIONS - 2; i >= 0; i--) {
-        String oldLog = "/log." + String(i) + ".txt";
-        String newLog = "/log." + String(i + 1) + ".txt";
-        if (LittleFS.exists(newLog)) {
-          LittleFS.remove(newLog);
-        }
-        if (LittleFS.exists(oldLog)) {
-          LittleFS.rename(oldLog, newLog);
-        }
-      }
-    } else {
-      log0.close();
-    }
-  }
-}
-
 void applog(const char *format, ...) {
     char loc_buf[64];
     char * temp = loc_buf;
@@ -46,16 +23,6 @@ void applog(const char *format, ...) {
         vsnprintf(temp + strlen(loc_buf), len + 1, format, arg);
         va_end(arg);
         Serial.print(temp);
-
-        // Only write to file if NOT in the REC state
-        if (g_currentAppState != REC) {
-            File logFile = LittleFS.open("/log.0.txt", FILE_APPEND);
-            if (logFile) {
-                logFile.print(temp);
-                logFile.close();
-            }
-        }
-
         free(temp);
     }
 }
@@ -173,8 +140,6 @@ void initLittleFS() {
   }
   applog("LittleFS init.\n");
 
-  rotateLogs();
-
   float usagePercentage = getLittleFSUsagePercentage();
 
   unsigned long totalBytes = LittleFS.totalBytes();
@@ -225,47 +190,6 @@ float getBatteryVoltage() {
   float voltage = analogValue * (3.3 / 4095.0); //(0-4095 maps to 0-3.3V with ADC_11db)
   g_currentBatteryVoltage = voltage * BAT_VOL_MULT; // Update global variable
   return g_currentBatteryVoltage; // Always return the (potentially updated) global variable
-}
-
-// Function to get system information as a JSON string
-String getSystemInfoJson() {
-  DynamicJsonDocument doc(1024); // Adjust size as needed
-
-  doc["battery_level"] = (int)((g_currentBatteryVoltage - BAT_VOL_MIN) / (4.2 - BAT_VOL_MIN) * 100);
-  doc["battery_voltage"] = g_currentBatteryVoltage;
-  doc["app_state"] = appStateStrings[g_currentAppState];
-
-  // WiFi status
-  if (WiFi.status() == WL_CONNECTED) {
-    doc["wifi_status"] = "Connected";
-    doc["connected_ssid"] = WiFi.SSID();
-    doc["wifi_rssi"] = WiFi.RSSI();
-  } else {
-    doc["wifi_status"] = "Disconnected";
-    doc["connected_ssid"] = "N/A";
-    doc["wifi_rssi"] = 0;
-  }
-
-  // LittleFS usage
-  doc["littlefs_usage_percent"] = getLittleFSUsagePercentage();
-
-  // List files in LittleFS
-  String ls_output = "";
-  File root = LittleFS.open("/", "r");
-  if (root) {
-    File file = root.openNextFile();
-    while (file) {
-      ls_output += file.name();
-      ls_output += "\n";
-      file = root.openNextFile();
-    }
-    root.close();
-  }
-  doc["ls"] = ls_output;
-
-  String json_output;
-  serializeJson(doc, json_output);
-  return json_output;
 }
 
 // Function to count audio files and return the count. Updates the global audioFileCount at call site.

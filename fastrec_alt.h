@@ -32,10 +32,6 @@ int g_num_wifi_aps = 0;                  // Number of configured WiFi APs
 const long SERIAL_BAUD_RATE = 115200;
 const long SERIAL_TIMEOUT_MS = 5000;  // 5 seconds timeout for serial connection
 
-// Logging
-#define LOG_FILE_SIZE (100 * 1024)
-#define LOG_FILE_GENERATIONS 2
-
 // Power/Battery
 unsigned long DEEP_SLEEP_DELAY_MS = 15000;
 float BAT_VOL_MIN = 3.0f;
@@ -149,7 +145,5 @@ int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wif
 
 // --- Function Prototypes ---
 void applog(const char *format, ...);
-void rotateLogs();
-String getSystemInfoJson();
 
 #endif // FASTREC_INO_H

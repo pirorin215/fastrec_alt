@@ -15,93 +15,166 @@
 BLECharacteristic *pCommandCharacteristic;
 BLECharacteristic *pResponseCharacteristic;
 
-bool shouldRestart = false;
-
-
-
-class CommandCharacteristicCallbacks : public BLECharacteristicCallbacks {
-
+class MyCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
-    String value = pCharacteristic->getValue();
-    String command = String(value.c_str());
-    String response = "";
+    std::string value = pCharacteristic->getValue().c_str();
+    if (value.empty()) return;
 
-    if (command.startsWith("GET:setting_ini")) {
-      File file = LittleFS.open("/setting.ini", "r");
-      if (file) {
-        response = file.readString();
-        file.close();
-      }
-      response += "[EOM]";
-    } else if (command.startsWith("SET:setting_ini:")) {
-      String content = command.substring(16);
-      File file = LittleFS.open("/setting.ini", "w");
-      if (file) {
-        file.print(content);
-        file.close();
-        response = "OK[EOM]";
-        shouldRestart = true; 
-      }
-    } else if (command.startsWith("GET:info")) {
-      response = getSystemInfoJson();
-      response += "[EOM]";
-    } else if (command.startsWith("GET:log:")) {
-      String filename = "/" + command.substring(8);
-      applog("Received GET:log: command for file: %s\n", filename.c_str());
+    // Handle COMMAND_UUID writes (new functionality)
+    else if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
+      log_i("COMMAND_UUID received: %s\n", value.c_str());
 
-      if (LittleFS.exists(filename)) {
-        File file = LittleFS.open(filename, "r");
-        if (file) {
-            applog("Sending file %s...\n", filename.c_str());
-            const size_t chunkSize = 512;
-            uint8_t buffer[chunkSize];
-            while (file.available()) {
-                size_t bytesRead = file.read(buffer, chunkSize);
-                if (bytesRead > 0) {
-                    pResponseCharacteristic->setValue(buffer, bytesRead);
-                    pResponseCharacteristic->notify();
-                    delay(5);
+      // --- Command Parsing and Data Retrieval (Example) ---
+      // In a real application, you would parse 'value' (e.g., "GET:sensor_data:0")
+      // to extract category and index, then retrieve actual data.
+      std::string responseData = "ERROR: Invalid Command"; // Default error response
+
+      if (value.rfind("GET:", 0) == 0) { // Check if command starts with "GET:"
+        // Handle GET:setting_ini as a special case
+        if (value == "GET:setting_ini") {
+          if (LittleFS.exists("/setting.ini")) {
+            File file = LittleFS.open("/setting.ini", "r");
+            if (file) {
+              // Read file content directly into std::string
+              size_t fileSize = file.size();
+              if (fileSize > 0) {
+                char* buffer = new char[fileSize + 1];
+                if (buffer) {
+                  file.readBytes(buffer, fileSize);
+                  buffer[fileSize] = '\0';
+                  responseData = buffer;
+                  delete[] buffer;
+                  // Replace all '\n' with '\r\n' for console output readability
+                  size_t pos = 0;
+                  while ((pos = responseData.find("\n", pos)) != std::string::npos) {
+                    responseData.replace(pos, 1, "\r\n");
+                    pos += 2; // Move past the inserted "\r\n"
+                  }
+                } else {
+                  responseData = "ERROR: Memory allocation failed for reading setting.ini";
                 }
+              } else {
+                responseData = ""; // Empty file
+              }
+              file.close();
+            } else {
+              responseData = "ERROR: Failed to open setting.ini for reading";
             }
-            file.close();
-            applog("Finished sending file %s.\n", filename.c_str());
-
-            delay(10);
-            applog("Sending [EOM] marker...\n");
-            String eom = "[EOM]";
-            pResponseCharacteristic->setValue((uint8_t*)eom.c_str(), eom.length());
-            pResponseCharacteristic->notify();
-            applog("[EOM] marker sent.\n");
+          } else {
+            responseData = "ERROR: setting.ini not found";
+          }
+                  } else if (value == "GET:ls") { // Handle GET:ls command
+                    File root = LittleFS.open("/", "r");
+                    if (root) {
+                      responseData = "";
+                      File file = root.openNextFile();
+                      while (file) {
+                        responseData += file.name();
+                        if (file.isDirectory()) {
+                          responseData += "/";
+                        }
+                        responseData += "\n"; // Use \n for newline in the response string
+                        file = root.openNextFile();
+                      }
+                      root.close();
+                    } else {
+                      responseData = "ERROR: Failed to open LittleFS root directory";
+                    }
+                  } else if (value == "GET:info") { // Handle GET:info command
+                    StaticJsonDocument<1024> doc; // Increased size to accommodate all info
+        
+                    // 1. ディレクトリ一覧 (Directory listing)
+                    std::string littlefs_ls_std = "";
+                    File root = LittleFS.open("/", "r");
+                    if (root) {
+                      File file = root.openNextFile();
+                      while (file) {
+                        littlefs_ls_std += file.name();
+                        if (file.isDirectory()) {
+                          littlefs_ls_std += "/";
+                        }
+                        littlefs_ls_std += "\n";
+                        file = root.openNextFile();
+                      }
+                      root.close();
+                    } else {
+                      littlefs_ls_std = "ERROR: Failed to open LittleFS root directory";
+                    }
+                    doc["ls"] = littlefs_ls_std;
+        
+                    // 2. バッテリーレベル (Battery level)
+                    float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
+                    if (batteryLevel < 0.0f) batteryLevel = 0.0f;
+                    if (batteryLevel > 100.0f) batteryLevel = 100.0f;                    doc["battery_level"] = batteryLevel;
+        
+                    // 3. バッテリー電圧 (Battery voltage)
+                    doc["battery_voltage"] = g_currentBatteryVoltage;
+        
+                    // 4. アプリ状態 (App state)
+                    doc["app_state"] = appStateStrings[g_currentAppState];
+        
+                    // 5. WiFi接続状態 (WiFi connection status)
+                    doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
+                    if (isWiFiConnected()) {
+                      if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
+                        doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
+                      } else {
+                        doc["connected_ssid"] = "N/A"; // Should not happen if isWiFiConnected() is true, but as a safeguard
+                      }
+                      doc["wifi_rssi"] = WiFi.RSSI();
+                    } else {
+                      doc["connected_ssid"] = "N/A";
+                      doc["wifi_rssi"] = 0; // Or some other indicator for no signal
+                    }
+        
+                    // 6. LittleFS使用率 (LittleFS usage)
+                    unsigned long totalBytes = LittleFS.totalBytes();
+                    unsigned long usedBytes = LittleFS.usedBytes();
+                    doc["littlefs_total_bytes"] = totalBytes;
+                    doc["littlefs_used_bytes"] = usedBytes;
+                    doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
+        
+                    // Serialize JSON to string
+                    std::string jsonResponseStd;
+                    serializeJson(doc, jsonResponseStd);
+                    responseData = jsonResponseStd;
+        
         } else {
-            response = "ERROR: Could not open file[EOM]";
-            applog("ERROR: Could not open file %s\n", filename.c_str());
+          responseData = "ERROR: Invalid GET command format"; // Or a more specific error
         }
-      } else {
-        response = "ERROR: File not found[EOM]";
-        applog("ERROR: File not found: %s\n", filename.c_str());
+      } else if (value.rfind("SET:setting_ini:", 0) == 0) { // Handle SET:setting_ini
+        std::string settingContent = value.substr(std::string("SET:setting_ini:").length());
+        File file = LittleFS.open("/setting.ini", "w");
+        if (file) {
+          file.print(settingContent.c_str());
+          file.close();
+          responseData = "OK: setting.ini saved. Restarting...";
+          ESP.restart(); // Restart to apply new settings
+        } else {
+          responseData = "ERROR: Failed to open setting.ini for writing";
+        }
+      } else if (value.rfind("SET:REC_MIN_S:", 0) == 0) {
+        int newMinRecDuration = atoi(value.substr(std::string("SET:REC_MIN_S:").length()).c_str());
+        if (newMinRecDuration > 0) {
+          REC_MIN_S = newMinRecDuration;
+          updateMinAudioFileSize();
+          responseData = "OK: REC_MIN_S set to " + std::to_string(REC_MIN_S);
+        } else {
+          responseData = "ERROR: Invalid REC_MIN_S value";
+        }
       }
-    } else if (command.startsWith("CMD:format_fs")) {
-      if(LittleFS.format()){
-        response = "LittleFS formatted successfully.[EOM]";
-        shouldRestart = true;
+      // --- End of Command Parsing and Data Retrieval ---
+
+      // Send response via notification
+      if (pResponseCharacteristic != nullptr) {
+        pResponseCharacteristic->setValue(responseData.c_str()); // Fix: Convert std::string to C-style string for setValue
+        pResponseCharacteristic->notify(); // Send notification to client
+        log_i("Sent notification: %s\n", responseData.c_str());
       } else {
-        response = "ERROR: Failed to format LittleFS.[EOM]";
+        log_i("Error: pResponseCharacteristic is null!\n");
       }
-    } else {
-      response = "Unknown command[EOM]";
-    }
-
-    if (response.length() > 0) {
-        pResponseCharacteristic->setValue((uint8_t*)response.c_str(), response.length());
-        pResponseCharacteristic->notify();
-    }
-
-    if (shouldRestart) {
-      delay(1000);
-      ESP.restart();
     }
   }
-
 };
 
 // Helper function to trim leading/trailing whitespace from a char array
@@ -148,7 +221,7 @@ void start_ble_server() {
       COMMAND_UUID,
       BLECharacteristic::PROPERTY_WRITE // Allow client to write commands
   );
-  pCommandCharacteristic->setCallbacks(new CommandCharacteristicCallbacks());
+  pCommandCharacteristic->setCallbacks(new MyCallbacks());
 
   // New RESPONSE_UUID characteristic
   pResponseCharacteristic = pService->createCharacteristic(
