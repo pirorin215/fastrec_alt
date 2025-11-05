@@ -6,7 +6,7 @@ void applog(const char *format, ...) {
     char * temp = loc_buf;
     struct tm timeinfo;
     if (getValidRtcTime(&timeinfo)) { // Use getValidRtcTime to ensure time is valid
-        strftime(loc_buf, sizeof(loc_buf), "[%Y-%m-%d %H:%M:%S] ", &timeinfo);
+        strftime(loc_buf, sizeof(loc_buf), "%Y-%m-%d %H:%M:%S ", &timeinfo);
     } else {
         strcpy(loc_buf, "[<no time>] ");
     }
