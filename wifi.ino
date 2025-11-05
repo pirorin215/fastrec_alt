@@ -8,16 +8,16 @@
 // 詳細な接続情報を表示
 void printWiFiDiagnostics() {
   if (!isWiFiConnected()) {
-    app_log_i("WiFi not connected.\n");
+    applog("WiFi not connected.\n");
     return;
   }
-  app_log_i("\n=== WiFi Diagnostics ===\n");
-  app_log_i("SSID: %s\r\n", WiFi.SSID().c_str());
-  app_log_i("RSSI: %d dBm\r\n", WiFi.RSSI());
-  app_log_i("Channel: %d\r\n", WiFi.channel());
-  app_log_i("IP: %s\r\n", WiFi.localIP().toString().c_str());
-  app_log_i("Gateway: %s\r\n", WiFi.gatewayIP().toString().c_str());
-  app_log_i("MAC: %s\r\n", WiFi.macAddress().c_str());
+  applog("\n=== WiFi Diagnostics ===\n");
+  applog("SSID: %s\r\n", WiFi.SSID().c_str());
+  applog("RSSI: %d dBm\r\n", WiFi.RSSI());
+  applog("Channel: %d\r\n", WiFi.channel());
+  applog("IP: %s\r\n", WiFi.localIP().toString().c_str());
+  applog("Gateway: %s\r\n", WiFi.gatewayIP().toString().c_str());
+  applog("MAC: %s\r\n", WiFi.macAddress().c_str());
 }
 
 bool isWiFiConnected() {
@@ -33,7 +33,7 @@ void synchronizeTime(bool waitForNTP) {
   struct tm timeinfo;
 
   if (waitForNTP) {
-    app_log_i("Setting up time synchronization (NTP)...\n");
+    applog("Setting up time synchronization (NTP)...");
     configTime(9 * 60 * 60, 0, "ntp.jst.mfeed.ad.jp", "ntp.nict.jp", "time.google.com");
 
     const long NTP_TIMEOUT_MS = 10000;  // 10 seconds timeout for NTP sync
@@ -45,7 +45,7 @@ void synchronizeTime(bool waitForNTP) {
     while (!ntp_sync_successful && (millis() - startTryTime < NTP_TIMEOUT_MS)) {
       // Check for button presses to cancel NTP synchronization
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        app_log_i("Start Button pressed during NTP sync. Aborting.\n");
+        applog("Start Button pressed during NTP sync. Aborting.\n");
         return;
       }
       if (getLocalTime(&timeinfo)) {
@@ -63,17 +63,17 @@ void synchronizeTime(bool waitForNTP) {
     if (ntp_sync_successful) {
       char time_buf[64];
       strftime(time_buf, sizeof(time_buf), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-      app_log_i("Current time from NTP: %s\n", time_buf);
+      applog("Current time from NTP: %s\n", time_buf);
       g_hasTimeBeenSynchronized = true; // Set flag on successful NTP sync
     } else {
-      app_log_i("Failed to obtain time from NTP within timeout. Time might be incorrect.\n");
+      applog("Failed to obtain time from NTP within timeout. Time might be incorrect.\n");
     }
   } else {  // Not waiting for NTP, so it's not web-synchronized.
     if (getValidRtcTime(&timeinfo)) {
-      app_log_i("RTC has a valid time, but no web synchronization was try.\n");
+      applog("RTC has a valid time, but no web synchronization was try.\n");
     }
     else {
-      app_log_i("RTC time is not set or invalid, and no web synchronization was try.\n");
+      applog("RTC time is not set or invalid, and no web synchronization was try.\n");
     }
   }
 }
@@ -93,12 +93,12 @@ void initWifi() {
 
 // Function to connect to WiFi
 bool connectToWiFi() {
-  app_log_i("Waiting for WiFi connection...\n");
+  applog("Waiting for WiFi connection...\n");
   updateDisplay("");
 
-  app_log_i("Available WiFi APs:\n");
+  applog("Available WiFi APs:\n");
   for (int i = 0; i < g_num_wifi_aps; i++) {
-    app_log_i("- %s\r\n", g_wifi_ssids[i]);
+    applog("- %s\r\n", g_wifi_ssids[i]);
   }
   
   unsigned long startWiFiWaitTime = millis();
@@ -106,9 +106,9 @@ bool connectToWiFi() {
   int initialApIndex = -1; // Will store the AP index to try first
   if (0 <= g_lastConnectedSSIDIndexRTC && g_lastConnectedSSIDIndexRTC < g_num_wifi_aps) {
     initialApIndex = g_lastConnectedSSIDIndexRTC;
-    app_log_i("Prioritizing connection to previously connected SSID index: %d (%s)\r\n", initialApIndex, g_wifi_ssids[initialApIndex]);
+    applog("Prioritizing connection to previously connected SSID index: %d (%s)\r\n", initialApIndex, g_wifi_ssids[initialApIndex]);
   } else {
-    app_log_i("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.\n");
+    applog("No previous successful WiFi connection recorded or index is invalid. Starting from first configured AP.\n");
     initialApIndex = 0; // Start from the first AP if no prior connection or invalid index
   }
 
@@ -120,49 +120,49 @@ bool connectToWiFi() {
 
   while (!isWiFiConnected() && (millis() - startWiFiWaitTime < WIFI_CONNECT_TIMEOUT_MS)) {
     if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-      app_log_i("Start Button pressed during WiFi connection. Aborting.\n");
+      applog("Start Button pressed during WiFi connection. Aborting.\n");
       return false;
     }
 
     wifiReset();
 
-    app_log_i("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
+    applog("Attempting to connect to SSID: %s\r\n", g_wifi_ssids[currentApIndex]);
     WiFi.begin(g_wifi_ssids[currentApIndex], g_wifi_passwords[currentApIndex]);
 
     unsigned long connectionAttemptStartTime = millis();
 
     while (WiFi.status() != WL_CONNECTED && (millis() - connectionAttemptStartTime < PER_AP_ATTEMPT_TIMEOUT_MS)) {
       if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        app_log_i("Start Button pressed during WiFi connection. Aborting.\n");
+        applog("Start Button pressed during WiFi connection. Aborting.\n");
         return false;
       }
       yield();
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-      app_log_i("\nWiFi connected successfully!\n");
+      applog("\nWiFi connected successfully!\n");
       g_connectedSSIDIndex = currentApIndex; // Use the already known index
       g_lastConnectedSSIDIndexRTC = currentApIndex; // Store the successfully connected index in RTC
       printWiFiDiagnostics(); // 詳細情報を表示
       return true; // Connected to an AP, return true
     } else {
-      app_log_i("\nFailed to connect to %s within %ldms. Trying next AP.\r\n", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
+      applog("\nFailed to connect to %s within %ldms. Trying next AP.\r\n", g_wifi_ssids[currentApIndex], PER_AP_ATTEMPT_TIMEOUT_MS);
       currentApIndex = (currentApIndex + 1) % g_num_wifi_aps;
     }
   }
 
-  app_log_i("\nFailed to connect to any configured WiFi AP within timeout.\n");
+  applog("\nFailed to connect to any configured WiFi AP within timeout.\n");
   return false; // Failed to connect to any AP
 }
 
 bool checkAuthentication(const char* host, int port, const char* path, const char* user, const char* password) {
-  app_log_i("Checking authentication to https://%s:%d%s\r\n", host, port, path);
+  applog("Checking authentication to https://%s:%d%s\r\n", host, port, path);
 
   WiFiClientSecure client;
   client.setInsecure(); // Allow self-signed certificates
 
   if (!client.connect(host, port)) {
-    app_log_i("Authentication check: Connection failed!\n");
+    applog("Authentication check: Connection failed!\n");
     return false;
   }
 
@@ -188,23 +188,25 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
       int bytesRead = client.readBytesUntil('\r', responseLineBuffer, sizeof(responseLineBuffer) - 1);
       if (bytesRead > 0) {
         responseLineBuffer[bytesRead] = '\0'; // Null-terminate the received line
-        app_log_i("%s\n", responseLineBuffer);
+        applog("%s\n", responseLineBuffer);
 
         if (strstr(responseLineBuffer, "HTTP/1.1 200 OK") != NULL) {
-          app_log_i("Authentication check: Success (200 OK).\n");
+          applog("Authentication check: Success (200 OK).\n");
           client.stop();
           return true;
         } else if (strstr(responseLineBuffer, "HTTP/1.1 401 Unauthorized") != NULL) {
-          app_log_i("Authentication check: Failed (401 Unauthorized).\n");
+          applog("Authentication check: Failed (401 Unauthorized).\n");
           client.stop();
           return false;
         }
         // If other response codes are received, continue reading or handle as failure
       }
     }
+    // Add a small delay to prevent busy-waiting
+    delay(10);
   }
 
-  app_log_i("Authentication check: Failed or timed out!\n");
+  applog("Authentication check: Failed or timed out!\n");
   client.stop();
   return false;
 }
@@ -252,7 +254,7 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   // Construct the multipart body parts
   char headerPartBuffer[256];
   snprintf(headerPartBuffer, sizeof(headerPartBuffer),
-           "--%s\r\nContent-Disposition: form-data; name=\"audio_data\"; filename=\"%s\"\r\nContent-Type: audio/wav\r\n\r\n",
+           "--%s\r\nContent-Disposition: form-data; name=\"audio_data\"; filename=\" %s\"\r\nContent-Type: audio/wav\r\n\r\n",
            boundaryBuffer, filename);
 
   // Calculate content length, including the footer that will be sent later
@@ -314,6 +316,8 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
         }
       }
     }
+    // Add a small delay to prevent busy-waiting
+    delay(10);
   }
 
   log_i("Upload failed or timed out!\n");
@@ -321,4 +325,3 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   client.stop();
   return false;
 }
-

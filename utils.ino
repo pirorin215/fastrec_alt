@@ -1,7 +1,7 @@
 #include "fastrec_alt.h"
 #include <stdarg.h>
 
-void app_log_i(const char *format, ...) {
+void applog(const char *format, ...) {
     char loc_buf[64];
     char * temp = loc_buf;
     struct tm timeinfo;
@@ -30,7 +30,7 @@ void app_log_i(const char *format, ...) {
 
 void onboard_led(bool bOn) {
   // LOWで点灯、HIGHで消灯で紛らわしいので関数化してる
-  app_log_i("onboard_led %d\r\n", bOn);
+  applog("onboard_led %d\r\n", bOn);
   if (bOn) {
     digitalWrite(LED_BUILTIN, LOW);
   } else {
@@ -54,17 +54,17 @@ bool checkFreeSpace() {
   unsigned long freeBytes = totalBytes - usedBytes;
   unsigned long minFreeBytes = MIN_FREE_SPACE_MB * 1024 * 1024;  // Convert MB to bytes
 
-  app_log_i("LittleFS: Total %lu bytes, Used %lu bytes, Free %lu bytes.\r\n", totalBytes, usedBytes, freeBytes);
+  applog("LittleFS: Total %lu bytes, Used %lu bytes, Free %lu bytes.\r\n", totalBytes, usedBytes, freeBytes);
 
   if (freeBytes < minFreeBytes) {
-    app_log_i("ERROR: Not enough free space on LittleFS. Required: %lu bytes, Available: %lu bytes.\r\n", minFreeBytes, freeBytes);
+    applog("ERROR: Not enough free space on LittleFS. Required: %lu bytes, Available: %lu bytes.\r\n", minFreeBytes, freeBytes);
     return false;
   }
   return true;
 }
 
 void setRtcToDefaultTime() {
-  app_log_i("Setting RTC to default time: 2025/01/01 00:00:00\n");
+  applog("Setting RTC to default time: 2025/01/01 00:00:00\n");
   struct tm defaultTime;
   defaultTime.tm_year = 2025 - 1900;  // Year since 1900
   defaultTime.tm_mon = 0;             // Month (0-11, so Jan is 0)
@@ -77,20 +77,20 @@ void setRtcToDefaultTime() {
   time_t t = mktime(&defaultTime);
   struct timeval now = { .tv_sec = t };
   settimeofday(&now, NULL);
-  app_log_i("RTC set to default time.\n");
+  applog("RTC set to default time.\n");
 }
 
 // Function to generate a filename based on RTC time
 void generateFilenameFromRTC(char* filenameBuffer, size_t bufferSize) {
   struct tm timeinfo;
 
-  app_log_i("Getting time from internal RTC for initial filename...\n");
+  applog("Getting time from internal RTC for initial filename...\n");
   if (getValidRtcTime(&timeinfo)) {
     char time_buf[64];
     strftime(time_buf, sizeof(time_buf), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-    app_log_i("Current time from RTC: %s\n", time_buf);
+    applog("Current time from RTC: %s\n", time_buf);
     strftime(filenameBuffer, bufferSize, "/R%Y-%m-%d-%H-%M-%S.wav", &timeinfo);
-    app_log_i("Generated filename (RTC): %s\r\n", filenameBuffer);
+    applog("Generated filename (RTC): %s\r\n", filenameBuffer);
   }
 }
 
@@ -128,17 +128,17 @@ float getLittleFSUsagePercentage() {
 }
 
 void initLittleFS() {
-  app_log_i("init LittleFS...\n");
+  applog("init LittleFS...\n");
   if (!LittleFS.begin()) {
-    app_log_i("Formatting LittleFS...\n");
+    applog("Formatting LittleFS...\n");
     LittleFS.format();
     if (!LittleFS.begin()) {
-      app_log_i("Failed to mount LittleFS!\n");
+      applog("Failed to mount LittleFS!\n");
       while (1)
         ;  // do nothing
     }
   }
-  app_log_i("LittleFS init.\n");
+  applog("LittleFS init.\n");
 
   float usagePercentage = getLittleFSUsagePercentage();
 
@@ -146,19 +146,19 @@ void initLittleFS() {
   unsigned long usedBytes = LittleFS.usedBytes();
   unsigned long freeBytes = totalBytes - usedBytes;
 
-  app_log_i("LittleFS: Total %lu bytes, Used %lu bytes, Free %lu bytes (%.2f%% used).\r\n", totalBytes, usedBytes, freeBytes, usagePercentage);
+  applog("LittleFS: Total %lu bytes, Used %lu bytes, Free %lu bytes (%.2f%% used).\r\n", totalBytes, usedBytes, freeBytes, usagePercentage);
 
   g_audioFileCount = countAudioFiles();  // Call the new function to update file counts
 }
 
 // This function is kept for future use, although currently not called from any button press.
 void deleteAllRecordings() {
-  app_log_i("Deleting all recording files.\n");
+  applog("Deleting all recording files.\n");
   onboard_led(true);
 
   File root = LittleFS.open("/", "r");
   if (!root) {
-    app_log_i("Failed to open root directory\n");
+    applog("Failed to open root directory\n");
     onboard_led(false);
     return;
   }
@@ -171,9 +171,9 @@ void deleteAllRecordings() {
       if (strlen(filenameCStr) >= 4 && strcmp(filenameCStr + strlen(filenameCStr) - 4, ".wav") == 0) {
         char fullPath[64];  // Assuming max filename length + '/' + null terminator
         snprintf(fullPath, sizeof(fullPath), "/%s", filenameCStr);
-        app_log_i("Deleting file: %s\r\n", fullPath);
+        applog("Deleting file: %s\r\n", fullPath);
         if (!LittleFS.remove(fullPath)) {
-          app_log_i(" - Failed to delete\n");
+          applog(" - Failed to delete\n");
         }
       }
     }
@@ -181,7 +181,7 @@ void deleteAllRecordings() {
   }
   root.close();
   onboard_led(false);
-  app_log_i("Finished deleting recording files.\n");
+  applog("Finished deleting recording files.\n");
   g_audioFileCount = countAudioFiles();  // Update file counts after all deletions
 }
 
@@ -198,7 +198,7 @@ int countAudioFiles() {
 
   File root = LittleFS.open("/", "r");
   if (!root) {
-    app_log_i("Failed to open root directory to count audio files.\n");
+    applog("Failed to open root directory to count audio files.\n");
     return 0;
   }
 
@@ -213,7 +213,7 @@ int countAudioFiles() {
     file = root.openNextFile();
   }
   root.close();
-  //app_log_i("LittleFS contains %d audio files.\r\n", currentAudioFileCount);
+  //applog("LittleFS contains %d audio files.\r\n", currentAudioFileCount);
   return currentAudioFileCount;
 }
 
@@ -293,7 +293,7 @@ int getLatestAudioFilenames(char outputArray[][MAX_FILENAME_LENGTH], int maxFile
 
   File root = LittleFS.open("/", "r");
   if (!root) {
-    app_log_i("Failed to open directory\n");
+    applog("Failed to open directory\n");
     return 0;
   }
 
@@ -316,17 +316,17 @@ int getLatestAudioFilenames(char outputArray[][MAX_FILENAME_LENGTH], int maxFile
 }
 
 void execUpload() {
-  app_log_i("try to upload all WAV files.\n");
+  applog("try to upload all WAV files.\n");
   
   g_audioFileCount = countAudioFiles(); // Update file count before array declaration
   if (g_audioFileCount == 0) {
-    app_log_i("No audio files to upload.\n");
+    applog("No audio files to upload.\n");
     return;
   }
 
   // --- New: Authentication check before starting file uploads ---
   if (!checkAuthentication(HS_HOST, HS_PORT, HS_PATH, HS_USER, HS_PASS)) {
-    app_log_i("Authentication failed. Aborting file uploads.\n");
+    applog("Authentication failed. Aborting file uploads.\n");
     updateDisplay("AUTH ERR"); // Display persistent authentication error
     return; // Abort execUpload
   }
@@ -335,18 +335,18 @@ void execUpload() {
   char wavFilesToProcess[g_audioFileCount][MAX_FILENAME_LENGTH]; 
   int numFiles = getLatestAudioFilenames(wavFilesToProcess, g_audioFileCount, true); // Get all files, oldest first for upload
 
-  app_log_i("Found %d WAV files to process for upload.\r\n", numFiles);
+  applog("Found %d WAV files to process for upload.\r\n", numFiles);
 
   // Phase 2: Process collected WAV files (check size, upload, delete)
   for (int i = 0; i < numFiles; ++i) {
     char fullPath[MAX_FILENAME_LENGTH + 1]; // +1 for '/' character
     snprintf(fullPath, sizeof(fullPath), "/%s", wavFilesToProcess[i]);
     const char* currentFilename = fullPath;
-    app_log_i("Processing file for upload: %s\r\n", currentFilename);
+    applog("Processing file for upload: %s\r\n", currentFilename);
 
     File audioFileForSize = LittleFS.open(currentFilename, FILE_READ);
     if (!audioFileForSize) {
-      app_log_i("ERROR: Could not open file %s to check size. Skipping.\r\n", currentFilename);
+      applog("ERROR: Could not open file %s to check size. Skipping.\r\n", currentFilename);
       continue;
     }
 
@@ -354,26 +354,25 @@ void execUpload() {
     audioFileForSize.close(); // Close the file after getting its size
 
     if (fileSize < MIN_AUDIO_FILE_SIZE_BYTES) {
-      app_log_i("File %s is too short (size: %u bytes). Deleting from LittleFS.\r\n", currentFilename, fileSize);
+      applog("File %s is too short (size: %u bytes). Deleting from LittleFS.\r\n", currentFilename, fileSize);
       if (!LittleFS.remove(currentFilename)) {
-        app_log_i("Failed to delete short file %s from LittleFS.\r\n", currentFilename);
+        applog("Failed to delete short file %s from LittleFS.\r\n", currentFilename);
       }
       g_audioFileCount = countAudioFiles(); // Update file counts after deletion
       continue;
     }
 
     if (uploadAudioFileViaHTTP(currentFilename, HS_HOST, HS_PORT, HS_PATH, HS_USER, HS_PASS)) {
-      app_log_i("File %s uploaded successfully. Deleting from LittleFS.\r\n", currentFilename);
+      applog("File %s uploaded successfully. Deleting from LittleFS.\r\n", currentFilename);
       if (!LittleFS.remove(currentFilename)) {
-        app_log_i("Failed to delete file %s from LittleFS.\r\n", currentFilename);
+        applog("Failed to delete file %s from LittleFS.\r\n", currentFilename);
       }
     } else {
-      app_log_i("Failed to upload file %s. Stopping further uploads.\r\n", currentFilename);
+      applog("Failed to upload file %s. Stopping further uploads.\r\n", currentFilename);
       updateDisplay("UPLOAD ERR"); // Display error on LCD
       break; // Exit the loop immediately
     }
     g_audioFileCount = countAudioFiles(); // Update file counts after deletion/upload attempt
   }
-  app_log_i("Finished processing WAV files for upload.\n");
+  applog("Finished processing WAV files for upload.\n");
 }
-

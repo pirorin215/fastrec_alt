@@ -41,7 +41,7 @@ void drawWifiSignal() {
   int rssi = WiFi.RSSI();
 
   if (rssi == 0) { // If not connected, don't draw anything
-    //app_log_i("WiFi not connected (RSSI is 0), not drawing pictogram.");
+    //applog("WiFi not connected (RSSI is 0), not drawing pictogram.");
     return;
   }
 
@@ -56,7 +56,7 @@ void drawWifiSignal() {
     level = 1;
   }
 
-  //app_log_i("RSSI: %2d, Level: %d\r\n", rssi, level);
+  //applog("RSSI: %2d, Level: %d\r\n", rssi, level);
 
   // Bar 1
   if (level >= 1) display.drawRect(61, 6, 62, 8, true);
@@ -104,8 +104,8 @@ void displayStatus(const char* msg) {
   } else {
     snprintf(rssiStr, sizeof(rssiStr), "%2d", abs(WiFi.RSSI()));
   }
-  snprintf(line1, sizeof(line1), "%-6s    %2s", appStateStrings[g_currentAppState], rssiStr);
-  displayLine(0, line1);
+  snprintf(line1, sizeof(line1), "% -6s    %2s", appStateStrings[g_currentAppState], rssiStr);
+  displayLine(0, line1); 
  
   // 2行目: フラッシュメモリ空き容量と電池残量
   char line2[MAX_CHARS_PER_LINE+1];
@@ -130,7 +130,7 @@ void displayStatus(const char* msg) {
     snprintf(fsUsageStr, sizeof(fsUsageStr), "%3d", fsUsage);
   }
   snprintf(line2, sizeof(line2), "FS:%s BL:%3d", fsUsageStr, batteryLevel);
-  displayLine(1, line2);
+  displayLine(1, line2); 
  
   // 3行目:時刻
   char line3[MAX_CHARS_PER_LINE+1];
@@ -167,4 +167,3 @@ void updateDisplay(const char* msg) {
   }
   display.display();
 }
-
