@@ -41,7 +41,7 @@ void drawWifiSignal() {
   int rssi = WiFi.RSSI();
 
   if (rssi == 0) { // If not connected, don't draw anything
-    //Serial.println("WiFi not connected (RSSI is 0), not drawing pictogram.");
+    //app_log_i("WiFi not connected (RSSI is 0), not drawing pictogram.");
     return;
   }
 
@@ -56,7 +56,7 @@ void drawWifiSignal() {
     level = 1;
   }
 
-  //Serial.printf("RSSI: %2d, Level: %d\r\n", rssi, level);
+  //app_log_i("RSSI: %2d, Level: %d\r\n", rssi, level);
 
   // Bar 1
   if (level >= 1) display.drawRect(61, 6, 62, 8, true);

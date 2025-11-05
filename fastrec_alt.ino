@@ -17,7 +17,7 @@ void serialWait() {
   while (!Serial && (millis() - startTime < SERIAL_TIMEOUT_MS)) {
     delay(10);
   }
-  Serial.println("Serial init.");
+  app_log_i("Serial init.\n");
 }
 
 // Define valid state transitions
@@ -39,7 +39,7 @@ void setAppState(AppState newState, bool applyDebounce = true) {
   if (g_currentAppState != newState) {
     // デバウンス時間内に連続して状態変更が要求された場合は無視する
     if (applyDebounce && (millis() - lastStateChangeTime < STATE_CHANGE_DEBOUNCE_MS)) {
-      Serial.printf("Ignoring rapid state change request to %s (current: %s)\r\n", appStateStrings[newState], appStateStrings[g_currentAppState]);
+      app_log_i("Ignoring rapid state change request to %s (current: %s)\r\n", appStateStrings[newState], appStateStrings[g_currentAppState]);
       return;
     }
 
@@ -53,12 +53,12 @@ void setAppState(AppState newState, bool applyDebounce = true) {
     }
 
     if (!isValidTransition) {
-      Serial.printf("ERROR: Attempted invalid state transition from %s to %s. Ignoring request.\r\n",
+      app_log_i("ERROR: Attempted invalid state transition from %s to %s. Ignoring request.\r\n",
                     appStateStrings[g_currentAppState], appStateStrings[newState]);
       return; // Ignore invalid transition
     }
 
-    Serial.printf("App State changed from %s to %s\r\n", appStateStrings[g_currentAppState], appStateStrings[newState]);
+    app_log_i("App State changed from %s to %s\r\n", appStateStrings[g_currentAppState], appStateStrings[newState]);
     g_currentAppState = newState;
     g_lastActivityTime = millis();  // Reset activity timer
     lastStateChangeTime = millis(); // 状態変更時刻を更新
@@ -66,7 +66,7 @@ void setAppState(AppState newState, bool applyDebounce = true) {
 }
 
 void startVibrationSync(unsigned long duration_ms) {
-  Serial.printf("startVibrationSync %dms\r\n", duration_ms);
+  app_log_i("startVibrationSync %dms\r\n", duration_ms);
   digitalWrite(MOTOR_GPIO, HIGH);
   delay(duration_ms);
   digitalWrite(MOTOR_GPIO, LOW);
@@ -103,13 +103,13 @@ bool isUploadOrSyncNeeded() {
 
 void tryUploadAndSync() {
   if (connectToWiFi()) {
-    Serial.println("WiFi connected");
+    app_log_i("WiFi connected\n");
     updateDisplay("WiFi OK"); // Debug message on OLED
     synchronizeTime(true); // Perform NTP sync after WiFi is connected
     execUpload();
     g_audioFileCount = countAudioFiles(); // Update file counts after upload try
   } else {
-    Serial.println("WiFi not connected.");
+    app_log_i("WiFi not connected.\n");
     updateDisplay("WiFi Fail"); // Debug message on OLED
     synchronizeTime(false); // Get time from RTC as a fallback if WiFi fails
   }
@@ -145,7 +145,7 @@ void handleIdle() {
 void handleRec() {
   // If recording switch is turned off, stop recording
   if (digitalRead(REC_BUTTON_GPIO) == LOW) {
-    Serial.println("Recording switch turned OFF. Stopping recording.");
+    app_log_i("Recording switch turned OFF. Stopping recording.\n");
     stopRecording();
     g_scheduledStopTimeMillis = 0;  // Reset for next recording
     return;
@@ -153,7 +153,7 @@ void handleRec() {
 
   // Check if it's time to stop recording
   if (g_scheduledStopTimeMillis > 0 && millis() >= g_scheduledStopTimeMillis) {
-    Serial.println("Scheduled stop time reached. Stopping recording.");
+    app_log_i("Scheduled stop time reached. Stopping recording.\n");
     stopRecording();
     g_scheduledStopTimeMillis = 0;  // Reset for next recording
   } else {
@@ -164,13 +164,13 @@ void handleRec() {
 }
 
 void handleUpload() {
-  Serial.println("Performing post-recording actions...");
+  app_log_i("Performing post-recording actions...\n");
   static unsigned long lastUploadTryTime = 0; // To track last upload try time
 
   while (isUploadOrSyncNeeded()) {
     g_isForceUpload = false;
     if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-      Serial.println("Start button pressed during upload. Cancelling upload and starting recording.");
+      app_log_i("Start button pressed during upload. Cancelling upload and starting recording.\n");
       setAppState(IDLE);
       return;
     }
@@ -181,7 +181,7 @@ void handleUpload() {
     }
     
     if (!isConnectUSB()) {
-      Serial.println("USB disconnected during upload retry loop. Exiting.");
+      app_log_i("USB disconnected during upload retry loop. Exiting.\n");
       break;
     }
 
@@ -199,23 +199,23 @@ void handleUpload() {
 void wakeupLogic() {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-  Serial.printf("Wakeup was caused by: %d\r\n", wakeup_reason);
+  log_i("Wakeup was caused by: %d\r\n", wakeup_reason);
        
   switch (wakeup_reason) {
     case ESP_SLEEP_WAKEUP_EXT1: {
       uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
       if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
-        Serial.println("Start Button caused wake-up.");
+        app_log_i("Start Button caused wake-up.\n");
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
             startRecording();
         } else { // If button is not pressed (e.g., was pressed and released quickly)
             setAppState(IDLE, false);
         }
       } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
-        Serial.println("Stop Button pressed on wake-up");
+        app_log_i("Stop Button pressed on wake-up\n");
         setAppState(UPLOAD, false);
       } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
-        Serial.println("USB connected on wake-up");
+        app_log_i("USB connected on wake-up\n");
         setAppState(UPLOAD, false);
       }
       break;

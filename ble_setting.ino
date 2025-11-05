@@ -22,8 +22,7 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 
     // Handle COMMAND_UUID writes (new functionality)
     else if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
-      Serial.print("COMMAND_UUID received: ");
-      Serial.println(value.c_str());
+      log_i("COMMAND_UUID received: %s\n", value.c_str());
 
       // --- Command Parsing and Data Retrieval (Example) ---
       // In a real application, you would parse 'value' (e.g., "GET:sensor_data:0")
@@ -170,10 +169,9 @@ class MyCallbacks : public BLECharacteristicCallbacks {
       if (pResponseCharacteristic != nullptr) {
         pResponseCharacteristic->setValue(responseData.c_str()); // Fix: Convert std::string to C-style string for setValue
         pResponseCharacteristic->notify(); // Send notification to client
-        Serial.print("Sent notification: ");
-        Serial.println(responseData.c_str());
+        log_i("Sent notification: %s\n", responseData.c_str());
       } else {
-        Serial.println("Error: pResponseCharacteristic is null!");
+        log_i("Error: pResponseCharacteristic is null!\n");
       }
     }
   }
@@ -205,11 +203,11 @@ void start_ble_server() {
 
   class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
-      Serial.println("Client Connected");
+      log_i("Client Connected\n");
     };
 
     void onDisconnect(BLEServer* pServer) {
-      Serial.println("Client Disconnected - Restarting Advertising");
+      log_i("Client Disconnected - Restarting Advertising\n");
       BLEAdvertising *pAdvertising = pServer->getAdvertising(); // Use the pServer argument
       pAdvertising->start();
     }
@@ -240,7 +238,7 @@ void start_ble_server() {
 }
 
 void loadSettingsFromLittleFS() {
-  Serial.println("Loading settings from /setting.ini...");
+  log_i("Loading settings from /setting.ini...\n");
 
   // Initialize global WiFi AP arrays
   for (int i = 0; i < WIFI_MAX_APS; ++i) {
@@ -250,13 +248,13 @@ void loadSettingsFromLittleFS() {
   g_num_wifi_aps = 0; // Reset count before loading
 
   if (!LittleFS.begin()) {
-    Serial.println("LittleFS Mount Failed. Using default settings.");
+    log_i("LittleFS Mount Failed. Using default settings.\n");
     return;
   }
 
   File configFile = LittleFS.open("/setting.ini", "r");
   if (!configFile) {
-    Serial.println("Failed to open /setting.ini. Using default settings.");
+    log_i("Failed to open /setting.ini. Using default settings.\n");
     return;
   }
 
@@ -273,7 +271,7 @@ void loadSettingsFromLittleFS() {
 
     char* separator = strchr(lineBuffer, '=');
     if (separator == nullptr) {
-      Serial.printf("Invalid line in setting.ini: %s\r\n", lineBuffer);
+      log_i("Invalid line in setting.ini: %s\r\n", lineBuffer);
       continue;
     }
 
@@ -286,68 +284,68 @@ void loadSettingsFromLittleFS() {
 
     if (strcmp(key, "DEEP_SLEEP_DELAY_MS") == 0) {
       DEEP_SLEEP_DELAY_MS = atol(value);
-      Serial.printf("Setting DEEP_SLEEP_DELAY_MS to %lu\r\n", DEEP_SLEEP_DELAY_MS);
+      log_i("Setting DEEP_SLEEP_DELAY_MS to %lu\r\n", DEEP_SLEEP_DELAY_MS);
     } else if (strcmp(key, "BAT_VOL_MIN") == 0) {
       BAT_VOL_MIN = atof(value);
-      Serial.printf("Setting BAT_VOL_MIN to %f\r\n", BAT_VOL_MIN);
+      log_i("Setting BAT_VOL_MIN to %f\r\n", BAT_VOL_MIN);
     } else if (strcmp(key, "BAT_VOL_MULT") == 0) {
       BAT_VOL_MULT = atof(value);
-      Serial.printf("Setting BAT_VOL_MULT to %f\r\n", BAT_VOL_MULT);
+      log_i("Setting BAT_VOL_MULT to %f\r\n", BAT_VOL_MULT);
     } else if (strcmp(key, "I2S_SAMPLE_RATE") == 0) {
       I2S_SAMPLE_RATE = atoi(value);
-      Serial.printf("Setting I2S_SAMPLE_RATE to %d\r\n", I2S_SAMPLE_RATE);
+      log_i("Setting I2S_SAMPLE_RATE to %d\r\n", I2S_SAMPLE_RATE);
     } else if (strcmp(key, "REC_MAX_S") == 0) {
       REC_MAX_S = atoi(value);
-      Serial.printf("Setting REC_MAX_S to %d\r\n", REC_MAX_S);
+      log_i("Setting REC_MAX_S to %d\r\n", REC_MAX_S);
       MAX_REC_DURATION_MS = REC_MAX_S * 1000; // Recalculate MAX_RECORDING_DURATION_MS
-      Serial.printf("Recalculated MAX_REC_DURATION_MS to %lu\n", MAX_REC_DURATION_MS);
+      log_i("Recalculated MAX_REC_DURATION_MS to %lu\n", MAX_REC_DURATION_MS);
     } else if (strcmp(key, "REC_MIN_S") == 0) {
       REC_MIN_S = atoi(value);
-      Serial.printf("Setting REC_MIN_S to %d\r\n", REC_MIN_S);
+      log_i("Setting REC_MIN_S to %d\r\n", REC_MIN_S);
       updateMinAudioFileSize(); // Recalculate MIN_AUDIO_FILE_SIZE_BYTES
     } else if (strcmp(key, "AUDIO_GAIN") == 0) {
       AUDIO_GAIN = atof(value);
-      Serial.printf("Setting AUDIO_GAIN to %f\r\n", AUDIO_GAIN);
+      log_i("Setting AUDIO_GAIN to %f\r\n", AUDIO_GAIN);
     } else if (strcmp(key, "VIBRA_STARTUP_MS") == 0) {
       VIBRA_STARTUP_MS = atol(value);
-      Serial.printf("Setting VIBRA_STARTUP_MS to %lu\r\n", VIBRA_STARTUP_MS);
+      log_i("Setting VIBRA_STARTUP_MS to %lu\r\n", VIBRA_STARTUP_MS);
     } else if (strcmp(key, "VIBRA_REC_START_MS") == 0) {
       VIBRA_REC_START_MS = atol(value);
-      Serial.printf("Setting VIBRA_REC_START_MS to %lu\r\n", VIBRA_REC_START_MS);
+      log_i("Setting VIBRA_REC_START_MS to %lu\r\n", VIBRA_REC_START_MS);
     } else if (strcmp(key, "VIBRA_REC_STOP_MS") == 0) {
       VIBRA_REC_STOP_MS = atol(value);
-      Serial.printf("Setting VIBRA_REC_STOP_MS to %lu\r\n", VIBRA_REC_STOP_MS);
+      log_i("Setting VIBRA_REC_STOP_MS to %lu\r\n", VIBRA_REC_STOP_MS);
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
-      Serial.printf("Setting HS_HOST to %s\r\n", HS_HOST);
+      log_i("Setting HS_HOST to %s\r\n", HS_HOST);
     } else if (strcmp(key, "HS_PORT") == 0) {
       HS_PORT = atoi(value);
-      Serial.printf("Setting HS_PORT to %d\r\n", HS_PORT);
+      log_i("Setting HS_PORT to %d\r\n", HS_PORT);
     } else if (strcmp(key, "HS_PATH") == 0) {
       HS_PATH = strdup(value);
-      Serial.printf("Setting HS_PATH to %s\r\n", HS_PATH);
+      log_i("Setting HS_PATH to %s\r\n", HS_PATH);
     } else if (strcmp(key, "HS_USER") == 0) {
       HS_USER = strdup(value);
-      Serial.printf("Setting HS_USER to %s\r\n", HS_USER);
+      log_i("Setting HS_USER to %s\r\n", HS_USER);
     } else if (strcmp(key, "HS_PASS") == 0) {
       HS_PASS = strdup(value);
-      Serial.printf("Setting HS_PASS to %s\r\n", HS_PASS);
+      log_i("Setting HS_PASS to %s\r\n", HS_PASS);
     } else if (strncmp(key, "W_SSID_", strlen("W_SSID_")) == 0) {
       int apIndex = atoi(key + strlen("W_SSID_"));
       if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
         strncpy(g_wifi_ssids[apIndex], value, sizeof(g_wifi_ssids[apIndex]) - 1);
         g_wifi_ssids[apIndex][sizeof(g_wifi_ssids[apIndex]) - 1] = '\0'; // Ensure null termination
-        Serial.printf("Setting W_SSID_%d to %s\r\n", apIndex, g_wifi_ssids[apIndex]);
+        log_i("Setting W_SSID_%d to %s\r\n", apIndex, g_wifi_ssids[apIndex]);
       }
     } else if (strncmp(key, "W_PASS_", strlen("W_PASS_")) == 0) {
       int apIndex = atoi(key + strlen("W_PASS_"));
       if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
         strncpy(g_wifi_passwords[apIndex], value, sizeof(g_wifi_passwords[apIndex]) - 1);
         g_wifi_passwords[apIndex][sizeof(g_wifi_passwords[apIndex]) - 1] = '\0'; // Ensure null termination
-        Serial.printf("Setting W_PASS_%d to %s\r\n", apIndex, g_wifi_passwords[apIndex]);
+        log_i("Setting W_PASS_%d to %s\r\n", apIndex, g_wifi_passwords[apIndex]);
       }
     } else {
-      Serial.printf("Unknown setting in setting.ini: %s\r\n", key);
+      log_i("Unknown setting in setting.ini: %s\r\n", key);
     }
   }
 
@@ -362,9 +360,9 @@ void loadSettingsFromLittleFS() {
       break;
     }
   }
-  Serial.printf("Configured %d WiFi APs.\r\n", g_num_wifi_aps);
+  log_i("Configured %d WiFi APs.\r\n", g_num_wifi_aps);
 
   configFile.close();
-  Serial.println("Settings loaded.");
+  log_i("Settings loaded.\n");
 }
 
