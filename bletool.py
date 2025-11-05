@@ -167,12 +167,23 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
                 return
 
         await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=False)
-        print("setting.ini を送信しました。デバイスは再起動します。")
-        print("次回のコマンド実行時に自動で再接続されます。")
+        print("setting.ini を送信しました。デバイスが再起動します。")
 
-        # Known disconnect, so just disconnect gracefully from client side
         if g_client and g_client.is_connected:
             await g_client.disconnect()
+
+        print("デバイスの再起動後、自動で再接続します...")
+        await asyncio.sleep(2.0)
+
+        reconnect_attempts = 10
+        for i in range(reconnect_attempts):
+            print(f"再接続試行 ({i + 1}/{reconnect_attempts})...")
+            if await reconnect_ble_client(verbose=False):
+                return
+            await asyncio.sleep(1.0)
+
+        print(f"{RED}自動再接続に失敗しました。{RESET}")
+        print("デバイスの準備ができてから、他のメニュー項目を選択して手動で再接続してください。")
 
     except FileNotFoundError:
         print(f"{RED}Error: File not found at {file_path}{RESET}")
