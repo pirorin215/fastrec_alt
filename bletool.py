@@ -10,22 +10,26 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 
 GREEN = '\033[92m'
 RED = '\033[91m'
+YELLOW = '\033[93m'
 RESET = '\033[0m'
 
 DEVICE_NAME = "fastrec"
 COMMAND_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26aa" # コマンド送信用のUUID
 RESPONSE_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26ab" # 応答データ受信用のUUID
+EOM_MARKER = "[EOM]"
 
 # 応答データを受け取るためのグローバル変数とイベント
-received_response_data = None
+received_response_data = ""
 response_event = asyncio.Event() # 応答があったことを通知するためのイベント
 
 # 通知ハンドラ関数
 # マイコンから応答特性を通じてデータが送信されると、この関数が呼び出されます。
 def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
     global received_response_data
-    received_response_data = data.decode('utf-8')
-    response_event.set() # 応答があったことをイベントに通知
+    data_str = data.decode('utf-8', errors='ignore')
+    received_response_data += data_str
+    if EOM_MARKER in received_response_data:
+        response_event.set() # 応答があったことをイベントに通知
 
 def compare_and_print_diff(device_content: str, local_content: str):
     device_lines = device_content.splitlines()
@@ -65,37 +69,39 @@ def getch():
     return ch
 
 # --- 新しいデータ取得処理 ---
-async def run_ble_command(client: BleakClient, command_str: str, verbose: bool = False):
+async def run_ble_command(client: BleakClient, command_str: str, verbose: bool = False, timeout: float = 15.0):
     global received_response_data
-    received_response_data = None  # Reset response data for each new request
+    received_response_data = ""  # Reset response data for each new request
     response_event.clear()  # Clear the event to await the next response
 
     if verbose:
         print(f"\n--- BLEコマンド実行: コマンド='{command_str}' ---")
 
-    # Ensure notifications are started if not already
     if not client.is_connected:
         if not await reconnect_ble_client(client, verbose):
-            return None
+            return None, "BLEクライアントが切断されました。再接続に失敗しました。"
 
-    # コマンドを送信
     if verbose:
         print(f"3. コマンド '{command_str}' を '{COMMAND_UUID}' に送信中...")
     await client.write_gatt_char(
         COMMAND_UUID,
         bytes(command_str, 'utf-8'),
-        response=True  # Request write response (confirmation of write success)
+        response=True
     )
     if verbose:
         print(f"{GREEN}   -> コマンド送信完了。応答を待機中...{RESET}")
     try:
-        # 応答が来るまで待機 (最大15秒)
-        await asyncio.wait_for(response_event.wait(), timeout=15.0)
-        if not received_response_data:
-            print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。{RESET}")
+        await asyncio.wait_for(response_event.wait(), timeout=timeout)
+        if received_response_data:
+            return received_response_data.replace(EOM_MARKER, ''), None  # 成功、エラーなし
+        else:
+            return None, "応答データが受信されませんでした。"
     except asyncio.TimeoutError:
-        print(f"{RED}4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。{RESET}")
-    return received_response_data  # Return response data
+        timeout_msg = "4. タイムアウト: 応答データが受信されませんでした。マイコンからの応答がありませんでした。"
+        if received_response_data:
+            return received_response_data, timeout_msg  # 不完全なデータとタイムアウトメッセージを返す
+        else:
+            return None, timeout_msg  # データなしとタイムアウトメッセージを返す
 
 async def reconnect_ble_client(client: BleakClient, verbose: bool = False) -> bool:
     print(f"{RED}BLEクライアントが切断されました。再接続を試みます...{RESET}")
@@ -125,7 +131,12 @@ async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = 
         command = f"SET:setting_ini:{content}"
         print(f"送信するsetting.iniの内容:\n{content}")
         print(f"{file_path} から setting.ini を送信中...")
-        await run_ble_command(client, command, verbose)
+        response_data, error_message = await run_ble_command(client, command, verbose)
+        if error_message:
+            print(f"{RED}エラー: {error_message}{RESET}")
+            print(f"{RED}setting.ini の送信に失敗しました。{RESET}")
+            return
+
         print(f"{GREEN}setting.ini を正常に送信しました。{RESET}")
     except FileNotFoundError:
         print(f"{RED}Error: File not found at {file_path}{RESET}")
@@ -140,7 +151,14 @@ async def send_setting_ini(client: BleakClient, file_path: str, verbose: bool = 
 
 async def get_setting_ini(client: BleakClient, verbose: bool = False):
     print("デバイスから setting.ini を要求中...")
-    device_response = await run_ble_command(client, "GET:setting_ini", verbose)
+    device_response, error_message = await run_ble_command(client, "GET:setting_ini", verbose)
+
+    if error_message:
+        print(f"{RED}エラー: {error_message}{RESET}")
+        if device_response:
+            print(f"{RED}不完全なデータ: {device_response}{RESET}")
+        print(f"{RED}setting.ini の取得に失敗しました。{RESET}")
+        return None
 
     if device_response:
         print(f"\n\n")
@@ -164,13 +182,21 @@ async def get_setting_ini(client: BleakClient, verbose: bool = False):
 
 async def get_device_info(client: BleakClient, verbose: bool = False):
     print("デバイスから各種情報を要求中...")
-    response = await run_ble_command(client, "GET:info", verbose)
-    if response:
+    response_data, error_message = await run_ble_command(client, "GET:info", verbose)
+
+    if error_message:
+        print(f"{RED}エラー: {error_message}{RESET}")
+        if response_data:
+            print(f"{RED}不完全なデータ: {response_data}{RESET}")
+        print(f"{RED}各種情報の取得に失敗しました。{RESET}")
+        return None
+
+    if response_data:
         if verbose:
-            print(f"{GREEN}マイコンからの情報:{RESET}\n{response}")
+            print(f"{GREEN}マイコンからの情報:{RESET}\n{response_data}")
         try:
             print(f"\n")
-            info = json.loads(response)
+            info = json.loads(response_data)
             print(f"{'バッテリーレベル'} : {int(info.get('battery_level', 0))} %")
             print(f"{'バッテリー電圧'}   : {info.get('battery_voltage', 0.0):.1f} V")
             print(f"{'アプリ状態'}       : {info.get('app_state', 'N/A')}")
@@ -191,7 +217,102 @@ async def get_device_info(client: BleakClient, verbose: bool = False):
             print(f"{RED}エラー: 受信した情報がJSON形式ではありません。{RESET}")
     else:
         print(f"{RED}各種情報の取得に失敗しました。{RESET}")
-    return response
+    return response_data
+
+async def get_log_file(client: BleakClient, verbose: bool = False):
+    # --- 利用可能なログファイルの一覧を表示 ---
+    print("デバイスからファイルリストを取得中...")
+    info_data, error_message = await run_ble_command(client, "GET:info", verbose)
+    if not error_message and info_data:
+        try:
+            info = json.loads(info_data)
+            ls_content = info.get('ls', '')
+            log_files = [item for item in ls_content.strip().split('\n') if item and item.endswith('.txt')]
+            if log_files:
+                print(f"\n{GREEN}取得可能なログファイル:{RESET}")
+                for log_file in log_files:
+                    print(f"  - {log_file}")
+                print("")
+            else:
+                print(f"{YELLOW}取得可能なログファイルはありません。{RESET}")
+        except json.JSONDecodeError:
+            print(f"{RED}ファイルリストの解析に失敗しました。手動でファイル名を入力してください。{RESET}")
+    else:
+        print(f"{RED}ファイルリストの取得に失敗しました。手動でファイル名を入力してください。{RESET}")
+    # --- ここまで ---
+
+    sys.stdout.write("取得するログファイル名を入力してください (例: log.0.txt): ")
+    sys.stdout.flush()
+    filename = sys.stdin.readline().strip()
+
+    if not filename:
+        print(f"{RED}ファイル名が入力されていません。{RESET}")
+        return
+
+    # ファイル名が.txtで終わるかチェック
+    if not filename.endswith('.txt'):
+        print(f"{RED}エラー: この機能では .txt ログファイルのみ取得できます。{RESET}")
+        return
+
+    MAX_RETRIES = 30
+    RETRY_TIMEOUT = 0.1  # seconds
+
+    last_incomplete_data = None
+    last_error_message = None
+
+    for attempt in range(MAX_RETRIES):
+        print(f"デバイスから {filename} を要求中... (試行 {attempt + 1}/{MAX_RETRIES})")
+        
+        response_data, error_message = await run_ble_command(client, f"GET:log:{filename}", verbose, timeout=RETRY_TIMEOUT)
+
+        if error_message is None:  # 成功
+            if response_data.startswith("ERROR:"):  # デバイスからのエラー
+                print(f"{RED}{response_data}{RESET}")
+            else:
+                try:
+                    with open(filename, 'w') as f:
+                        f.write(response_data)
+                    print(f"{GREEN}{filename} を正常に受信し、保存しました。{RESET}")
+                except IOError as e:
+                    print(f"{RED}ファイル '{filename}' の保存中にエラーが発生しました: {e}{RESET}")
+            return  # 成功またはデバイスからのエラーで関数を終了
+
+        # ここに到達した場合、run_ble_commandはタイムアウトまたは接続エラーを返した
+        last_incomplete_data = response_data  # 最終的なエラー表示のために保存
+        last_error_message = error_message
+
+        if attempt < MAX_RETRIES - 1:
+            print(f"{RED}試行 {attempt + 1} がタイムアウトしました。リトライします...{RESET}")
+            await asyncio.sleep(1)  # リトライ前に少し待機
+        else:
+            # 最終試行も失敗した場合、完全なエラーメッセージを表示
+            print(f"{RED}{last_error_message}{RESET}")
+            if last_incomplete_data:
+                print(f"{RED}不完全なデータを受信しました: {last_incomplete_data}{RESET}")
+            print(f"{RED}{filename} の取得に失敗しました。({MAX_RETRIES}回試行){RESET}")
+
+async def format_filesystem(client: BleakClient, verbose: bool = False):
+    print(f"{RED}警告: これにより、デバイス上のすべてのログファイルと設定が削除されます。{RESET}")
+    sys.stdout.write("本当によろしいですか？ (y/n): ")
+    sys.stdout.flush()
+    choice = getch()
+    print(choice)
+
+    if choice.lower() == 'y':
+        print("ファイルシステムを初期化中...")
+        response_data, error_message = await run_ble_command(client, "CMD:format_fs", verbose, timeout=30.0)
+        if error_message:
+            print(f"{RED}エラー: {error_message}{RESET}")
+            print(f"{RED}ファイルシステムの初期化に失敗しました。{RESET}")
+            return
+
+        if response_data:
+            print(f"{GREEN}デバイスからの応答: {response_data}{RESET}")
+        else:
+            print(f"{RED}ファイルシステムの初期化に失敗しました（応答がありませんでした）。{RESET}")
+    else:
+        print("操作をキャンセルしました。")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='BLE Tool for fastrec device.')
@@ -223,6 +344,8 @@ if __name__ == "__main__":
                 print("1. 録音レコーダに setting.ini を送信")
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
+                print("4. 録音レコーダのログファイルを取得")
+                print("5. 録音レコーダのファイルシステムを初期化")
                 print("0. 終了")
 
                 sys.stdout.write("Enter your choice: ")
@@ -245,6 +368,16 @@ if __name__ == "__main__":
                         await get_device_info(client, verbose)
                     except Exception as e:
                         print(f"{RED}Error during get_littlefs_ls: {e}{RESET}")
+                elif choice == '4':
+                    try:
+                        await get_log_file(client, verbose)
+                    except Exception as e:
+                        print(f"{RED}Error during get_log_file: {e}{RESET}")
+                elif choice == '5':
+                    try:
+                        await format_filesystem(client, verbose)
+                    except Exception as e:
+                        print(f"{RED}Error during format_filesystem: {e}{RESET}")
                 elif choice == '0':
                     print("BLEツールを終了します。")
                     break
