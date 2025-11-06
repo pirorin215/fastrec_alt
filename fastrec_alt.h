@@ -4,6 +4,10 @@
 #include "FS.h"
 #include "LittleFS.h"
 #include <BLEDevice.h> // Required for BLEServer type
+#include <vector>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 // GPIO settings
 #define REC_BUTTON_GPIO    GPIO_NUM_1
@@ -136,7 +140,13 @@ volatile bool g_isForceUpload = false;
 BLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 // audio
-int16_t g_i2s_read_buffer[I2S_BUFFER_SIZE / sizeof(int16_t)];
+std::vector<int16_t> g_audio_buffer;
+volatile size_t g_buffer_head;
+volatile size_t g_buffer_tail;
+SemaphoreHandle_t g_buffer_mutex;
+TaskHandle_t g_i2s_reader_task_handle;
+volatile bool g_is_buffering;
+
 File g_audioFile;
 char g_audio_filename[64];
 int g_audioFileCount;
@@ -145,5 +155,10 @@ uint32_t g_totalBytesRecorded = 0;
 // wifi
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
+// ble setting
+volatile bool g_start_log_transfer = false;
+std::string g_log_filename_to_transfer;
+
 // --- Function Prototypes ---
+
 #endif // FASTREC_INO_H

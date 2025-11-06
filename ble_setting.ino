@@ -18,9 +18,6 @@ BLECharacteristic *pResponseCharacteristic;
 BLECharacteristic *pAckCharacteristic;
 
 SemaphoreHandle_t ackSemaphore = NULL;
-volatile bool g_start_log_transfer = false;
-std::string g_log_filename_to_transfer;
-
 
 void handleLogTransfer() {
   if (LittleFS.exists(g_log_filename_to_transfer.c_str())) {
@@ -233,18 +230,23 @@ class MyCallbacks : public BLECharacteristicCallbacks {
             continue;
           }
 
-          String filePath = file.name(); // Copy file name
+          char filePathBuffer[256]; // Use a char array instead of String
+          const char* fileName = file.name();
           file.close(); // Close file before deleting
 
-          if (!filePath.startsWith("/")) {
-            filePath = "/" + filePath;
+          if (fileName[0] != '/') {
+            // Prepend "/" if not already present
+            snprintf(filePathBuffer, sizeof(filePathBuffer), "/%s", fileName);
+          } else {
+            strncpy(filePathBuffer, fileName, sizeof(filePathBuffer) - 1);
+            filePathBuffer[sizeof(filePathBuffer) - 1] = '\0';
           }
 
-          if (LittleFS.remove(filePath)) {
-            applog("Deleted file: %s", filePath.c_str());
+          if (LittleFS.remove(filePathBuffer)) {
+            applog("Deleted file: %s", filePathBuffer);
             deleted_count++;
           } else {
-            applog("Failed to delete file: %s", filePath.c_str());
+            applog("Failed to delete file: %s", filePathBuffer);
           }
         }
         root.close();
