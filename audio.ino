@@ -85,6 +85,7 @@ void startRecording() {
   }
   
   setAppState(REC, false);
+  g_enable_logging = true; // ここでログ出力を有効にする
   applog("%ums", millis() - g_boot_time_ms);
   startVibrationSync(VIBRA_REC_START_MS);  // Vibrate on record start
 

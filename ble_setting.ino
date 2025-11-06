@@ -408,6 +408,9 @@ void loadSettingsFromLittleFS() {
     } else if (strcmp(key, "VIBRA_REC_STOP_MS") == 0) {
       VIBRA_REC_STOP_MS = atol(value);
       applog("Setting VIBRA_REC_STOP_MS to %lu", VIBRA_REC_STOP_MS);
+    } else if (strcmp(key, "SUPPRESS_LOG_AT_BOOT") == 0) {
+      g_is_log_suppressed_at_boot = (strcmp(value, "true") == 0);
+      applog("Setting SUPPRESS_LOG_AT_BOOT to %s", g_is_log_suppressed_at_boot ? "true" : "false");
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
       applog("Setting HS_HOST to %s", HS_HOST);

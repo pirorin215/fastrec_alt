@@ -2,6 +2,11 @@
 #include <stdarg.h>
 
 void applog(const char *format, ...) {
+    // formatが"ERROR:"で始まる場合は、g_enable_loggingがfalseでもログを出力する
+    if (!g_enable_logging && strncmp(format, "ERROR:", 6) != 0) {
+        return;
+    }
+
     char loc_buf[64];
     char * temp = loc_buf;
     struct tm timeinfo;
