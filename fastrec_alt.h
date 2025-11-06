@@ -122,7 +122,9 @@ typedef struct {
 // fastrec_alt
 RTC_DATA_ATTR bool g_hasTimeBeenSynchronized;
 RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
+RTC_DATA_ATTR bool g_is_log_suppressed_at_boot = false;
 
+bool g_enable_logging = true;
 volatile AppState g_currentAppState;
 unsigned long g_boot_time_ms = 0;
 unsigned long g_lastActivityTime;
