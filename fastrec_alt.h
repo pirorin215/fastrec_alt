@@ -122,21 +122,16 @@ typedef struct {
 // fastrec_alt
 RTC_DATA_ATTR bool g_hasTimeBeenSynchronized;
 RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
+
 volatile AppState g_currentAppState;
-
+unsigned long g_boot_time_ms = 0;
 unsigned long g_lastActivityTime;
-
-
 
 float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
 
 volatile bool g_isForceUpload = false;
 BLEServer* pBLEServer; // Global pointer to the BLE server instance
-
-
-
-
 
 // audio
 int16_t g_i2s_read_buffer[I2S_BUFFER_SIZE / sizeof(int16_t)];

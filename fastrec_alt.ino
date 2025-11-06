@@ -265,6 +265,7 @@ void initRTCtime() {
 }
 
 void setup() {
+  g_boot_time_ms = millis();
   Serial.begin(SERIAL_BAUD_RATE);
 
   //serialWait(); // コンソールデバッグ用：このコメント行を消さないでください

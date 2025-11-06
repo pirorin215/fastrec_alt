@@ -78,8 +78,6 @@ void initI2SMicrophone() {
 
 void startRecording() {
 
-  applog("Starting recording.");
-
   if (!checkFreeSpace()) {
     applog("Not enough free space to start recording. Entering IDLE state.");
     setAppState(IDLE);  // Go to IDLE state if not enough space
@@ -87,8 +85,12 @@ void startRecording() {
   }
   
   setAppState(REC, false);
-  onboard_led(true);
+  applog("%ums", millis() - g_boot_time_ms);
   startVibrationSync(VIBRA_REC_START_MS);  // Vibrate on record start
+
+  applog("Starting recording.");
+
+  onboard_led(true);
 
   float usagePercentage = getLittleFSUsagePercentage();
   updateDisplay("");
