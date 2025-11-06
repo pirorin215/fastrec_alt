@@ -11,11 +11,6 @@
 
 #define BUTTON_PIN_BITMASK(GPIO) (1ULL << GPIO)
 
-void handleLogTransfer();
-
-extern volatile bool g_start_log_transfer;
-extern std::string g_log_filename_to_transfer;
-
 // --- Function Implementations ---
 void serialWait() {
   unsigned long startTime = millis();
@@ -120,6 +115,103 @@ void tryUploadAndSync() {
   }
 }
 
+void writeAudioBufferToFile() {
+  size_t available_data = 0;
+  size_t contiguous_block_size = 0;
+
+  xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+  if (g_buffer_head >= g_buffer_tail) {
+    available_data = g_buffer_head - g_buffer_tail;
+  } else {
+    available_data = g_audio_buffer.size() - g_buffer_tail + g_buffer_head;
+  }
+
+  if (available_data > 0) {
+    if (g_buffer_head > g_buffer_tail) {
+      contiguous_block_size = available_data;
+    } else {
+      contiguous_block_size = g_audio_buffer.size() - g_buffer_tail;
+    }
+    
+    size_t written_bytes = g_audioFile.write((const uint8_t*)&g_audio_buffer[g_buffer_tail], contiguous_block_size * sizeof(int16_t));
+    g_totalBytesRecorded += written_bytes;
+    g_buffer_tail = (g_buffer_tail + (written_bytes / sizeof(int16_t))) % g_audio_buffer.size();
+  }
+  xSemaphoreGive(g_buffer_mutex);
+}
+
+void flushAudioBufferToFile() {
+  applog("Flushing audio buffer to file...");
+  while (g_buffer_head != g_buffer_tail) {
+    writeAudioBufferToFile();
+    vTaskDelay(pdMS_TO_TICKS(10)); // Give some time for the file write to happen
+  }
+  applog("Buffer flushed.");
+}
+
+void startRecording() {
+  if (!checkFreeSpace()) {
+    applog("Not enough free space to start recording. Entering IDLE state.");
+    setAppState(IDLE);
+    return;
+  }
+
+  setAppState(REC, false);
+  g_enable_logging = true;
+  applog("Recording started at %ums", millis() - g_boot_time_ms);
+
+  // --- Start pre-buffering and give immediate feedback ---
+  xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+  g_buffer_head = 0;
+  g_buffer_tail = 0;
+  xSemaphoreGive(g_buffer_mutex);
+  g_is_buffering = true; // Signal I2S task to start buffering
+
+  startVibrationSync(VIBRA_REC_START_MS); // Vibrate immediately
+  onboard_led(true);
+  updateDisplay("");
+
+  // --- Perform slower file operations after feedback ---
+  generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));
+  applog("Opening file %s for writing...", g_audio_filename);
+
+  g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
+  if (!g_audioFile) {
+    applog("Failed to open file for writing!");
+    g_is_buffering = false; // Stop buffering
+    setAppState(DSLEEP);
+    return;
+  }
+
+  writeWavHeader(g_audioFile, 0); // Write a placeholder header
+  g_audioFileCount = countAudioFiles();
+
+  g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
+  g_totalBytesRecorded = 0;
+  applog("File opened. Now writing buffered and live audio data...");
+}
+
+void stopRecording() {
+  applog("Stopping recording...");
+  g_is_buffering = false; // Signal I2S task to stop writing to the buffer
+  
+  flushAudioBufferToFile(); // Write any remaining data from the buffer to the file
+
+  onboard_led(false);
+  if (g_audioFile) {
+    updateWavHeader(g_audioFile, g_totalBytesRecorded);
+    g_audioFile.close();
+    applog("File closed. Total bytes recorded: %u", g_totalBytesRecorded);
+    finalizeRecording(); // Check file size and delete if too short
+  } else {
+    applog("Error: Audio file was not open.");
+  }
+
+  updateDisplay("");
+  setAppState(IDLE);
+  startVibrationSync(VIBRA_REC_STOP_MS);
+}
+
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
 
@@ -162,10 +254,10 @@ void handleRec() {
     stopRecording();
     g_scheduledStopTimeMillis = 0;  // Reset for next recording
   } else {
-    // Continue recording if not yet time to stop
-    addRecording();
+    // Continuously write buffered data to the file
+    writeAudioBufferToFile();
   }
-  g_lastActivityTime = millis();  // Reset activity timer after stopping recording or writing data
+  g_lastActivityTime = millis();  // Reset activity timer while recording
 }
 
 void handleUpload() {
@@ -212,7 +304,7 @@ void wakeupLogic() {
       if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
         applog("Start Button caused wake-up.");
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
-            startRecording();
+            startRecording(); // Directly start recording
         } else { // If button is not pressed (e.g., was pressed and released quickly)
             setAppState(IDLE, false);
         }
@@ -291,6 +383,13 @@ void setup() {
   start_ble_server();
   
   initSSD();
+
+  // --- Initialize Audio Buffering System ---
+  g_buffer_mutex = xSemaphoreCreateMutex();
+  const int buffer_seconds = 3;
+  g_audio_buffer.resize(I2S_SAMPLE_RATE * buffer_seconds);
+  applog("Audio buffer size: %d for %d seconds", g_audio_buffer.size(), buffer_seconds);
+  xTaskCreatePinnedToCore(i2s_read_task, "I2SReaderTask", 4096, NULL, 10, &g_i2s_reader_task_handle, 1);
 
   initI2SMicrophone();
 

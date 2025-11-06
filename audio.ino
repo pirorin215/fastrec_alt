@@ -76,50 +76,7 @@ void initI2SMicrophone() {
   applog("I2S bus initialized.");
 }
 
-void startRecording() {
-
-  if (!checkFreeSpace()) {
-    applog("Not enough free space to start recording. Entering IDLE state.");
-    setAppState(IDLE);  // Go to IDLE state if not enough space
-    return;
-  }
-  
-  setAppState(REC, false);
-  g_enable_logging = true; // ここでログ出力を有効にする
-  applog("%ums", millis() - g_boot_time_ms);
-  startVibrationSync(VIBRA_REC_START_MS);  // Vibrate on record start
-
-  applog("Starting recording.");
-
-  onboard_led(true);
-
-  float usagePercentage = getLittleFSUsagePercentage();
-  updateDisplay("");
-
-  generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));  // Generate filename before recording
-  applog("Opening file %s for writing...", g_audio_filename);
-
-  g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
-  if (!g_audioFile) {
-    applog("Failed to open file for writing!");
-    setAppState(DSLEEP);  // Cannot record, go to deep sleep
-    return;
-  }
-
-  writeWavHeader(g_audioFile, 0);  // Write a placeholder header
-  g_audioFileCount = countAudioFiles();            // Update file counts after creating a new file
-
-  g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
-  g_totalBytesRecorded = 0;
-  applog("Recording audio data...");
-}
-
-void stopRecording() {
-  applog("Stopping recording.");
-  onboard_led(false);
-  updateWavHeader(g_audioFile, g_totalBytesRecorded);
-  g_audioFile.close();
-
+void finalizeRecording() {
   // Check if the recorded file is too short and delete it if necessary
   File recordedFile = LittleFS.open(g_audio_filename, FILE_READ);
   if (recordedFile) {
@@ -138,29 +95,46 @@ void stopRecording() {
   } else {
     applog("ERROR: Could not open recorded file %s to check size.", g_audio_filename);
   }
-
-  applog("Debug: Filename in stopRecording: %s", g_audio_filename);
-  float usagePercentage = getLittleFSUsagePercentage();
-  updateDisplay("");
-  setAppState(IDLE);
-  startVibrationSync(VIBRA_REC_STOP_MS);
 }
 
-void addRecording() {
-  size_t bytes_read = 0;
-  int32_t raw_samples[I2S_BUFFER_SIZE / sizeof(int32_t)];  // Read as 32-bit from I2S
+void i2s_read_task(void *pvParameters) {
+  const size_t i2s_buffer_samples = 256;
+  int32_t* raw_samples = (int32_t*) malloc(i2s_buffer_samples * sizeof(int32_t));
+  size_t bytes_read;
 
-  i2s_read(I2S_NUM_0, (char*)raw_samples, I2S_BUFFER_SIZE, &bytes_read, portMAX_DELAY);
+  while (true) {
+    if (g_is_buffering) {
+      i2s_read(I2S_NUM_0, (char*)raw_samples, i2s_buffer_samples * sizeof(int32_t), &bytes_read, portMAX_DELAY);
+      
+      if (bytes_read > 0) {
+        size_t samples_read = bytes_read / sizeof(int32_t);
+        int16_t processed_samples[samples_read];
 
-  if (bytes_read > 0) {
-    for (size_t i = 0; i < bytes_read / sizeof(int32_t); i++) {
-      g_i2s_read_buffer[i] = (int16_t)(raw_samples[i] >> 16);  // Convert 32-bit to 16-bit
+        for (size_t i = 0; i < samples_read; i++) {
+          processed_samples[i] = (int16_t)(raw_samples[i] >> 16); // Convert 32-bit to 16-bit
+        }
+        amplifyAudio(processed_samples, samples_read, AUDIO_GAIN);
+
+        xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+        for (size_t i = 0; i < samples_read; i++) {
+          size_t next_head = (g_buffer_head + 1) % g_audio_buffer.size();
+          if (next_head != g_buffer_tail) { // Check for buffer full
+            g_audio_buffer[g_buffer_head] = processed_samples[i];
+            g_buffer_head = next_head;
+          } else {
+            // Buffer is full, log an error. Oldest data is overwritten.
+            // To prevent this, you might want to increase the buffer size or improve writing speed.
+            // For now, we just lose a sample.
+          }
+        }
+        xSemaphoreGive(g_buffer_mutex);
+      }
+    } else {
+      // Wait for the buffering to be enabled
+      vTaskDelay(pdMS_TO_TICKS(50));
     }
-    // Amplify audio samples
-    amplifyAudio(g_i2s_read_buffer, bytes_read / sizeof(int32_t), AUDIO_GAIN);
-    g_audioFile.write((uint8_t*)g_i2s_read_buffer, bytes_read / 2);
-    g_totalBytesRecorded += (bytes_read / 2);
   }
+  free(raw_samples);
 }
 
 void updateMinAudioFileSize() {

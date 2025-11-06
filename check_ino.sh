@@ -2,12 +2,14 @@
 
 echo "--- 関数のプロトタイプ宣言 ---"
 grep -h -E '^\s*(static\s+|inline\s+)?([a-zA-Z_][a-zA-Z0-9_]*\s+){1,2}[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)\s*;' *.ino *.h | grep -v '{' | grep -v '{' | grep -E -v '^[ \t]*return[ \t]+.+'
-echo "--- extern宣言 ---------------"
+echo "--- extern 宣言 ---------------"
 grep -h -E "^extern" *.ino *.h
-echo "--- String型利用 ---------------"
+echo "--- String 型利用 ---------------"
 grep -h -E "[^a-zA-Z]String[^a-zA-Z]" *.ino *.h
-echo "--- log_i検索 ---------------"
-grep log_i *.ino
+echo "--- log_i 検索 ---------------"
+grep log_i *.ino *.h
+echo "--- vector 検索 ---------------"
+grep vector *.ino *.h
 echo "--- 2行以上の空白 ---------------"
 
 # --- find_empty_lines.sh の内容を統合 ---
