@@ -43,7 +43,7 @@ float BAT_VOL_MULT = 2.1f;
 
 // Audio/Recording
 int REC_MAX_S = 20;
-int REC_MIN_S = 1; // Default minimum recording duration in seconds
+int REC_MIN_S = 2;
 int I2S_SAMPLE_RATE = 8000;
 float AUDIO_GAIN = 8.0f;
 size_t MIN_AUDIO_FILE_SIZE_BYTES; // Calculated based on REC_MIN_S
@@ -67,8 +67,8 @@ char* HS_PASS = (char*)"Fjfj1108";
 
 // Vibration
 unsigned long VIBRA_STARTUP_MS = 600;
-unsigned long VIBRA_REC_START_MS = 600;
-unsigned long VIBRA_REC_STOP_MS = 600;
+unsigned long VIBRA_REC_START_MS = 450;
+unsigned long VIBRA_REC_STOP_MS = 450;
 
 // Other Timings/Debounce
 const unsigned long UPLOAD_RETRY_DELAY_MS = 60000; // 1 minute delay for upload retries
@@ -126,7 +126,7 @@ typedef struct {
 // fastrec_alt
 RTC_DATA_ATTR bool g_hasTimeBeenSynchronized;
 RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
-RTC_DATA_ATTR bool g_is_log_suppressed_at_boot = false;
+RTC_DATA_ATTR bool g_is_log_at_boot = false;
 
 bool g_enable_logging = true;
 volatile AppState g_currentAppState;
