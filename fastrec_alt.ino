@@ -357,9 +357,8 @@ void initRTCtime() {
 }
 
 void setup() {
-  if (g_is_log_suppressed_at_boot) {
-    g_enable_logging = false;
-  }
+  g_enable_logging = g_is_log_at_boot;
+
   g_boot_time_ms = millis();
   Serial.begin(SERIAL_BAUD_RATE);
 
