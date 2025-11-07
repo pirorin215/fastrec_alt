@@ -1,6 +1,7 @@
 #include "fastrec_alt.h"
 #include <SSD1315.h>
 #include <WiFi.h>
+#include <cmath>
 
 SSD1315 display;
 
@@ -116,20 +117,15 @@ void displayStatus(const char* msg) {
   if (batteryLevel > 100) batteryLevel = 100;
  
   // FS display (no decimal)
-  int fsUsage = (int)getLittleFSUsagePercentage();
+  int fsUsage = (int)ceil(getLittleFSUsagePercentage()); 
 
-  // If usage is 0, check for WAV files. If present, force usage to 1%.
-  if (fsUsage == 0 && countAudioFiles() > 0) {
-    fsUsage = 1;
-  }
-
-  char fsUsageStr[4]; // 3 chars + null terminator
-  if (fsUsage == 0) {
-    snprintf(fsUsageStr, sizeof(fsUsageStr), "   "); // 3 spaces
+  char fsUsageStr[7];
+  if (countAudioFiles() == 0) {
+    fsUsageStr[0] = '\0';
   } else {
-    snprintf(fsUsageStr, sizeof(fsUsageStr), "%3d", fsUsage);
+    snprintf(fsUsageStr, sizeof(fsUsageStr), "FS:%3d", fsUsage);
   }
-  snprintf(line2, sizeof(line2), "FS:%s BL:%3d", fsUsageStr, batteryLevel);
+  snprintf(line2, sizeof(line2), "%6s BL:%3d", fsUsageStr, batteryLevel);
   displayLine(1, line2); 
  
   // 3行目:時刻
