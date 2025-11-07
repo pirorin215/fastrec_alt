@@ -296,34 +296,37 @@ void handleUpload() {
 void wakeupLogic() {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-  applog("Wakeup was caused by: %d", wakeup_reason);
-       
   switch (wakeup_reason) {
     case ESP_SLEEP_WAKEUP_EXT1: {
       uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
       if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
-        applog("Start Button caused wake-up.");
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
+            // This is the fast path to recording. Logging remains disabled until startRecording() enables it.
             startRecording(); // Directly start recording
         } else { // If button is not pressed (e.g., was pressed and released quickly)
+            g_enable_logging = true; // Enable logging
+            applog("Wakeup by REC button, but not pressed now. Going to IDLE. Wakeup reason: %d", wakeup_reason);
             setAppState(IDLE, false);
         }
-      } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
-        applog("Stop Button pressed on wake-up");
-        setAppState(UPLOAD, false);
-      } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
-        applog("USB connected on wake-up");
-        setAppState(UPLOAD, false);
+      } else {
+        g_enable_logging = true; // Enable logging for other buttons
+        applog("Wakeup was caused by: %d", wakeup_reason);
+        if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
+          applog("UPLOAD Button pressed on wake-up");
+          setAppState(UPLOAD, false);
+        } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
+          applog("USB connected on wake-up");
+          setAppState(UPLOAD, false);
+        }
       }
       break;
     }
     case ESP_SLEEP_WAKEUP_EXT0:
-      break;
     case ESP_SLEEP_WAKEUP_TIMER:
-      break;
     case ESP_SLEEP_WAKEUP_ULP:
-      break;
     default:
+      g_enable_logging = true; // Enable logging for all other cases
+      applog("Wakeup was caused by: %d", wakeup_reason);
       setAppState(IDLE, false);
       startVibrationSync(VIBRA_STARTUP_MS);
       break;
