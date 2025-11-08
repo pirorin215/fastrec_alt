@@ -69,6 +69,7 @@ char* HS_PASS = (char*)"Fjfj1108";
 unsigned long VIBRA_STARTUP_MS = 600;
 unsigned long VIBRA_REC_START_MS = 450;
 unsigned long VIBRA_REC_STOP_MS = 450;
+bool VIBRA = true;
 
 // Other Timings/Debounce
 const unsigned long UPLOAD_RETRY_DELAY_MS = 60000; // 1 minute delay for upload retries
