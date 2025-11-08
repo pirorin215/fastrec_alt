@@ -204,7 +204,7 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         } else {
           responseData = "ERROR: Invalid REC_MIN_S value";
         }
-      } else if (value.rfind("CMD:wipe_all", 0) == 0) {
+      } else if (value.rfind("CMD:reset_all", 0) == 0) {
         if (!LittleFS.begin(true)) {
           pResponseCharacteristic->setValue("LittleFS Mount Failed");
           pResponseCharacteristic->notify();
@@ -254,6 +254,8 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         char response[50];
         sprintf(response, "Deleted %d files.", deleted_count);
         responseData = response;
+        delay(100);
+        ESP.restart();
       }
 
       pResponseCharacteristic->setValue(responseData.c_str());
@@ -332,7 +334,7 @@ void start_ble_server() {
   pAdvertising->start();
 }
 
-void loadSettingsFromLittleFS() {
+bool loadSettingsFromLittleFS() {
   applog("Loading settings from /setting.ini...");
 
   // Initialize global WiFi AP arrays
@@ -344,13 +346,13 @@ void loadSettingsFromLittleFS() {
 
   if (!LittleFS.begin()) {
     applog("LittleFS Mount Failed. Using default settings.");
-    return;
+    return false;
   }
 
   File configFile = LittleFS.open("/setting.ini", "r");
   if (!configFile) {
     applog("Failed to open /setting.ini. Using default settings.");
-    return;
+    return false;
   }
 
   char lineBuffer[256]; // Buffer to hold each line from the config file
@@ -465,4 +467,5 @@ void loadSettingsFromLittleFS() {
 
   configFile.close();
   applog("Settings loaded.");
+  return true;
 }
