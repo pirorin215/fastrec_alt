@@ -416,8 +416,8 @@ bool loadSettingsFromLittleFS() {
       VIBRA = (strcmp(value, "true") == 0);
       applog("Setting VIBRA to %s", VIBRA ? "true" : "false");
     } else if (strcmp(key, "LOG_AT_BOOT") == 0) {
-      g_is_log_at_boot = (strcmp(value, "true") == 0);
-      applog("Setting LOG_AT_BOOT to %s", g_is_log_at_boot ? "true" : "false");
+      LOG_AT_BOOT = (strcmp(value, "true") == 0);
+      applog("Setting LOG_AT_BOOT to %s", LOG_AT_BOOT ? "true" : "false");
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
       applog("Setting HS_HOST to %s", HS_HOST);
