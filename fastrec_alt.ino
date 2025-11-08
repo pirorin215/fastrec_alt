@@ -394,14 +394,10 @@ void setup() {
   tzset();
   
   initPins();
-
-  initAdc();
   
   initRTCtime();
   
   initLittleFS();
-  
-  start_ble_server();
     
   initSSD();
   
@@ -414,6 +410,10 @@ void setup() {
   initI2SMicrophone();
   
   wakeupLogic();
+
+  start_ble_server();
+
+  initAdc();
 
   initWifi();
   
