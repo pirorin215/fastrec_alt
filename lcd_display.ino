@@ -151,21 +151,11 @@ void displayStatus(const char* msg) {
   drawWifiSignal();
 }
 
-void displaySetup() {
-  displayLine(0, "setting.ini");
-  displayLine(1, "not found.");
-  displayLine(2, "Please send");
-  displayLine(3, "from BLE tool.");
-}
-
 void updateDisplay(const char* msg) {
   display.clear();
   switch (g_currentAppState) {
     case UPLOAD:
       displayUpload(msg);
-      break;
-    case SETUP:
-      displaySetup();
       break;
     default:
       displayStatus(msg); // Pass the determined message for line 3
