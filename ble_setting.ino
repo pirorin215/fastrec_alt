@@ -204,7 +204,7 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         } else {
           responseData = "ERROR: Invalid REC_MIN_S value";
         }
-      } else if (value.rfind("CMD:reset_all", 0) == 0) {
+      } else if (value.rfind("CMD:wipe_all", 0) == 0) {
         if (!LittleFS.begin(true)) {
           pResponseCharacteristic->setValue("LittleFS Mount Failed");
           pResponseCharacteristic->notify();
@@ -254,8 +254,6 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         char response[50];
         sprintf(response, "Deleted %d files.", deleted_count);
         responseData = response;
-        delay(100);
-        ESP.restart();
       }
 
       pResponseCharacteristic->setValue(responseData.c_str());
@@ -334,7 +332,7 @@ void start_ble_server() {
   pAdvertising->start();
 }
 
-bool loadSettingsFromLittleFS() {
+void loadSettingsFromLittleFS() {
   applog("Loading settings from /setting.ini...");
 
   // Initialize global WiFi AP arrays
@@ -346,13 +344,13 @@ bool loadSettingsFromLittleFS() {
 
   if (!LittleFS.begin()) {
     applog("LittleFS Mount Failed. Using default settings.");
-    return false;
+    return;
   }
 
   File configFile = LittleFS.open("/setting.ini", "r");
   if (!configFile) {
     applog("Failed to open /setting.ini. Using default settings.");
-    return false;
+    return;
   }
 
   char lineBuffer[256]; // Buffer to hold each line from the config file
@@ -416,8 +414,8 @@ bool loadSettingsFromLittleFS() {
       VIBRA = (strcmp(value, "true") == 0);
       applog("Setting VIBRA to %s", VIBRA ? "true" : "false");
     } else if (strcmp(key, "LOG_AT_BOOT") == 0) {
-      LOG_AT_BOOT = (strcmp(value, "true") == 0);
-      applog("Setting LOG_AT_BOOT to %s", LOG_AT_BOOT ? "true" : "false");
+      g_is_log_at_boot = (strcmp(value, "true") == 0);
+      applog("Setting LOG_AT_BOOT to %s", g_is_log_at_boot ? "true" : "false");
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
       applog("Setting HS_HOST to %s", HS_HOST);
@@ -467,5 +465,4 @@ bool loadSettingsFromLittleFS() {
 
   configFile.close();
   applog("Settings loaded.");
-  return true;
 }

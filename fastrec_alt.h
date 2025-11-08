@@ -3,8 +3,8 @@
 
 #include "FS.h"
 #include "LittleFS.h"
-#include <BLEDevice.h>
-#include <vector> // ここのvector使用は仕方ない
+#include <BLEDevice.h> // Required for BLEServer type
+#include <vector>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -59,11 +59,11 @@ const char* LOG_FILE_1 = "/log.1.txt";
 const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
 
 // HTTP Server for Upload
-char* HS_HOST = (char*)"";
+char* HS_HOST = (char*)"yoshi1108.ddns.net";
 int HS_PORT = 55443;
 char* HS_PATH = (char*)"/fastrec/upload";
 char* HS_USER = (char*)"fastrec";
-char* HS_PASS = (char*)"12345678";
+char* HS_PASS = (char*)"Fjfj1108";
 
 // Vibration
 unsigned long VIBRA_STARTUP_MS = 600;
@@ -91,7 +91,6 @@ const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state c
   X(REC,    "REC"), \
   X(UPLOAD, "UPLOAD"), \
   X(DSLEEP, "DSLEEP"), \
-  X(SETUP,  "SETUP"), \
 // このコメントを消したり、ここにコードを書いたりしてはいけない
 
 #define APP_STATE_ENUM(name, str) name
@@ -128,7 +127,7 @@ typedef struct {
 // fastrec_alt
 RTC_DATA_ATTR bool g_hasTimeBeenSynchronized;
 RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
-RTC_DATA_ATTR bool LOG_AT_BOOT = false;
+RTC_DATA_ATTR bool g_is_log_at_boot = false;
 
 bool g_enable_logging = true;
 volatile AppState g_currentAppState;
@@ -142,7 +141,7 @@ volatile bool g_isForceUpload = false;
 BLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 // audio
-std::vector<int16_t> g_audio_buffer; // ここのvector使用は仕方ない
+std::vector<int16_t> g_audio_buffer;
 volatile size_t g_buffer_head;
 volatile size_t g_buffer_tail;
 SemaphoreHandle_t g_buffer_mutex;
@@ -162,4 +161,5 @@ volatile bool g_start_log_transfer = false;
 std::string g_log_filename_to_transfer;
 
 // --- Function Prototypes ---
+
 #endif // FASTREC_INO_H
