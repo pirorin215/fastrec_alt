@@ -392,25 +392,24 @@ void setup() {
   
   initPins();
 
-  
   initAdc();
   
   initRTCtime();
   
   initLittleFS();
   
+  start_ble_server();
+    
+  initSSD();
+  
   if (!loadSettingsFromLittleFS()) {
     setAppState(SETUP, false);
-  } else {
-    updateMinAudioFileSize(); // Initialize MIN_AUDIO_FILE_SIZE_BYTES after loading settings
-    wakeupLogic();
+    g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
+    return;
   }
-  
-  start_ble_server();
-  
-  initSSD();
 
   // --- Initialize Audio Buffering System ---
+  updateMinAudioFileSize();
   g_buffer_mutex = xSemaphoreCreateMutex();
   const int buffer_seconds = 3;
   g_audio_buffer.resize(I2S_SAMPLE_RATE * buffer_seconds);
@@ -418,6 +417,8 @@ void setup() {
   xTaskCreatePinnedToCore(i2s_read_task, "I2SReaderTask", 4096, NULL, 10, &g_i2s_reader_task_handle, 1);
 
   initI2SMicrophone();
+  
+  wakeupLogic();
 
   initWifi();
   
