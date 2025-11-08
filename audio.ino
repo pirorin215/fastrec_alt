@@ -74,6 +74,14 @@ void initI2SMicrophone() {
       ;
   }
   applog("I2S bus initialized.");
+
+  // --- Initialize Audio Buffering System ---
+  updateMinAudioFileSize();
+  g_buffer_mutex = xSemaphoreCreateMutex();
+  const int buffer_seconds = 3;
+  g_audio_buffer.resize(I2S_SAMPLE_RATE * buffer_seconds);
+  applog("Audio buffer size: %d for %d seconds", g_audio_buffer.size(), buffer_seconds);
+  xTaskCreatePinnedToCore(i2s_read_task, "I2SReaderTask", 4096, NULL, 10, &g_i2s_reader_task_handle, 1);
 }
 
 void finalizeRecording() {
