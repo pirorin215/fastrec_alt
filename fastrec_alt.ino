@@ -164,7 +164,7 @@ void startRecording() {
 
   setAppState(REC, false);
   g_enable_logging = true;
-  applog("Recording started at %ums", millis() - g_boot_time_ms);
+  applog("%ums", millis() - g_boot_time_ms); // ここのログを増やさないで。高速化のために最小限にしてる
 
   // --- Start pre-buffering and give immediate feedback ---
   xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
@@ -179,7 +179,6 @@ void startRecording() {
 
   // --- Perform slower file operations after feedback ---
   generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));
-  applog("Opening file %s for writing...", g_audio_filename);
 
   g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
   if (!g_audioFile) {
@@ -194,7 +193,6 @@ void startRecording() {
 
   g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
   g_totalBytesRecorded = 0;
-  applog("File opened. Now writing buffered and live audio data...");
 }
 
 void stopRecording() {
