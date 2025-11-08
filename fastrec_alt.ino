@@ -175,7 +175,6 @@ void startRecording() {
 
   startVibrationSync(VIBRA_REC_START_MS); // Vibrate immediately
   onboard_led(true);
-  updateDisplay("");
 
   // --- Perform slower file operations after feedback ---
   generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));
@@ -218,6 +217,10 @@ void stopRecording() {
 
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
+  
+  if (!g_is_ssd_initialized) {
+    initSSD();
+  }
 
   if (millis() - lastDisplayUpdateTime > 200) {
     float usagePercentage = getLittleFSUsagePercentage();
@@ -399,9 +402,8 @@ void setup() {
   
   initLittleFS();
     
-  initSSD();
-  
   if (!loadSettingsFromLittleFS()) {
+    initSSD(); // Init SSD for SETUP mode display
     setAppState(SETUP, false);
     g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
     return;
