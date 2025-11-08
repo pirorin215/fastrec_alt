@@ -380,7 +380,7 @@ void initRTCtime() {
 }
 
 void setup() {
-  g_enable_logging = g_is_log_at_boot;
+  g_enable_logging = LOG_AT_BOOT;
 
   g_boot_time_ms = millis();
   Serial.begin(SERIAL_BAUD_RATE);
