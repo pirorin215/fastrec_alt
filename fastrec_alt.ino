@@ -66,6 +66,10 @@ void setAppState(AppState newState, bool applyDebounce = true) {
 }
 
 void startVibrationSync(unsigned long duration_ms) {
+  if (!VIBRA) {
+    applog("Vibration is OFF. Skipping startVibrationSync.");
+    return;
+  }
   applog("startVibrationSync %dms", duration_ms);
   digitalWrite(MOTOR_GPIO, HIGH);
   delay(duration_ms);
