@@ -60,7 +60,7 @@ void setAppState(AppState newState, bool applyDebounce = true) {
       return; // Ignore invalid transition
     }
 
-    applog("App State changed from %s to %s", appStateStrings[g_currentAppState], appStateStrings[g_currentAppState]);
+    applog("App State changed from %s to %s", appStateStrings[g_currentAppState], appStateStrings[newState]);
     g_currentAppState = newState;
     g_lastActivityTime = millis();  // Reset activity timer
     lastStateChangeTime = millis(); // 状態変更時刻を更新
