@@ -166,19 +166,25 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
                 print(f"{RED}送信前に再接続できませんでした。{RESET}")
                 return
 
+        # The device will restart upon receiving this command, likely causing a disconnection error.
         await g_client.write_gatt_char(COMMAND_UUID, bytes(command, 'utf-8'), response=True)
         print("setting.ini を送信しました。デバイスが再起動します。")
 
     except Exception as e:
         if "disconnected" in str(e).lower():
-            # This is expected when the device reboots after receiving the settings.
+            # This is an expected outcome as the device reboots.
             print("setting.ini を送信しました。デバイスが再起動します。")
         else:
             # For any other error, print it and stop.
             print(f"{RED}予期せぬエラーが発生しました: {e}{RESET}")
-            return
+            return  # Stop if the error was not a disconnection
 
-    # --- Reconnection Logic ---
+    # After sending the setting.ini, the device reboots. We need to reconnect.
+    await handle_reboot_and_reconnect(verbose)
+
+async def handle_reboot_and_reconnect(verbose: bool = False):
+    """Handles the device reboot by disconnecting and attempting to reconnect."""
+    global g_client
     try:
         # The client might already be disconnected, but we can try to disconnect cleanly if it's not.
         if g_client and g_client.is_connected:
@@ -190,7 +196,7 @@ async def send_setting_ini(file_path: str, verbose: bool = False):
         for i in range(reconnect_attempts):
             print(f"再接続試行 ({i + 1}/{reconnect_attempts})...")
             if await reconnect_ble_client(verbose=False):
-                return # Success, reconnect_ble_client prints success message
+                return  # Success, reconnect_ble_client prints success message
             await asyncio.sleep(1.0)
 
         print(f"{RED}自動再接続に失敗しました。{RESET}")
@@ -304,8 +310,8 @@ async def get_log_file(verbose: bool = False):
         print(f"{RED}{filename} の取得に失敗しました。{RESET}")
 
 
-async def wipe_all_files(verbose: bool = False):
-    print(f"\n{RED}これはデバイス上のすべてのログファイルを消去します。本当に続行しますか？ (y/N){RESET}")
+async def reset_all(verbose: bool = False):
+    print(f"\n{RED}デバイスを完全にリセット。続行しますか？ (y/N){RESET}")
     sys.stdout.write("Enter your choice: ")
     sys.stdout.flush()
     choice = getch()
@@ -316,11 +322,20 @@ async def wipe_all_files(verbose: bool = False):
         return
 
     print("\nデバイスの全ファイルを消去するコマンドを送信中...")
-    response = await run_ble_command("CMD:wipe_all", verbose)
-    if response:
-        print(f"\n{GREEN}デバイスからの応答:{RESET} {response}")
-    else:
-        print(f"\n{RED}コマンドの実行に失敗しました。{RESET}")
+    try:
+        response = await run_ble_command("CMD:reset_all", verbose)
+        if response:
+            print(f"\n{GREEN}デバイスからの応答:{RESET} {response}")
+    except Exception as e:
+        if "disconnected" in str(e).lower():
+            # This is an expected outcome as the device reboots.
+            print(f"\n{GREEN}デバイスがリセットされ、再起動します。{RESET}")
+        else:
+            print(f"\n{RED}コマンドの実行中に予期せぬエラーが発生しました: {e}{RESET}")
+            return # Do not attempt to reconnect if it wasn't a disconnect error
+
+    # After sending the reset command, the device reboots. We need to reconnect.
+    await handle_reboot_and_reconnect(verbose)
 
 
 if __name__ == "__main__":
@@ -352,7 +367,7 @@ if __name__ == "__main__":
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
                 print("4. 録音レコーダのログファイルを取得")
-                print(f"{RED}5. デバイスの全ファイルを消去{RESET}")
+                print(f"{RED}5. デバイスの初期化{RESET}")
                 print("0. 終了")
                 sys.stdout.write("Enter your choice: ")
                 sys.stdout.flush()
@@ -368,7 +383,7 @@ if __name__ == "__main__":
                 elif choice == '4':
                     await get_log_file(verbose)
                 elif choice == '5':
-                    await wipe_all_files(verbose)
+                    await reset_all(verbose)
                 elif choice == '0':
                     print("BLEツールを終了します。")
                     break

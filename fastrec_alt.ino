@@ -25,11 +25,13 @@ const AppState validTransitions[][2] = {
     {INIT, IDLE},
     {INIT, REC},
     {INIT, UPLOAD},
+    {INIT, SETUP},
     {IDLE, REC},
     {REC, IDLE},
     {IDLE, UPLOAD},
     {UPLOAD, IDLE},
-    {IDLE, DSLEEP}
+    {IDLE, DSLEEP},
+    {SETUP, DSLEEP}
 };
 const size_t NUM_VALID_TRANSITIONS = sizeof(validTransitions) / sizeof(validTransitions[0]);
 
@@ -58,7 +60,7 @@ void setAppState(AppState newState, bool applyDebounce = true) {
       return; // Ignore invalid transition
     }
 
-    applog("App State changed from %s to %s", appStateStrings[g_currentAppState], appStateStrings[g_currentAppState]);
+    applog("App State changed from %s to %s", appStateStrings[g_currentAppState], appStateStrings[newState]);
     g_currentAppState = newState;
     g_lastActivityTime = millis();  // Reset activity timer
     lastStateChangeTime = millis(); // 状態変更時刻を更新
@@ -297,6 +299,20 @@ void handleUpload() {
   setAppState(IDLE, false);
 }
 
+void handleSetup() {
+  static unsigned long lastDisplayUpdateTime = 0;
+
+  if (millis() - lastDisplayUpdateTime > 200) {
+    updateDisplay("");
+    lastDisplayUpdateTime = millis();
+  }
+
+  // If in SETUP state, not connected via BLE, and inactive, go to deep sleep
+  if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)) {
+    setAppState(DSLEEP, false);
+  }
+}
+
 void wakeupLogic() {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
@@ -364,7 +380,7 @@ void initRTCtime() {
 }
 
 void setup() {
-  g_enable_logging = g_is_log_at_boot;
+  g_enable_logging = LOG_AT_BOOT;
 
   g_boot_time_ms = millis();
   Serial.begin(SERIAL_BAUD_RATE);
@@ -383,8 +399,12 @@ void setup() {
   
   initLittleFS();
   
-  loadSettingsFromLittleFS();
-  updateMinAudioFileSize(); // Initialize MIN_AUDIO_FILE_SIZE_BYTES after loading settings
+  if (!loadSettingsFromLittleFS()) {
+    setAppState(SETUP, false);
+  } else {
+    updateMinAudioFileSize(); // Initialize MIN_AUDIO_FILE_SIZE_BYTES after loading settings
+    wakeupLogic();
+  }
   
   start_ble_server();
   
@@ -400,8 +420,6 @@ void setup() {
   initI2SMicrophone();
 
   initWifi();
-
-  wakeupLogic();
   
   g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
 }
@@ -422,6 +440,10 @@ void loop() {
 
     case UPLOAD:
       handleUpload();
+      break;
+
+    case SETUP:
+      handleSetup();
       break;
 
     case DSLEEP:
