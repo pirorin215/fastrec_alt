@@ -59,11 +59,11 @@ const char* LOG_FILE_1 = "/log.1.txt";
 const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
 
 // HTTP Server for Upload
-char* HS_HOST = (char*)"yoshi1108.ddns.net";
+char* HS_HOST = (char*)"";
 int HS_PORT = 55443;
 char* HS_PATH = (char*)"/fastrec/upload";
 char* HS_USER = (char*)"fastrec";
-char* HS_PASS = (char*)"Fjfj1108";
+char* HS_PASS = (char*)"12345678";
 
 // Vibration
 unsigned long VIBRA_STARTUP_MS = 600;
