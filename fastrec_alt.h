@@ -139,6 +139,7 @@ float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
 
 volatile bool g_isForceUpload = false;
+volatile bool g_setupForUpload = false;
 BLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 // audio
@@ -162,4 +163,5 @@ volatile bool g_start_log_transfer = false;
 std::string g_log_filename_to_transfer;
 
 // --- Function Prototypes ---
+
 #endif // FASTREC_INO_H
