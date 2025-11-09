@@ -350,13 +350,22 @@ void setup() {
   
   wakeupLogic();
 
+  g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
+}
+
+void setupForUpload() {
+  if(g_setupForUpload) {
+    return;
+  }
+  applog("setupForUpload");
+
   start_ble_server();
 
   initAdc();
 
   initWifi();
-  
-  g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
+
+  g_setupForUpload = true;
 }
 
 void loop() {
@@ -374,6 +383,7 @@ void loop() {
       break;
 
     case UPLOAD:
+      setupForUpload();
       handleUpload();
       break;
 
