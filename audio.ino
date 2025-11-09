@@ -145,7 +145,6 @@ void stopRecording() {
   startVibrationSync(VIBRA_REC_STOP_MS);
 }
 
-
 void finalizeRecording() {
   // Check if the recorded file is too short and delete it if necessary
   File recordedFile = LittleFS.open(g_audio_filename, FILE_READ);

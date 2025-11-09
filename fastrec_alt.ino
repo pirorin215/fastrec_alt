@@ -182,7 +182,10 @@ void handleIdle() {
   }
 
   // Go to deep sleep if idle for a while, not connected to USB, and not in BLE setup
-  if (g_currentAppState == IDLE && (millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && !isConnectUSB() && (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)) {
+  if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && 
+      !isConnectUSB() && 
+      (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)
+    ) {
     setAppState(DSLEEP, false);
   }
 }
@@ -210,6 +213,7 @@ void handleRec() {
 
 void handleUpload() {
   applog("Performing post-recording actions...");
+
   static unsigned long lastUploadTryTime = 0; // To track last upload try time
 
   while (isUploadOrSyncNeeded()) {
@@ -339,7 +343,7 @@ void setup() {
   initLittleFS();
     
   initSSD();
-  
+    
   if (!loadSettingsFromLittleFS()) {
     setAppState(SETUP, false);
     g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
@@ -347,7 +351,7 @@ void setup() {
   }
 
   initI2SMicrophone();
-  
+
   wakeupLogic();
 
   g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
@@ -358,7 +362,7 @@ void setupForUpload() {
     return;
   }
   applog("setupForUpload");
-
+    
   start_ble_server();
 
   initAdc();
@@ -373,6 +377,10 @@ void loop() {
     handleLogTransfer();
   }
 
+  if(g_currentAppState != REC) {
+    setupForUpload();
+  }
+
   switch (g_currentAppState) {
     case IDLE:
       handleIdle();
@@ -383,7 +391,6 @@ void loop() {
       break;
 
     case UPLOAD:
-      setupForUpload();
       handleUpload();
       break;
 
