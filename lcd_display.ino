@@ -10,6 +10,10 @@ const int FONT_SIZE = 5;
 const int LINE_HEIGHT = 10;  // Assuming 10 pixels per line for font size 5
 
 void initSSD() {
+  if(g_is_ssd_initialized) {
+    return;
+  }
+
   Wire.begin(LCD_SDA_GPIO, LCD_SCL_GPIO);
   display.begin();
   display.setRotation(2);       // rotate 180 degrees
