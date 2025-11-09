@@ -66,9 +66,9 @@ char* HS_USER = (char*)"fastrec";
 char* HS_PASS = (char*)"12345678";
 
 // Vibration
-unsigned long VIBRA_STARTUP_MS = 600;
-unsigned long VIBRA_REC_START_MS = 450;
-unsigned long VIBRA_REC_STOP_MS = 450;
+unsigned long VIBRA_STARTUP_MS = 500;
+unsigned long VIBRA_REC_START_MS = 300;
+unsigned long VIBRA_REC_STOP_MS = 300;
 bool VIBRA = true;
 
 // Other Timings/Debounce
