@@ -157,8 +157,6 @@ void flushAudioBufferToFile() {
 
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
-  
-  initSSD();
 
   if (millis() - lastDisplayUpdateTime > 200) {
     float usagePercentage = getLittleFSUsagePercentage();
@@ -363,6 +361,10 @@ void setup() {
 void loop() {
   if (g_start_log_transfer) {
     handleLogTransfer();
+  }
+
+  if(g_currentAppState != REC) {
+    initSSD();
   }
 
   switch (g_currentAppState) {
