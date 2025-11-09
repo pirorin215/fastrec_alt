@@ -11,17 +11,18 @@ const int LINE_HEIGHT = 10;  // Assuming 10 pixels per line for font size 5
 
 void initSSD() {
   Wire.begin(LCD_SDA_GPIO, LCD_SCL_GPIO);
+
   display.begin();
   display.setRotation(2);       // rotate 180 degrees
   //display.setBrightness(0x08);
   display.setBrightness(0xFF);
-  updateDisplay("");
 
-  g_is_ssd_initialized = true;
+  // Update display with initial status
+  float usagePercentage = getLittleFSUsagePercentage();
+  updateDisplay("");
 }
 
 void displaySleep(bool flag) {
-  if (!g_is_ssd_initialized) return;
   display.clear();
   display.sleep(flag);
 }
@@ -158,7 +159,6 @@ void displaySetup() {
 }
 
 void updateDisplay(const char* msg) {
-  if (!g_is_ssd_initialized) return;
   display.clear();
   switch (g_currentAppState) {
     case UPLOAD:
