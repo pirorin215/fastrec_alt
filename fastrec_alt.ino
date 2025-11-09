@@ -155,72 +155,10 @@ void flushAudioBufferToFile() {
   applog("Buffer flushed.");
 }
 
-void startRecording() {
-  if (!checkFreeSpace()) {
-    applog("Not enough free space to start recording. Entering IDLE state.");
-    setAppState(IDLE);
-    return;
-  }
-
-  setAppState(REC, false);
-  g_enable_logging = true;
-  applog("%ums", millis() - g_boot_time_ms); // ここのログを増やさないで。高速化のために最小限にしてる
-
-  // --- Start pre-buffering and give immediate feedback ---
-  xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
-  g_buffer_head = 0;
-  g_buffer_tail = 0;
-  xSemaphoreGive(g_buffer_mutex);
-  g_is_buffering = true; // Signal I2S task to start buffering
-
-  startVibrationSync(VIBRA_REC_START_MS); // Vibrate immediately
-  onboard_led(true);
-
-  // --- Perform slower file operations after feedback ---
-  generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));
-
-  g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
-  if (!g_audioFile) {
-    applog("Failed to open file for writing!");
-    g_is_buffering = false; // Stop buffering
-    setAppState(DSLEEP);
-    return;
-  }
-
-  writeWavHeader(g_audioFile, 0); // Write a placeholder header
-  g_audioFileCount = countAudioFiles();
-
-  g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
-  g_totalBytesRecorded = 0;
-}
-
-void stopRecording() {
-  applog("Stopping recording...");
-  g_is_buffering = false; // Signal I2S task to stop writing to the buffer
-  
-  flushAudioBufferToFile(); // Write any remaining data from the buffer to the file
-
-  onboard_led(false);
-  if (g_audioFile) {
-    updateWavHeader(g_audioFile, g_totalBytesRecorded);
-    g_audioFile.close();
-    applog("File closed. Total bytes recorded: %u", g_totalBytesRecorded);
-    finalizeRecording(); // Check file size and delete if too short
-  } else {
-    applog("Error: Audio file was not open.");
-  }
-
-  updateDisplay("");
-  setAppState(IDLE);
-  startVibrationSync(VIBRA_REC_STOP_MS);
-}
-
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
   
-  if (!g_is_ssd_initialized) {
-    initSSD();
-  }
+  initSSD();
 
   if (millis() - lastDisplayUpdateTime > 200) {
     float usagePercentage = getLittleFSUsagePercentage();
