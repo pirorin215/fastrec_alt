@@ -13,6 +13,8 @@ void initSSD() {
   if(g_is_ssd_initialized) {
     return;
   }
+    
+  applog("initSSD");
 
   Wire.begin(LCD_SDA_GPIO, LCD_SCL_GPIO);
   display.begin();
