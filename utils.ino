@@ -65,15 +65,6 @@ void onboard_led(bool bOn) {
   }
 }
 
-// 音量調整用（2倍にする例）
-void amplifyAudio(int16_t* samples, size_t sampleCount, float gain) {
-  for (size_t i = 0; i < sampleCount; i++) {
-    int32_t val = samples[i] * gain;
-    if (val > 32767) val = 32767;
-    if (val < -32768) val = -32768;
-    samples[i] = (int16_t)val;
-  }
-}
 
 bool checkFreeSpace() {
   unsigned long totalBytes = LittleFS.totalBytes();

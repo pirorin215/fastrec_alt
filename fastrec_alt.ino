@@ -122,27 +122,46 @@ void tryUploadAndSync() {
 }
 
 void writeAudioBufferToFile() {
-  size_t available_data = 0;
-  size_t contiguous_block_size = 0;
-
   xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
-  if (g_buffer_head >= g_buffer_tail) {
-    available_data = g_buffer_head - g_buffer_tail;
-  } else {
-    available_data = g_audio_buffer.size() - g_buffer_tail + g_buffer_head;
+
+  if (g_buffer_tail == g_buffer_head) {
+    xSemaphoreGive(g_buffer_mutex);
+    return; // No data to write
   }
 
-  if (available_data > 0) {
-    if (g_buffer_head > g_buffer_tail) {
-      contiguous_block_size = available_data;
-    } else {
-      contiguous_block_size = g_audio_buffer.size() - g_buffer_tail;
-    }
+  size_t total_written_bytes = 0;
+
+  if (g_buffer_head > g_buffer_tail) {
+    // Case 1: Data is in a single contiguous block
+    size_t block_size = g_buffer_head - g_buffer_tail;
+    total_written_bytes = g_audioFile.write((const uint8_t*)&g_audio_buffer[g_buffer_tail], block_size * sizeof(int16_t));
+    g_buffer_tail += (total_written_bytes / sizeof(int16_t));
+  } else {
+    // Case 2: Data is in two blocks (wrapped around)
+    // Block 1: from tail to the end of the buffer
+    size_t block1_size = g_audio_buffer.size() - g_buffer_tail;
+    size_t written_bytes1 = g_audioFile.write((const uint8_t*)&g_audio_buffer[g_buffer_tail], block1_size * sizeof(int16_t));
     
-    size_t written_bytes = g_audioFile.write((const uint8_t*)&g_audio_buffer[g_buffer_tail], contiguous_block_size * sizeof(int16_t));
-    g_totalBytesRecorded += written_bytes;
-    g_buffer_tail = (g_buffer_tail + (written_bytes / sizeof(int16_t))) % g_audio_buffer.size();
+    if (written_bytes1 == block1_size * sizeof(int16_t)) {
+      // If block 1 was written completely, proceed to block 2
+      g_buffer_tail = 0;
+      total_written_bytes += written_bytes1;
+
+      // Block 2: from the start of the buffer to head
+      size_t block2_size = g_buffer_head;
+      if (block2_size > 0) {
+        size_t written_bytes2 = g_audioFile.write((const uint8_t*)&g_audio_buffer[0], block2_size * sizeof(int16_t));
+        g_buffer_tail += (written_bytes2 / sizeof(int16_t));
+        total_written_bytes += written_bytes2;
+      }
+    } else {
+      // If block 1 was not fully written, just update tail and exit
+      g_buffer_tail += (written_bytes1 / sizeof(int16_t));
+      total_written_bytes += written_bytes1;
+    }
   }
+  
+  g_totalBytesRecorded += total_written_bytes;
   xSemaphoreGive(g_buffer_mutex);
 }
 

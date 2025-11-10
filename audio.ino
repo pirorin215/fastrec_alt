@@ -177,18 +177,21 @@ void i2s_read_task(void *pvParameters) {
       
       if (bytes_read > 0) {
         size_t samples_read = bytes_read / sizeof(int32_t);
-        int16_t processed_samples[samples_read];
-
-        for (size_t i = 0; i < samples_read; i++) {
-          processed_samples[i] = (int16_t)(raw_samples[i] >> 16); // Convert 32-bit to 16-bit
-        }
-        amplifyAudio(processed_samples, samples_read, AUDIO_GAIN);
-
+        
         xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
         for (size_t i = 0; i < samples_read; i++) {
+          // Convert 32-bit to 16-bit
+          int32_t val = raw_samples[i] >> 16;
+          
+          // Amplify audio (inlined from amplifyAudio function)
+          val = val * AUDIO_GAIN;
+          if (val > 32767) val = 32767;
+          if (val < -32768) val = -32768;
+
+          // Write to buffer
           size_t next_head = (g_buffer_head + 1) % g_audio_buffer.size();
           if (next_head != g_buffer_tail) { // Check for buffer full
-            g_audio_buffer[g_buffer_head] = processed_samples[i];
+            g_audio_buffer[g_buffer_head] = (int16_t)val;
             g_buffer_head = next_head;
           } else {
             // Buffer is full, log an error. Oldest data is overwritten.
