@@ -171,40 +171,6 @@ void initLittleFS() {
   g_audioFileCount = countAudioFiles();  // Call the new function to update file counts
 }
 
-// This function is kept for future use, although currently not called from any button press.
-void deleteAllRecordings() {
-  applog("Deleting all recording files.");
-  onboard_led(true);
-
-  File root = LittleFS.open("/", "r");
-  if (!root) {
-    applog("Failed to open root directory");
-    onboard_led(false);
-    return;
-  }
-
-  File file = root.openNextFile();
-  while (file) {
-    if (!file.isDirectory()) {
-      const char* filenameCStr = file.name();
-      // Check if the filename ends with ".wav"
-      if (strlen(filenameCStr) >= 4 && strcmp(filenameCStr + strlen(filenameCStr) - 4, ".wav") == 0) {
-        char fullPath[64];  // Assuming max filename length + '/' + null terminator
-        snprintf(fullPath, sizeof(fullPath), "/%s", filenameCStr);
-        applog("Deleting file: %s", fullPath);
-        if (!LittleFS.remove(fullPath)) {
-          applog(" - Failed to delete");
-        }
-      }
-    }
-    file = root.openNextFile();
-  }
-  root.close();
-  onboard_led(false);
-  applog("Finished deleting recording files.");
-  g_audioFileCount = countAudioFiles();  // Update file counts after all deletions
-}
-
 float getBatteryVoltage() {
   int analogValue = analogRead(BATTERY_DIV_PIN);
   float voltage = analogValue * (3.3 / 4095.0); //(0-4095 maps to 0-3.3V with ADC_11db)
