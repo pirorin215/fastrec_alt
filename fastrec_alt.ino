@@ -12,7 +12,7 @@
 #define BUTTON_PIN_BITMASK(GPIO) (1ULL << GPIO)
 
 // --- Function Implementations ---
-void serialWait() {
+void serialWait() { // check_unused:ignore
   unsigned long startTime = millis();
   while (!Serial && (millis() - startTime < SERIAL_TIMEOUT_MS)) {
     delay(10);

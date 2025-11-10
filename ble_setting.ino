@@ -63,7 +63,7 @@ void handleLogTransfer() {
 }
 
 class MyCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) {
+  void onWrite(BLECharacteristic *pCharacteristic) { // check_unused:ignore
     std::string value = pCharacteristic->getValue().c_str();
 
     if (pCharacteristic->getUUID().toString() == ACK_UUID) {

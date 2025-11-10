@@ -166,7 +166,7 @@ void finalizeRecording() {
   }
 }
 
-void i2s_read_task(void *pvParameters) {
+void i2s_read_task(void *pvParameters) { // check_unused:ignore
   const size_t i2s_buffer_samples = 256;
   int32_t* raw_samples = (int32_t*) malloc(i2s_buffer_samples * sizeof(int32_t));
   size_t bytes_read;
