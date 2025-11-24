@@ -65,7 +65,6 @@ void onboard_led(bool bOn) {
   }
 }
 
-
 bool checkFreeSpace() {
   unsigned long totalBytes = LittleFS.totalBytes();
   unsigned long usedBytes = LittleFS.usedBytes();
@@ -116,15 +115,28 @@ bool isConnectUSB() {
   return digitalRead(USB_DETECT_PIN) == HIGH;
 }
 
-// Helper function to get time from internal RTC and check its validity.
+// Helper function to get time from internal RTC and check its validity, applying drift compensation.
 bool getValidRtcTime(struct tm* timeinfo) {
-  if (getLocalTime(timeinfo)) {
-    if (timeinfo->tm_year > (2000 - 1900)) {  // Check if year is after 2000 (epoch is 1970)
-      return true;
+  time_t current_epoch_time;
+  if (time(&current_epoch_time) != (time_t)-1) {
+    time_t corrected_epoch_time = current_epoch_time;
+    // Only apply correction if we have a valid last sync time and a valid ratio
+    if (g_last_ntp_epoch_s > 0 && g_rtc_drift_ratio > 0.0f) {
+        time_t mcu_elapsed = current_epoch_time - g_last_ntp_epoch_s;
+        double real_elapsed = (double)mcu_elapsed / g_rtc_drift_ratio;
+        corrected_epoch_time = g_last_ntp_epoch_s + (time_t)real_elapsed;
+    }
+
+    // Convert corrected epoch time to tm struct (using gmtime_r for UTC, common for RTC)
+    if (localtime_r(&corrected_epoch_time, timeinfo)) {
+      if (timeinfo->tm_year > (2000 - 1900)) {  // Check if year is after 2000 (epoch is 1970)
+        return true;
+      }
     }
   }
   return false;
 }
+
 
 // Helper function to get formatted RTC time string.
 bool getFormattedRtcTime(char* buffer, size_t bufferSize) {

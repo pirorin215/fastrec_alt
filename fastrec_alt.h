@@ -4,7 +4,7 @@
 #include "FS.h"
 #include "LittleFS.h"
 #include <BLEDevice.h>
-#include <vector> // ここのvector使用は仕方ない
+#include <vector> // VectorCheck:allows
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -60,7 +60,7 @@ const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
 
 // HTTP Server for Upload
 char* HS_HOST = (char*)"";
-int HS_PORT = 55443;
+int HS_PORT = 61443;
 char* HS_PATH = (char*)"/fastrec/upload";
 char* HS_USER = (char*)"fastrec";
 char* HS_PASS = (char*)"12345678";
@@ -126,7 +126,6 @@ typedef struct {
 // --- Global Variables (Declarations only, definitions will remain in .ino) ---
 
 // fastrec_alt
-RTC_DATA_ATTR bool g_hasTimeBeenSynchronized;
 RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
 RTC_DATA_ATTR bool LOG_AT_BOOT = false;
 
@@ -138,12 +137,21 @@ unsigned long g_lastActivityTime;
 float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
 
+float g_rtcDriftCorrectionFactor = 1.0f; // Default to no correction
+
+
 volatile bool g_isForceUpload = false;
 volatile bool g_setupForUpload = false;
 BLEServer* pBLEServer; // Global pointer to the BLE server instance
 
+volatile bool g_ntpSyncEnd = false;
+
+// Global variables for time drift measurement
+RTC_DATA_ATTR static time_t g_last_ntp_epoch_s = 0;
+RTC_DATA_ATTR float g_rtc_drift_ratio = 1.0f;
+
 // audio
-std::vector<int16_t> g_audio_buffer; // ここのvector使用は仕方ない
+std::vector<int16_t> g_audio_buffer; // VectorCheck:allows
 volatile size_t g_buffer_head;
 volatile size_t g_buffer_tail;
 SemaphoreHandle_t g_buffer_mutex;

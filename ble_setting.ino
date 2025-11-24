@@ -20,6 +20,10 @@ BLECharacteristic *pAckCharacteristic;
 SemaphoreHandle_t ackSemaphore = NULL;
 
 void handleLogTransfer() {
+ if (!g_start_log_transfer) {
+    return;
+  }
+
   if (LittleFS.exists(g_log_filename_to_transfer.c_str())) {
     File file = LittleFS.open(g_log_filename_to_transfer.c_str(), "r");
     if (file) {
@@ -194,15 +198,6 @@ class MyCallbacks : public BLECharacteristicCallbacks {
           ESP.restart();
         } else {
           responseData = "ERROR: Failed to open setting.ini for writing";
-        }
-      } else if (value.rfind("SET:REC_MIN_S:", 0) == 0) {
-        int newMinRecDuration = atoi(value.substr(std::string("SET:REC_MIN_S:").length()).c_str());
-        if (newMinRecDuration > 0) {
-          REC_MIN_S = newMinRecDuration;
-          updateMinAudioFileSize();
-          responseData = "OK: REC_MIN_S set to " + std::to_string(REC_MIN_S);
-        } else {
-          responseData = "ERROR: Invalid REC_MIN_S value";
         }
       } else if (value.rfind("CMD:reset_all", 0) == 0) {
         if (!LittleFS.begin(true)) {
@@ -415,9 +410,15 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "VIBRA") == 0) {
       VIBRA = (strcmp(value, "true") == 0);
       applog("Setting VIBRA to %s", VIBRA ? "true" : "false");
+    } else if (strcmp(key, "RTC_DRIFT_FACTOR") == 0) {
+      g_rtcDriftCorrectionFactor = atof(value);
+      applog("Setting RTC_DRIFT_FACTOR to %f", g_rtcDriftCorrectionFactor);
     } else if (strcmp(key, "LOG_AT_BOOT") == 0) {
       LOG_AT_BOOT = (strcmp(value, "true") == 0);
       applog("Setting LOG_AT_BOOT to %s", LOG_AT_BOOT ? "true" : "false");
+    } else if (strcmp(key, "RTC_DRIFT_RATIO") == 0) {
+     g_rtc_drift_ratio = atof(value);
+     applog("Setting RTC_DRIFT_RATIO to %f", g_rtc_drift_ratio);
     } else if (strcmp(key, "HS_HOST") == 0) {
       HS_HOST = strdup(value);
       applog("Setting HS_HOST to %s", HS_HOST);

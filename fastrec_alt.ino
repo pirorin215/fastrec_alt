@@ -1,3 +1,4 @@
+#include "soc/rtc.h"
 #include "fastrec_alt.h"
 
 #include <time.h>
@@ -104,20 +105,21 @@ void goDeepSleep() {
 }
 
 bool isUploadOrSyncNeeded() {
-  return !g_hasTimeBeenSynchronized || g_audioFileCount > 0 || g_isForceUpload;
+  return g_audioFileCount > 0 || g_isForceUpload;
 }
 
 void tryUploadAndSync() {
   if (connectToWiFi()) {
     applog("WiFi connected");
     updateDisplay("WiFi OK"); // Debug message on OLED
-    synchronizeTime(true); // Perform NTP sync after WiFi is connected
+    synchronizeTime(); // Perform NTP sync after WiFi is connected
     execUpload();
     g_audioFileCount = countAudioFiles(); // Update file counts after upload try
   } else {
     applog("WiFi not connected.");
     updateDisplay("WiFi Fail"); // Debug message on OLED
-    synchronizeTime(false); // Get time from RTC as a fallback if WiFi fails
+    struct tm timeinfo;
+    getValidRtcTime(&timeinfo);
   }
 }
 
@@ -356,6 +358,8 @@ void setup() {
   tzset();
   
   initPins();
+
+  rtc_clk_slow_freq_set(RTC_SLOW_FREQ_32K_XTAL);
   
   initRTCtime();
   
@@ -377,6 +381,9 @@ void setup() {
 }
 
 void setupForUpload() {
+  if(g_currentAppState == REC) {
+    return;
+  }
   if(g_setupForUpload) {
     return;
   }
@@ -392,13 +399,8 @@ void setupForUpload() {
 }
 
 void loop() {
-  if (g_start_log_transfer) {
-    handleLogTransfer();
-  }
-
-  if(g_currentAppState != REC) {
-    setupForUpload();
-  }
+  handleLogTransfer();
+  setupForUpload();
 
   switch (g_currentAppState) {
     case IDLE:
@@ -421,6 +423,5 @@ void loop() {
       goDeepSleep();
       break;
   }
-
   g_currentBatteryVoltage = getBatteryVoltage();
 }
