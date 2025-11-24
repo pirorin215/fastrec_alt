@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include "esp_wifi.h"
+#include <esp_sntp.h>
 
 // 詳細な接続情報を表示
 void printWiFiDiagnostics() {
@@ -28,54 +29,84 @@ void wifiSetSleep(bool flag) {
   WiFi.setSleep(flag);
 }
 
-// Function to synchronize time from NTP or internal RTC
-void synchronizeTime(bool waitForNTP) {
+// SNTP同期が完了したときに呼ばれるコールバック関数
+void timeSyncNotificationCallback(struct timeval *tv) {
+    g_ntpSyncEnd = true;
+}
+
+// Function to time drift analysis results
+void timeDriftAnalysis(time_t mcu_epoch_before_sync_start, unsigned long millis_at_sync_start) {
   struct tm timeinfo;
+  getLocalTime(&timeinfo); // Get the current time from NTP (now calibrated)
+  time_t current_ntp_epoch_s = mktime(&timeinfo); // Calculate current NTP epoch regardless of drift calculation readiness
 
-  if (waitForNTP) {
-    applog("Setting up time synchronization (NTP)...");
-    configTime(9 * 60 * 60, 0, "ntp.jst.mfeed.ad.jp", "ntp.nict.jp", "time.google.com");
+  // Check against global g_last_ntp_epoch_s
+  if (g_last_ntp_epoch_s != 0 && mcu_epoch_before_sync_start != 0) {
+    unsigned long millis_at_sync_end = millis();
+    double sync_active_duration_s = (double)(millis_at_sync_end - millis_at_sync_start) / 1000.0;
 
-    const long NTP_TIMEOUT_MS = 10000;  // 10 seconds timeout for NTP sync
-    unsigned long startTryTime = millis();
-    unsigned long lastCheckTime = millis();
+    long ntp_elapsed_s = current_ntp_epoch_s - g_last_ntp_epoch_s;
+    
+    // Calculate MCU elapsed time from g_last_ntp_epoch_s until current_ntp_epoch_s
+    double mcu_elapsed_s = (double)(mcu_epoch_before_sync_start - g_last_ntp_epoch_s) + sync_active_duration_s;
+    double drift_s = mcu_elapsed_s - ntp_elapsed_s;
 
-    bool ntp_sync_successful = false;  // New local variable to track NTP success
-    // Wait for time to be set, with a timeout
-    while (!ntp_sync_successful && (millis() - startTryTime < NTP_TIMEOUT_MS)) {
-      // Check for button presses to cancel NTP synchronization
-      if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-        applog("Start Button pressed during NTP sync. Aborting.");
-        return;
-      }
-      if (getLocalTime(&timeinfo)) {
-        if (timeinfo.tm_year > (2000 - 1900)) {  // Check if year is after 2000 (epoch is 1970)
-          ntp_sync_successful = true;
-        }
-      }
-      if (!ntp_sync_successful) {
-        if (millis() - lastCheckTime >= 500) {
-          lastCheckTime = millis();
-        }
-      }
-    }
-
-    if (ntp_sync_successful) {
-      char time_buf[64];
-      strftime(time_buf, sizeof(time_buf), "%A, %B %d %Y %H:%M:%S", &timeinfo);
-      applog("Current time from NTP: %s", time_buf);
-      g_hasTimeBeenSynchronized = true; // Set flag on successful NTP sync
+    applog("Time drift analysis:");
+    applog("  Previous NTP epoch: %ld s", g_last_ntp_epoch_s);
+    applog("  Current NTP epoch:  %ld s", current_ntp_epoch_s);
+    applog("  NTP elapsed:        %ld s", ntp_elapsed_s);
+    applog("  MCU elapsed:        %.3f s", mcu_elapsed_s);
+    applog("  Drift:              %.3f s", drift_s);
+    if (ntp_elapsed_s > 0) {
+      double logged_drift_rate_ratio = mcu_elapsed_s / (double)ntp_elapsed_s;
+      applog("  Drift Rate (ratio): %.5f", logged_drift_rate_ratio);
     } else {
-      applog("Failed to obtain time from NTP within timeout. Time might be incorrect.");
+      applog("  Drift Rate:         N/A (NTP elapsed is zero)");
     }
-  } else {  // Not waiting for NTP, so it's not web-synchronized.
-    if (getValidRtcTime(&timeinfo)) {
-      applog("RTC has a valid time, but no web synchronization was try.");
+  } else {
+    applog("Time drift analysis: Skipping, not enough historical data for full drift calculation.");
+  }
+  // Update RTC variables for the next cycle, regardless of whether drift was calculated or skipped.
+  g_last_ntp_epoch_s = current_ntp_epoch_s;
+}
+// Function to synchronize time from NTP or internal RTC
+void synchronizeTime() {
+  struct tm timeinfo;
+  const long NTP_TIMEOUT_MS = 10000;  // 10 seconds timeout for NTP sync
+  
+  applog("Setting up time synchronization (NTP)...");
+
+  // Capture MCU's current RTC time and millis() before starting NTP synchronization
+  time_t mcu_epoch_before_sync_start = 0;
+  struct tm timeinfo_before_sync;
+  if(getLocalTime(&timeinfo_before_sync)) {
+    mcu_epoch_before_sync_start = mktime(&timeinfo_before_sync);
+  }
+
+  unsigned long millis_at_sync_start = millis(); // Millis() at the very beginning of the sync attempt
+
+  sntp_set_time_sync_notification_cb(timeSyncNotificationCallback); // SNTPコールバック設定
+
+  configTime(9 * 60 * 60, 0, "ntp.jst.mfeed.ad.jp", "ntp.nict.jp", "time.google.com"); // 時刻同期開始（すぐには同期されない）
+
+  unsigned long startTryTime = millis();
+  while (true) {
+    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+      applog("Start Button pressed during NTP sync. Aborting.");
+      break;
     }
-    else {
-      applog("RTC time is not set or invalid, and no web synchronization was try.");
+    if(millis() - startTryTime > NTP_TIMEOUT_MS) {
+      applog("time out NTP sync. Aborting.");
+      break;
+    }
+    if(g_ntpSyncEnd) {
+      applog("NTP sync callback.");
+      timeDriftAnalysis(mcu_epoch_before_sync_start, millis_at_sync_start);
+      break;
     }
   }
+  sntp_set_time_sync_notification_cb(NULL); // SNTPコールバックを解除
+  g_ntpSyncEnd = false;
 }
 
 void wifiReset() {
@@ -176,7 +207,7 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
   client.print("Host: ");
   client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // ここのString型使用は仕方ない
+  client.println(base64::encode(String(authBuffer))); // StringCheck:allows
   client.println("Connection: close"); // Close connection after response
   client.println(); // End of headers
 
@@ -247,7 +278,7 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   client.print("Host: ");
   client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // ここのString型使用は仕方ない
+  client.println(base64::encode(String(authBuffer))); // StringCheck:allows
   client.print("Content-Type: ");
   client.println(contentTypeBuffer);
 
