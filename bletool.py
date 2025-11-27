@@ -242,7 +242,16 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
                     print(f"{ 'ディレクトリ一覧'}:")
                     for item in ls_content.strip().split('\n'):
                         if item:
-                            print(f"  - {item}")
+                            # Check if it's a file with size info (e.g., "filename (12345 bytes)")
+                            if " (" in item and item.endswith(" bytes)"):
+                                parts = item.rsplit(" (", 1)
+                                filename = parts[0]
+                                size_info = parts[1][:-1] # Remove the closing parenthesis
+                                print(f"  - {filename:<30} {size_info:>15}") # Aligned output
+                            elif item.endswith("/"): # Directory
+                                print(f"  - {item}")
+                            else: # File without explicit size (shouldn't happen after .ino change, but for robustness)
+                                print(f"  - {item}")
                 else:
                     print(f"  { 'ディレクトリ一覧'}: N/A")
             return info

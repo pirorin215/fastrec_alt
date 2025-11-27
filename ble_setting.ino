@@ -149,6 +149,10 @@ class MyCallbacks : public BLECharacteristicCallbacks {
               littlefs_ls_std += file.name();
               if (file.isDirectory()) {
                 littlefs_ls_std += "/";
+              } else {
+                littlefs_ls_std += " (";
+                littlefs_ls_std += String(file.size()).c_str();
+                littlefs_ls_std += " bytes)";
               }
               littlefs_ls_std += "\n";
               file = root.openNextFile();
