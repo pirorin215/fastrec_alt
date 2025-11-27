@@ -1,3 +1,4 @@
+import re
 import json
 import asyncio
 import time
@@ -25,18 +26,27 @@ received_chunk_count = 0
 total_received_bytes = 0 # Add this
 g_client = None  # Global client object
 DEVICE_ADDRESS = None # Global device address
+g_total_file_size_for_transfer = 0 # New global for total file size
 
 # Notification handler function
 def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
-    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes
+    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes, g_total_file_size_for_transfer
     if is_receiving_file:
         if data == b'EOF':  # End of file transfer
             print("\nEnd of file transfer signal received.") # Added newline
             response_event.set()
+            g_total_file_size_for_transfer = 0 # Reset after transfer
         else:
             received_chunk_count += 1
             total_received_bytes += len(data) # Update total received bytes
-            print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes}", end="", flush=True) # Modified line
+            
+            percentage = 0.0
+            if g_total_file_size_for_transfer > 0:
+                percentage = (total_received_bytes / g_total_file_size_for_transfer) * 100
+                print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes} ({percentage:.1f}%)", end="", flush=True) # Modified line
+            else:
+                print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes}", end="", flush=True) # Original line if size unknown
+
             received_response_data.extend(data)
             if g_client:
                 asyncio.create_task(g_client.write_gatt_char(ACK_UUID, b'ACK'))
@@ -273,15 +283,32 @@ async def get_log_file(verbose: bool = False):
         return
 
     ls_content = info.get('ls', '')
-    log_files = [f for f in ls_content.strip().split('\n') if f.startswith('log.') and f.endswith('.txt')]
+    log_files_with_sizes = []
+    for item in ls_content.strip().split('\n'):
+        if item.startswith('log.'): # Changed from item.endswith('.txt')
+            # Parse "log.0.txt (26762 bytes)" format
+            match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
+            if match:
+                filename = match.group(1)
+                size = int(match.group(2))
+                log_files_with_sizes.append((filename, size))
+            else:
+                # Fallback for unexpected format (shouldn't happen with updated ble_setting.ino)
+                # or for items that match log. and .txt but don't have size info for some reason
+                # We'll try to extract filename and assume 0 size
+                filename_only_match = re.match(r"(.+?)\.txt", item)
+                if filename_only_match:
+                    log_files_with_sizes.append((filename_only_match.group(0), 0))
+                else:
+                    log_files_with_sizes.append((item.strip(), 0))
 
-    if not log_files:
+    if not log_files_with_sizes:
         print(f"{RED}ログファイルが見つかりませんでした。{RESET}")
         return
 
     print("\n取得するログファイルを選択してください:")
-    for i, filename in enumerate(log_files):
-        print(f"{i + 1}. {filename}")
+    for i, (filename, size) in enumerate(log_files_with_sizes):
+        print(f"{i + 1}. {filename} ({size} bytes)")
     print("0. キャンセル")
 
     sys.stdout.write("Enter your choice: ")
@@ -289,22 +316,27 @@ async def get_log_file(verbose: bool = False):
     choice = getch()
     print(choice)
 
+    selected_filename = None
+    selected_file_size = 0
+
     try:
         choice_num = int(choice)
         if choice_num == 0:
             print("キャンセルしました。")
             return
-        if 1 <= choice_num <= len(log_files):
-            filename = log_files[choice_num - 1]
+        if 1 <= choice_num <= len(log_files_with_sizes):
+            selected_filename, selected_file_size = log_files_with_sizes[choice_num - 1]
         else:
-            print(f"{RED}無効な選択です。{RESET}")
+            print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
             return
     except ValueError:
-        print(f"{RED}無効な入力です。{RESET}")
+        print(f"{RED}無効な入力です。もう一度お試しください。{RESET}")
         return
 
-    print(f"デバイスから {filename} を要求中...")
-    command = f"GET:log:{filename}"
+    print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
+    command = f"GET:log:{selected_filename}"
+    global g_total_file_size_for_transfer
+    g_total_file_size_for_transfer = selected_file_size
     file_content = await run_ble_command_for_file(command, verbose)
 
     if file_content is not None:
