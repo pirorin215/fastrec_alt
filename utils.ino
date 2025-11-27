@@ -137,7 +137,6 @@ bool getValidRtcTime(struct tm* timeinfo) {
   return false;
 }
 
-
 // Helper function to get formatted RTC time string.
 bool getFormattedRtcTime(char* buffer, size_t bufferSize) {
   struct tm timeinfo;

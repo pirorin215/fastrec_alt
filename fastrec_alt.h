@@ -167,10 +167,8 @@ uint32_t g_totalBytesRecorded = 0;
 int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // ble setting
-volatile bool g_start_log_transfer = false;
-std::string g_log_filename_to_transfer;
-volatile bool g_start_wav_transfer = false;
-std::string g_wav_filename_to_transfer;
+volatile bool g_start_file_transfer = false;
+std::string g_file_to_transfer_name;
 
 // --- Function Prototypes ---
 
