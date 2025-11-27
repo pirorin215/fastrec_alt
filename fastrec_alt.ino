@@ -399,8 +399,7 @@ void setupForUpload() {
 }
 
 void loop() {
-  handleLogTransfer();
-  handleWavTransfer();
+  transferFileChunked();
   setupForUpload();
 
   switch (g_currentAppState) {

@@ -19,15 +19,15 @@ BLECharacteristic *pAckCharacteristic;
 
 SemaphoreHandle_t ackSemaphore = NULL;
 
-void handleLogTransfer() {
- if (!g_start_log_transfer) {
+void transferFileChunked() {
+  if (!g_start_file_transfer) {
     return;
   }
 
-  if (LittleFS.exists(g_log_filename_to_transfer.c_str())) {
-    File file = LittleFS.open(g_log_filename_to_transfer.c_str(), "r");
+  if (LittleFS.exists(g_file_to_transfer_name.c_str())) {
+    File file = LittleFS.open(g_file_to_transfer_name.c_str(), "r");
     if (file) {
-      applog("Starting to send file: %s", g_log_filename_to_transfer.c_str());
+      applog("Starting to send file: %s", g_file_to_transfer_name.c_str());
       const size_t chunkSize = 512;
       uint8_t buffer[chunkSize];
       size_t bytesRead;
@@ -36,81 +36,36 @@ void handleLogTransfer() {
       while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
         pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
-        //applog("Sent chunk %d, size: %d. Waiting for ACK...", chunkIndex, bytesRead);
 
         if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) == pdTRUE) {
-          //applog("ACK received for chunk %d.", chunkIndex);
         } else {
-          applog("ACK timeout for chunk %d. Aborting transfer.", chunkIndex);
+          applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
           file.close();
-          g_start_log_transfer = false;
+          g_start_file_transfer = false;
           return;
         }
         chunkIndex++;
       }
       file.close();
-      
+
       pResponseCharacteristic->setValue("EOF");
       pResponseCharacteristic->notify();
-      applog("Log file sent: %s", g_log_filename_to_transfer.c_str());
+      applog("File sent: %s", g_file_to_transfer_name.c_str());
     } else {
-      pResponseCharacteristic->setValue("ERROR: Failed to open log file");
+      std::string errorMessage = "ERROR: Failed to open file: ";
+      errorMessage += g_file_to_transfer_name;
+      pResponseCharacteristic->setValue(errorMessage.c_str());
       pResponseCharacteristic->notify();
-      applog("Error: Failed to open log file %s", g_log_filename_to_transfer.c_str());
+      applog("Error: Failed to open file %s", g_file_to_transfer_name.c_str());
     }
   } else {
-    pResponseCharacteristic->setValue("ERROR: Log file not found");
+    std::string errorMessage = "ERROR: File not found: ";
+    errorMessage += g_file_to_transfer_name;
+    pResponseCharacteristic->setValue(errorMessage.c_str());
     pResponseCharacteristic->notify();
-    applog("Error: Log file not found %s", g_log_filename_to_transfer.c_str());
+    applog("Error: File not found %s", g_file_to_transfer_name.c_str());
   }
-  g_start_log_transfer = false;
-}
-
-void handleWavTransfer() {
- if (!g_start_wav_transfer) {
-    return;
-  }
-
-  if (LittleFS.exists(g_wav_filename_to_transfer.c_str())) {
-    File file = LittleFS.open(g_wav_filename_to_transfer.c_str(), "r");
-    if (file) {
-      applog("Starting to send file: %s", g_wav_filename_to_transfer.c_str());
-      const size_t chunkSize = 512;
-      uint8_t buffer[chunkSize];
-      size_t bytesRead;
-      int chunkIndex = 0;
-
-      while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
-        pResponseCharacteristic->setValue(buffer, bytesRead);
-        pResponseCharacteristic->notify();
-        //applog("Sent chunk %d, size: %d. Waiting for ACK...", chunkIndex, bytesRead);
-
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) == pdTRUE) {
-          //applog("ACK received for chunk %d.", chunkIndex);
-        } else {
-          applog("ACK timeout for chunk %d. Aborting transfer.", chunkIndex);
-          file.close();
-          g_start_wav_transfer = false;
-          return;
-        }
-        chunkIndex++;
-      }
-      file.close();
-      
-      pResponseCharacteristic->setValue("EOF");
-      pResponseCharacteristic->notify();
-      applog("WAV file sent: %s", g_wav_filename_to_transfer.c_str());
-    } else {
-      pResponseCharacteristic->setValue("ERROR: Failed to open WAV file");
-      pResponseCharacteristic->notify();
-      applog("Error: Failed to open WAV file %s", g_wav_filename_to_transfer.c_str());
-    }
-  } else {
-    pResponseCharacteristic->setValue("ERROR: WAV file not found");
-    pResponseCharacteristic->notify();
-    applog("Error: WAV file not found %s", g_wav_filename_to_transfer.c_str());
-  }
-  g_start_wav_transfer = false;
+  g_start_file_transfer = false;
 }
 
 class MyCallbacks : public BLECharacteristicCallbacks {
@@ -130,16 +85,16 @@ class MyCallbacks : public BLECharacteristicCallbacks {
       applog("BLE Command Received: %s", value.c_str());
 
       if (value.rfind("GET:log:", 0) == 0) {
-        g_log_filename_to_transfer = "/";
-        g_log_filename_to_transfer += value.substr(std::string("GET:log:").length());
-        g_start_log_transfer = true;
+        g_file_to_transfer_name = "/";
+        g_file_to_transfer_name += value.substr(std::string("GET:log:").length());
+        g_start_file_transfer = true;
         return;
       }
 
       if (value.rfind("GET:wav:", 0) == 0) {
-        g_wav_filename_to_transfer = "/";
-        g_wav_filename_to_transfer += value.substr(std::string("GET:wav:").length());
-        g_start_wav_transfer = true;
+        g_file_to_transfer_name = "/";
+        g_file_to_transfer_name += value.substr(std::string("GET:wav:").length());
+        g_start_file_transfer = true;
         return;
       }
 
@@ -205,7 +160,9 @@ class MyCallbacks : public BLECharacteristicCallbacks {
                 littlefs_ls_std += "/";
               } else {
                 littlefs_ls_std += " (";
-                littlefs_ls_std += String(file.size()).c_str();
+                char fileSizeStr[20]; // Buffer to hold the file size string
+                snprintf(fileSizeStr, sizeof(fileSizeStr), "%lu", file.size());
+                littlefs_ls_std += fileSizeStr;
                 littlefs_ls_std += " bytes)";
               }
               littlefs_ls_std += "\n";

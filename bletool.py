@@ -484,8 +484,8 @@ if __name__ == "__main__":
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
                 print("4. 録音レコーダのログファイルを取得")
-                print("6. 録音レコーダのWAVファイルを取得")
-                print(f"{RED}5. デバイスの初期化{RESET}")
+                print("5. 録音レコーダのWAVファイルを取得")
+                print(f"{RED}6. デバイスの初期化{RESET}")
                 print("0. 終了")
                 sys.stdout.write("Enter your choice: ")
                 sys.stdout.flush()
@@ -500,9 +500,9 @@ if __name__ == "__main__":
                     await get_device_info(verbose)
                 elif choice == '4':
                     await get_log_file(verbose)
-                elif choice == '6':
-                    await get_wav_file(verbose)
                 elif choice == '5':
+                    await get_wav_file(verbose)
+                elif choice == '6':
                     await reset_all(verbose)
                 elif choice == '0':
                     print("BLEツールを終了します。")
