@@ -400,6 +400,7 @@ void setupForUpload() {
 
 void loop() {
   handleLogTransfer();
+  handleWavTransfer();
   setupForUpload();
 
   switch (g_currentAppState) {

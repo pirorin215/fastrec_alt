@@ -342,13 +342,89 @@ async def get_log_file(verbose: bool = False):
     if file_content is not None:
         print(f"Total received file size: {len(file_content)} bytes")
         try:
-            with open(filename, 'wb') as f: # Write as binary
+            with open(selected_filename, 'wb') as f: # Write as binary
                 f.write(file_content)
-            print(f"{GREEN}{filename} を正常に取得し、カレントディレクトリに保存しました。{RESET}")
+            print(f"{GREEN}{selected_filename} を正常に取得し、カレントディレクトリに保存しました。{RESET}")
         except IOError as e:
             print(f"{RED}ファイル '{filename}' の保存中にエラーが発生しました: {e}{RESET}")
     else:
         print(f"{RED}{filename} の取得に失敗しました。{RESET}")
+
+
+async def get_wav_file(verbose: bool = False):
+    global received_chunk_count
+    received_chunk_count = 0 # Reset counter before each download
+    info = await get_device_info(verbose, silent=True)
+    if not info or 'ls' not in info:
+        print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
+        return
+
+    ls_content = info.get('ls', '')
+    wav_files_with_sizes = []
+    for item in ls_content.strip().split('\n'):
+        if ".wav" in item:
+            # Parse "audio_rec_YYMMDD_HHMMSS.wav (1234567 bytes)" format
+            match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
+            if match:
+                filename = match.group(1)
+                size = int(match.group(2))
+                wav_files_with_sizes.append((filename, size))
+            else:
+                # Fallback for unexpected format
+                filename_only_match = re.match(r"(.+?)\.wav", item)
+                if filename_only_match:
+                    wav_files_with_sizes.append((filename_only_match.group(0), 0))
+                else:
+                    wav_files_with_sizes.append((item.strip(), 0))
+
+
+    if not wav_files_with_sizes:
+        print(f"{RED}WAVファイルが見つかりませんでした。{RESET}")
+        return
+
+    print("\n取得するWAVファイルを選択してください:")
+    for i, (filename, size) in enumerate(wav_files_with_sizes):
+        print(f"{i + 1}. {filename} ({size} bytes)")
+    print("0. キャンセル")
+
+    sys.stdout.write("Enter your choice: ")
+    sys.stdout.flush()
+    choice = getch()
+    print(choice)
+
+    selected_filename = None
+    selected_file_size = 0
+
+    try:
+        choice_num = int(choice)
+        if choice_num == 0:
+            print("キャンセルしました。")
+            return
+        if 1 <= choice_num <= len(wav_files_with_sizes):
+            selected_filename, selected_file_size = wav_files_with_sizes[choice_num - 1]
+        else:
+            print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+            return
+    except ValueError:
+        print(f"{RED}無効な入力です。もう一度お試しください。{RESET}")
+        return
+
+    print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
+    command = f"GET:wav:{selected_filename}"
+    global g_total_file_size_for_transfer
+    g_total_file_size_for_transfer = selected_file_size
+    file_content = await run_ble_command_for_file(command, verbose)
+
+    if file_content is not None:
+        print(f"Total received file size: {len(file_content)} bytes")
+        try:
+            with open(selected_filename, 'wb') as f: # Write as binary
+                f.write(file_content)
+            print(f"{GREEN}{selected_filename} を正常に取得し、カレントディレクトリに保存しました。{RESET}")
+        except IOError as e:
+            print(f"{RED}ファイル '{selected_filename}' の保存中にエラーが発生しました: {e}{RESET}")
+    else:
+        print(f"{RED}{selected_filename} の取得に失敗しました。{RESET}")
 
 
 async def reset_all(verbose: bool = False):
@@ -408,6 +484,7 @@ if __name__ == "__main__":
                 print("2. 録音レコーダの setting.ini を表示")
                 print("3. 録音レコーダの情報取得")
                 print("4. 録音レコーダのログファイルを取得")
+                print("6. 録音レコーダのWAVファイルを取得")
                 print(f"{RED}5. デバイスの初期化{RESET}")
                 print("0. 終了")
                 sys.stdout.write("Enter your choice: ")
@@ -423,6 +500,8 @@ if __name__ == "__main__":
                     await get_device_info(verbose)
                 elif choice == '4':
                     await get_log_file(verbose)
+                elif choice == '6':
+                    await get_wav_file(verbose)
                 elif choice == '5':
                     await reset_all(verbose)
                 elif choice == '0':

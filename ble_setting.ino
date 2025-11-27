@@ -66,6 +66,53 @@ void handleLogTransfer() {
   g_start_log_transfer = false;
 }
 
+void handleWavTransfer() {
+ if (!g_start_wav_transfer) {
+    return;
+  }
+
+  if (LittleFS.exists(g_wav_filename_to_transfer.c_str())) {
+    File file = LittleFS.open(g_wav_filename_to_transfer.c_str(), "r");
+    if (file) {
+      applog("Starting to send file: %s", g_wav_filename_to_transfer.c_str());
+      const size_t chunkSize = 512;
+      uint8_t buffer[chunkSize];
+      size_t bytesRead;
+      int chunkIndex = 0;
+
+      while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
+        pResponseCharacteristic->setValue(buffer, bytesRead);
+        pResponseCharacteristic->notify();
+        //applog("Sent chunk %d, size: %d. Waiting for ACK...", chunkIndex, bytesRead);
+
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) == pdTRUE) {
+          //applog("ACK received for chunk %d.", chunkIndex);
+        } else {
+          applog("ACK timeout for chunk %d. Aborting transfer.", chunkIndex);
+          file.close();
+          g_start_wav_transfer = false;
+          return;
+        }
+        chunkIndex++;
+      }
+      file.close();
+      
+      pResponseCharacteristic->setValue("EOF");
+      pResponseCharacteristic->notify();
+      applog("WAV file sent: %s", g_wav_filename_to_transfer.c_str());
+    } else {
+      pResponseCharacteristic->setValue("ERROR: Failed to open WAV file");
+      pResponseCharacteristic->notify();
+      applog("Error: Failed to open WAV file %s", g_wav_filename_to_transfer.c_str());
+    }
+  } else {
+    pResponseCharacteristic->setValue("ERROR: WAV file not found");
+    pResponseCharacteristic->notify();
+    applog("Error: WAV file not found %s", g_wav_filename_to_transfer.c_str());
+  }
+  g_start_wav_transfer = false;
+}
+
 class MyCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) { // check_unused:ignore
     std::string value = pCharacteristic->getValue().c_str();
@@ -86,6 +133,13 @@ class MyCallbacks : public BLECharacteristicCallbacks {
         g_log_filename_to_transfer = "/";
         g_log_filename_to_transfer += value.substr(std::string("GET:log:").length());
         g_start_log_transfer = true;
+        return;
+      }
+
+      if (value.rfind("GET:wav:", 0) == 0) {
+        g_wav_filename_to_transfer = "/";
+        g_wav_filename_to_transfer += value.substr(std::string("GET:wav:").length());
+        g_start_wav_transfer = true;
         return;
       }
 

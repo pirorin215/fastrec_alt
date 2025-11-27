@@ -169,6 +169,8 @@ int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wif
 // ble setting
 volatile bool g_start_log_transfer = false;
 std::string g_log_filename_to_transfer;
+volatile bool g_start_wav_transfer = false;
+std::string g_wav_filename_to_transfer;
 
 // --- Function Prototypes ---
 
