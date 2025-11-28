@@ -3,7 +3,7 @@
 
 #include "FS.h"
 #include "LittleFS.h"
-#include <BLEDevice.h>
+#include <NimBLEDevice.h>
 #include <vector> // VectorCheck:allows
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -142,7 +142,7 @@ float g_rtcDriftCorrectionFactor = 1.0f; // Default to no correction
 
 volatile bool g_isForceUpload = false;
 volatile bool g_setupForUpload = false;
-BLEServer* pBLEServer; // Global pointer to the BLE server instance
+NimBLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 volatile bool g_ntpSyncEnd = false;
 

@@ -1,7 +1,5 @@
 #include "fastrec_alt.h"
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
+#include <NimBLEDevice.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -13,9 +11,9 @@
 #define ACK_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 
 // Global characteristic pointers to allow access from callbacks
-BLECharacteristic *pCommandCharacteristic;
-BLECharacteristic *pResponseCharacteristic;
-BLECharacteristic *pAckCharacteristic;
+NimBLECharacteristic *pCommandCharacteristic;
+NimBLECharacteristic *pResponseCharacteristic;
+NimBLECharacteristic *pAckCharacteristic;
 
 SemaphoreHandle_t ackSemaphore = NULL;
 
@@ -68,8 +66,8 @@ void transferFileChunked() {
   g_start_file_transfer = false;
 }
 
-class MyCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) { // check_unused:ignore
+class MyCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo& connInfo) override { // check_unused:ignore
     std::string value = pCharacteristic->getValue().c_str();
 
     if (pCharacteristic->getUUID().toString() == ACK_UUID) {
@@ -297,50 +295,52 @@ void trim_whitespace(char* str) {
 void start_ble_server() {
   ackSemaphore = xSemaphoreCreateBinary();
 
-  BLEDevice::init(DEVICE_NAME);
-  pBLEServer = BLEDevice::createServer(); // Assign to global pointer
-  BLEDevice::setMTU(517); // Set maximum MTU size
+  NimBLEDevice::init(DEVICE_NAME);
+  pBLEServer = NimBLEDevice::createServer(); // Assign to global pointer
+  NimBLEDevice::setMTU(517); // Set maximum MTU size
 
-  class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
+  class MyServerCallbacks: public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer* pServer) {
       applog("Client Connected");
     };
 
-    void onDisconnect(BLEServer* pServer) {
+    void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
       applog("Client Disconnected - Restarting Advertising");
-      BLEAdvertising *pAdvertising = pServer->getAdvertising(); // Use the pServer argument
-      pAdvertising->start();
+      NimBLEDevice::startAdvertising();
     }
   };
 
   pBLEServer->setCallbacks(new MyServerCallbacks()); // Use global pointer
-  BLEService *pService = pBLEServer->createService(SERVICE_UUID);
+  NimBLEService *pService = pBLEServer->createService(SERVICE_UUID);
 
   // New COMMAND_UUID characteristic
   pCommandCharacteristic = pService->createCharacteristic(
       COMMAND_UUID,
-      BLECharacteristic::PROPERTY_WRITE // Allow client to write commands
+      NIMBLE_PROPERTY::WRITE // Allow client to write commands
   );
   pCommandCharacteristic->setCallbacks(new MyCallbacks());
 
   // New RESPONSE_UUID characteristic
   pResponseCharacteristic = pService->createCharacteristic(
       RESPONSE_UUID,
-      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY // Allow client to read and receive notifications
+      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY // Allow client to read and receive notifications
   );
   pResponseCharacteristic->setValue("Ready for commands"); // Initial value
 
   // New ACK_UUID characteristic
   pAckCharacteristic = pService->createCharacteristic(
       ACK_UUID,
-      BLECharacteristic::PROPERTY_WRITE
+      NIMBLE_PROPERTY::WRITE
   );
   pAckCharacteristic->setCallbacks(new MyCallbacks());
 
   pService->start();
 
   // BLEアドバタイズ（広告）の開始
-  BLEAdvertising *pAdvertising = pBLEServer->getAdvertising(); // Use global pBLEServer
+  NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+  pAdvertising->setName(DEVICE_NAME); // Explicitly set advertising name
+  pAdvertising->addServiceUUID(SERVICE_UUID); // Re-add service UUID
+  pAdvertising->enableScanResponse(true); // Enable scan response
   pAdvertising->start();
 }
 
