@@ -27,25 +27,32 @@ total_received_bytes = 0 # Add this
 g_client = None  # Global client object
 DEVICE_ADDRESS = None # Global device address
 g_total_file_size_for_transfer = 0 # New global for total file size
+file_transfer_start_time = 0.0 # New global for timing file transfers
 
 # Notification handler function
 def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
-    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes, g_total_file_size_for_transfer
+    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes, g_total_file_size_for_transfer, file_transfer_start_time
     if is_receiving_file:
         if data == b'EOF':  # End of file transfer
             print("\nEnd of file transfer signal received.") # Added newline
             response_event.set()
             g_total_file_size_for_transfer = 0 # Reset after transfer
+            file_transfer_start_time = 0.0 # Reset start time
         else:
             received_chunk_count += 1
             total_received_bytes += len(data) # Update total received bytes
             
+            elapsed_time = time.time() - file_transfer_start_time
+            kbps = 0.0
+            if elapsed_time > 0:
+                kbps = (total_received_bytes / 1024) / elapsed_time # Kilobytes per second
+            
             percentage = 0.0
             if g_total_file_size_for_transfer > 0:
                 percentage = (total_received_bytes / g_total_file_size_for_transfer) * 100
-                print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes} ({percentage:.1f}%)", end="", flush=True) # Modified line
+                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec, {percentage:.1f}% ", end="", flush=True) # Modified line
             else:
-                print(f"\rReceived chunk {received_chunk_count}, total bytes: {total_received_bytes}", end="", flush=True) # Original line if size unknown
+                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec", end="", flush=True) # Original line if size unknown
 
             received_response_data.extend(data)
             if g_client:
@@ -109,11 +116,12 @@ async def run_ble_command(command_str: str, verbose: bool = False, timeout: floa
         return None
 
 async def run_ble_command_for_file(command_str: str, verbose: bool = False, timeout: float = 120.0): # Increased timeout
-    global received_response_data, is_receiving_file, total_received_bytes, g_client
+    global received_response_data, is_receiving_file, total_received_bytes, g_client, file_transfer_start_time
     is_receiving_file = True
     received_response_data.clear()
     response_event.clear()
     total_received_bytes = 0 # Reset total_received_bytes here
+    file_transfer_start_time = time.time() # Start timer for transfer speed
 
     if verbose:
         print(f"\n--- BLEファイル転送コマンド実行: コマンド='{command_str}' ---")
