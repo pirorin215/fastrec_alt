@@ -1,4 +1,5 @@
 #include "fastrec_alt.h"
+#include <Base64.h>
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -207,7 +208,9 @@ bool checkAuthentication(const char* host, int port, const char* path, const cha
   client.print("Host: ");
   client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // StringCheck:allows
+  char encodedAuthBuffer[128];
+  base64_encode(encodedAuthBuffer, authBuffer, strlen(authBuffer));
+  client.println(encodedAuthBuffer);
   client.println("Connection: close"); // Close connection after response
   client.println(); // End of headers
 
@@ -278,7 +281,9 @@ bool uploadAudioFileViaHTTP(const char* filename, const char* host, int port, co
   client.print("Host: ");
   client.println(host);
   client.print("Authorization: Basic ");
-  client.println(base64::encode(String(authBuffer))); // StringCheck:allows
+  char encodedAuthBuffer[128];
+  base64_encode(encodedAuthBuffer, authBuffer, strlen(authBuffer));
+  client.println(encodedAuthBuffer);
   client.print("Content-Type: ");
   client.println(contentTypeBuffer);
 

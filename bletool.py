@@ -22,30 +22,39 @@ ACK_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 received_response_data = bytearray()
 response_event = asyncio.Event()
 is_receiving_file = False
-total_received_bytes = 0 
+total_received_bytes = 0
 g_client = None  # Global client object
 DEVICE_ADDRESS = None # Global device address
-g_total_file_size_for_transfer = 0 
+g_total_file_size_for_transfer = 0
 file_transfer_start_time = 0.0
+received_chunk_count = 0  # Counter for sliding window
 
 # Notification handler function
 async def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
-    global received_response_data, is_receiving_file, g_client, total_received_bytes
+    global received_response_data, is_receiving_file, g_client, total_received_bytes, received_chunk_count
     global g_total_file_size_for_transfer, file_transfer_start_time
+
+    WINDOW_SIZE = 10
+
     if is_receiving_file:
         if data == b'EOF':  # End of file transfer
-            print("\nEnd of file transfer signal received.") # Added newline
+            print("\nEnd of file transfer signal received.")
+            # Send final ACK for the last partial window.
+            if received_chunk_count % WINDOW_SIZE != 0:
+                if g_client:
+                    await g_client.write_gatt_char(ACK_UUID, b'ACK', response=True)
             response_event.set()
-            g_total_file_size_for_transfer = 0 # Reset after transfer
-            file_transfer_start_time = 0.0 # Reset start time
+            g_total_file_size_for_transfer = 0
+            file_transfer_start_time = 0.0
         else:
-            total_received_bytes += len(data) # Update total received bytes
-            
+            received_chunk_count += 1
+            total_received_bytes += len(data)
+
             elapsed_time = time.time() - file_transfer_start_time
             kbps = 0.0
             if elapsed_time > 0:
-                kbps = (total_received_bytes / 1024) / elapsed_time # Kilobytes per second
-            
+                kbps = (total_received_bytes * 8) / (elapsed_time * 1024)  # Kilobits per second
+
             percentage = 0.0
             if g_total_file_size_for_transfer > 0:
                 percentage = (total_received_bytes / g_total_file_size_for_transfer) * 100
@@ -54,7 +63,8 @@ async def notification_handler(characteristic: BleakGATTCharacteristic, data: by
                 print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec", end="", flush=True)
 
             received_response_data.extend(data)
-            if g_client:
+            # Send ACK every WINDOW_SIZE chunks
+            if g_client and (received_chunk_count % WINDOW_SIZE == 0):
                 await g_client.write_gatt_char(ACK_UUID, b'ACK', response=True)
     else:
         received_response_data = data

@@ -27,23 +27,36 @@ void transferFileChunked() {
     if (file) {
       applog("Starting to send file: %s", g_file_to_transfer_name.c_str());
       const size_t chunkSize = 512;
+      const int windowSize = 10;
       uint8_t buffer[chunkSize];
       size_t bytesRead;
       int chunkIndex = 0;
 
       while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
         pResponseCharacteristic->setValue(buffer, bytesRead);
-        
         pResponseCharacteristic->notify();
+        chunkIndex++;
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(500)) != pdTRUE) {
-          applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
+        if (chunkIndex % windowSize == 0) {
+          if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(10000)) != pdTRUE) {
+            applog("ACK timeout for window ending at chunk %d. Aborting file transfer.", chunkIndex);
+            file.close();
+            g_start_file_transfer = false;
+            return;
+          }
+        }
+      }
+
+      // Wait for the final ACK if the last window was not a full one
+      if (chunkIndex % windowSize != 0) {
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(10000)) != pdTRUE) {
+          applog("Final ACK timeout after chunk %d. Aborting file transfer.", chunkIndex);
           file.close();
           g_start_file_transfer = false;
           return;
         }
-        chunkIndex++;
       }
+
       file.close();
 
       pResponseCharacteristic->setValue("EOF");

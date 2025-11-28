@@ -20,7 +20,7 @@ while IFS= read -r line; do
         value=0 # 現在のpartitions.csvでは発生しないはず
     fi
     total_bytes=$((total_bytes + value))
-done < "/Users/yoshi/Documents/Arduino/fastrec_alt/partitions.csv"
+done < "partitions.csv"
 
 echo "Total size: ${total_bytes} bytes"
 echo "Total size: $(awk 'BEGIN {printf "%.2f KB", '${total_bytes}' / 1024}')"

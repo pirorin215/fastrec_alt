@@ -1,9 +1,9 @@
-sh calculate_partition_size.sh
+bash calculate_partition_size.sh
 
 #arduino-cli cache clean
 
 # Run arduino-cli compile and capture output, including time
-COMPILE_COMMAND="arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:JTAGAdapter=builtin fastrec_alt.ino"
+COMPILE_COMMAND="/app/bin/arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3:JTAGAdapter=builtin fastrec_alt"
 echo $COMPILE_COMMAND
 TIME_AND_COMPILE_OUTPUT=$( { time $COMPILE_COMMAND ; } 2>&1 )
 COMPILE_EXIT_CODE=$?
