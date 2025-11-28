@@ -33,10 +33,12 @@ void transferFileChunked() {
 
       while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
         pResponseCharacteristic->setValue(buffer, bytesRead);
-        pResponseCharacteristic->notify();
+        
+        while(!pResponseCharacteristic->notify()) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) == pdTRUE) {
-        } else {
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
           applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
           file.close();
           g_start_file_transfer = false;
@@ -296,17 +298,23 @@ void start_ble_server() {
   ackSemaphore = xSemaphoreCreateBinary();
 
   NimBLEDevice::init(DEVICE_NAME);
+  NimBLEDevice::setDefaultPhy(2, 2);
   pBLEServer = NimBLEDevice::createServer(); // Assign to global pointer
   NimBLEDevice::setMTU(517); // Set maximum MTU size
 
   class MyServerCallbacks: public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer* pServer) {
+    void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
       applog("Client Connected");
     };
 
     void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
       applog("Client Disconnected - Restarting Advertising");
       NimBLEDevice::startAdvertising();
+    }
+
+    void onPhyUpdate(NimBLEConnInfo& connInfo, uint8_t txPhy, uint8_t rxPhy) override {
+        applog("PHY updated for connection %u | TX: %d, RX: %d (1=1M, 2=2M, 3=Coded)",
+               connInfo.getConnHandle(), txPhy, rxPhy);
     }
   };
 

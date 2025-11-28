@@ -22,16 +22,16 @@ ACK_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 received_response_data = bytearray()
 response_event = asyncio.Event()
 is_receiving_file = False
-received_chunk_count = 0
-total_received_bytes = 0 # Add this
+total_received_bytes = 0 
 g_client = None  # Global client object
 DEVICE_ADDRESS = None # Global device address
-g_total_file_size_for_transfer = 0 # New global for total file size
-file_transfer_start_time = 0.0 # New global for timing file transfers
+g_total_file_size_for_transfer = 0 
+file_transfer_start_time = 0.0
 
 # Notification handler function
-def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
-    global received_response_data, is_receiving_file, received_chunk_count, g_client, total_received_bytes, g_total_file_size_for_transfer, file_transfer_start_time
+async def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
+    global received_response_data, is_receiving_file, g_client, total_received_bytes
+    global g_total_file_size_for_transfer, file_transfer_start_time
     if is_receiving_file:
         if data == b'EOF':  # End of file transfer
             print("\nEnd of file transfer signal received.") # Added newline
@@ -39,7 +39,6 @@ def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearra
             g_total_file_size_for_transfer = 0 # Reset after transfer
             file_transfer_start_time = 0.0 # Reset start time
         else:
-            received_chunk_count += 1
             total_received_bytes += len(data) # Update total received bytes
             
             elapsed_time = time.time() - file_transfer_start_time
@@ -50,13 +49,13 @@ def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearra
             percentage = 0.0
             if g_total_file_size_for_transfer > 0:
                 percentage = (total_received_bytes / g_total_file_size_for_transfer) * 100
-                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec, {percentage:.1f}% ", end="", flush=True) # Modified line
+                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec, {percentage:.1f}% ", end="", flush=True)
             else:
-                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec", end="", flush=True) # Original line if size unknown
+                print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec", end="", flush=True)
 
             received_response_data.extend(data)
             if g_client:
-                asyncio.create_task(g_client.write_gatt_char(ACK_UUID, b'ACK'))
+                await g_client.write_gatt_char(ACK_UUID, b'ACK', response=True)
     else:
         received_response_data = data
         response_event.set()
@@ -120,15 +119,15 @@ async def run_ble_command_for_file(command_str: str, verbose: bool = False, time
     is_receiving_file = True
     received_response_data.clear()
     response_event.clear()
-    total_received_bytes = 0 # Reset total_received_bytes here
-    file_transfer_start_time = time.time() # Start timer for transfer speed
+    total_received_bytes = 0 
+    file_transfer_start_time = time.time()
 
     if verbose:
         print(f"\n--- BLEファイル転送コマンド実行: コマンド='{command_str}' ---")
     if not g_client or not g_client.is_connected:
         if not await reconnect_ble_client(verbose):
             return None
-
+    
     await g_client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
     if verbose:
         print(f"{GREEN}   -> ファイル転送コマンド送信完了。応答を待機中...{RESET}")
