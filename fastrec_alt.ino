@@ -1,4 +1,3 @@
-#include "soc/rtc.h"
 #include "fastrec_alt.h"
 
 #include <time.h>
@@ -359,8 +358,6 @@ void setup() {
   
   initPins();
 
-  rtc_clk_slow_freq_set(RTC_SLOW_FREQ_32K_XTAL);
-  
   initRTCtime();
   
   initLittleFS();
