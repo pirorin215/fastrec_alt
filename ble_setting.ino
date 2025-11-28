@@ -34,11 +34,9 @@ void transferFileChunked() {
       while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
         pResponseCharacteristic->setValue(buffer, bytesRead);
         
-        while(!pResponseCharacteristic->notify()) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
+        pResponseCharacteristic->notify();
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(500)) != pdTRUE) {
           applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
           file.close();
           g_start_file_transfer = false;
