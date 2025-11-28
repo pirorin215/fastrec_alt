@@ -241,7 +241,7 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             if not silent:
                 print("\n")
                 print(f"{ 'バッテリーレベル'} : {int(info.get('battery_level', 0))} %")
-                print(f"{ 'バッテリー電圧'}   : {info.get('battery_voltage', 0.0):.1f} V")
+                print(f"{ 'バッテリー電圧'}   : {info.get('battery_voltage', 0.0):.2f} V")
                 print(f"{ 'アプリ状態'}       : {info.get('app_state', 'N/A')}")
                 print(f"{ 'WiFi接続状態'}     : {info.get('wifi_status', 'N/A')}")
                 print(f"{ '接続済みSSID'}     : {info.get('connected_ssid', 'N/A')}")
