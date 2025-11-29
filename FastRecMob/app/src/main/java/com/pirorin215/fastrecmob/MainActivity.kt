@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,11 +55,7 @@ import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.BatteryStd
-import androidx.compose.material.icons.filled.SdStorage
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 
 class MainActivity : ComponentActivity() {
@@ -327,7 +324,7 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
             // WiFi
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.Wifi, // Standard WiFi icon
+                    imageVector = getWifiIcon(deviceInfo?.wifiRssi ?: -100), // Dynamic WiFi icon
                     contentDescription = "WiFi",
                     modifier = Modifier.size(18.dp) // Smaller icon
                 )
@@ -427,5 +424,16 @@ class BleViewModelFactory(private val application: Application) : ViewModelProvi
             return BleViewModel(application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+// Helper function to get the appropriate WiFi icon based on RSSI
+fun getWifiIcon(rssi: Int): ImageVector {
+    return when (rssi) {
+        in -50..-30 -> Icons.Default.SignalWifi4Bar // Very Good (4 bars)
+        in -60..-51 -> Icons.Default.NetworkWifi3Bar
+        in -70..-61 -> Icons.Default.NetworkWifi2Bar // Normal (2-3 bars)
+        in -80..-71 -> Icons.Default.NetworkWifi1Bar // Weak (1-2 bars)
+        else -> Icons.Default.WifiOff // Very Weak/Out of Range (0-1 bar)
     }
 }
