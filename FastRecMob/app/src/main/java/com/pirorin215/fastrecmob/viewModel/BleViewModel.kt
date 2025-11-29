@@ -21,6 +21,10 @@ import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
+import kotlinx.serialization.json.Json
+import com.pirorin215.fastrecmob.data.DeviceInfoResponse
+import com.pirorin215.fastrecmob.data.FileEntry
+import com.pirorin215.fastrecmob.data.parseFileEntries
 
 private const val TAG = "BleViewModel"
 //from bletool.py
@@ -45,10 +49,14 @@ class BleViewModel(private val context: Context) : ViewModel() {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs = _logs.asStateFlow()
 
+    private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
+    val deviceInfo = _deviceInfo.asStateFlow()
+
     private var bluetoothGatt: BluetoothGatt? = null
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
     private var ackCharacteristic: BluetoothGattCharacteristic? = null
 
+    private val json = Json { ignoreUnknownKeys = true }
 
     // Buffer for assembling fragmented BLE packets
     private var responseBuffer = mutableListOf<Byte>()
@@ -142,6 +150,14 @@ class BleViewModel(private val context: Context) : ViewModel() {
                 if (currentBufferAsString.trim().endsWith("}")) {
                     _receivedData.value = currentBufferAsString
                     addLog("Assembled data: $currentBufferAsString")
+                    try {
+                        val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
+                        _deviceInfo.value = parsedResponse
+                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                        _receivedData.value = "" // Clear raw received data after parsing
+                    } catch (e: Exception) {
+                        addLog("Error parsing JSON: ${e.message}")
+                    }
                     responseBuffer.clear()
                 }
             }
@@ -186,6 +202,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
     fun startScan() {
         _receivedData.value = ""
         _logs.value = emptyList()
+        _deviceInfo.value = null // Clear previous device info
         addLog("Starting BLE scan (no filter)")
         val scanSettings = ScanSettings.Builder().build()
         bluetoothAdapter?.bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
@@ -208,6 +225,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
     fun sendCommand(command: String) {
         if (commandCharacteristic != null) {
             responseBuffer.clear() // Clear buffer before sending a new command
+            _deviceInfo.value = null // Clear previous device info
             addLog("Sending command: $command")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 bluetoothGatt?.writeCharacteristic(commandCharacteristic!!, command.toByteArray(Charsets.UTF_8), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)

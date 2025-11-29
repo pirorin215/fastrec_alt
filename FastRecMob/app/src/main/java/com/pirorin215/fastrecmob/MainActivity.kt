@@ -1,4 +1,4 @@
-package com.pirorin2115.fastrecmob
+package com.pirorin215.fastrecmob
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +32,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pirorin215.fastrecmob.data.DeviceInfoResponse
+import com.pirorin215.fastrecmob.data.FileEntry
+import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 
@@ -97,7 +101,7 @@ fun BleControl() {
     val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
 
     val connectionState by viewModel.connectionState.collectAsState()
-    val receivedData by viewModel.receivedData.collectAsState()
+    val deviceInfo by viewModel.deviceInfo.collectAsState()
     val logs by viewModel.logs.collectAsState()
 
     Column {
@@ -111,11 +115,39 @@ fun BleControl() {
         Button(onClick = { viewModel.sendCommand("GET:info") }) {
             Text("Get Info")
         }
-        Text(text = "Received data: $receivedData")
+
+        DeviceInfoDisplay(deviceInfo = deviceInfo)
+
+        Divider()
+        Text(text = "Logs:")
         LazyColumn {
             items(logs) { log ->
                 Text(text = log)
             }
+        }
+    }
+}
+
+@Composable
+fun DeviceInfoDisplay(deviceInfo: DeviceInfoResponse?) {
+    deviceInfo?.let { info ->
+        Column {
+            Text(text = "--- Device Information ---")
+            Text(text = "バッテリーレベル : ${info.batteryLevel} %")
+            Text(text = "バッテリー電圧   : ${String.format("%.2f", info.batteryVoltage)} V")
+            Text(text = "アプリ状態       : ${info.appState}")
+            Text(text = "WiFi接続状態     : ${info.wifiStatus}")
+            Text(text = "接続済みSSID     : ${info.connectedSsid}")
+            Text(text = "WiFi RSSI        : ${info.wifiRssi}")
+            Text(text = "LittleFS使用率   : ${info.littlefsUsagePercent} %")
+            Text(text = "LittleFS使用量   : ${info.littlefsUsedBytes} bytes")
+            Text(text = "LittleFS総容量   : ${info.littlefsTotalBytes} bytes")
+            Text(text = "ディレクトリ一覧:")
+            val fileEntries = parseFileEntries(info.ls)
+            fileEntries.forEach { file ->
+                Text(text = "  - ${file.name.padEnd(30)} ${file.size.padStart(15)}")
+            }
+            Text(text = "--------------------------")
         }
     }
 }
