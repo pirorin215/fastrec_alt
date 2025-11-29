@@ -10,7 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Serializable
 data class DeviceInfoResponse(
     val ls: String,
-    @SerialName("battery_level") val batteryLevel: Int,
+    @SerialName("battery_level") val batteryLevel: Float,
     @SerialName("battery_voltage") val batteryVoltage: Float,
     @SerialName("app_state") val appState: String,
     @SerialName("wifi_status") val wifiStatus: String,

@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
@@ -195,6 +196,7 @@ fun BleControl() {
     val connectionState by viewModel.connectionState.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val logs by viewModel.logs.collectAsState()
+    var showLogs by remember { mutableStateOf(false) }
 
     // Automatically start scanning when the composable enters the composition
     LaunchedEffect(Unit) {
@@ -215,7 +217,7 @@ fun BleControl() {
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
     ) {
         ConnectionStatusIndicator(connectionState = connectionState)
-        androidx.compose.foundation.layout.Row(
+        Row(
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -242,11 +244,17 @@ fun BleControl() {
 
         DeviceInfoDisplay(deviceInfo = deviceInfo)
 
-        Divider()
-        Text(text = "Logs:")
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(logs) { log ->
-                Text(text = log)
+        Button(onClick = { showLogs = !showLogs }) {
+            Text(if (showLogs) "ログを隠す" else "ログ表示")
+        }
+
+        if (showLogs) {
+            Divider()
+            Text(text = "Logs:")
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(logs) { log ->
+                    Text(text = log)
+                }
             }
         }
     }
@@ -255,25 +263,25 @@ fun BleControl() {
 @Composable
 fun ConnectionStatusIndicator(connectionState: String) {
     val indicatorColor = when (connectionState) {
-        "Connected" -> androidx.compose.ui.graphics.Color.Green
-        "Disconnected" -> androidx.compose.ui.graphics.Color.Red
-        else -> androidx.compose.ui.graphics.Color.Yellow // "Scanning", "Connecting", etc.
+        "Connected" -> Color.Green
+        "Disconnected" -> Color.Red
+        else -> Color.Yellow // "Scanning", "Connecting", etc.
     }
 
-    androidx.compose.material3.Card(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
     ) {
-        androidx.compose.foundation.layout.Row(
+        Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .size(20.dp)
-                    .background(indicatorColor, shape = androidx.compose.foundation.shape.CircleShape)
+                    .background(indicatorColor, shape = CircleShape)
             )
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = "Status: $connectionState",
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
@@ -285,25 +293,49 @@ fun ConnectionStatusIndicator(connectionState: String) {
 @Composable
 fun DeviceInfoDisplay(deviceInfo: DeviceInfoResponse?) {
     deviceInfo?.let { info ->
-        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-            Text(text = "--- Device Information ---")
-            Text(text = "バッテリーレベル : ${info.batteryLevel} %")
-            Text(text = "バッテリー電圧   : ${String.format("%.2f", info.batteryVoltage)} V")
-            Text(text = "アプリ状態       : ${info.appState}")
-            Text(text = "WiFi接続状態     : ${info.wifiStatus}")
-            Text(text = "接続済みSSID     : ${info.connectedSsid}")
-            Text(text = "WiFi RSSI        : ${info.wifiRssi}")
-            Text(text = "LittleFS使用率   : ${info.littlefsUsagePercent} %")
-            Text(text = "LittleFS使用量   : ${info.littlefsUsedBytes} bytes")
-            Text(text = "LittleFS総容量   : ${info.littlefsTotalBytes} bytes")
-            Text(text = "ディレクトリ一覧:")
-            val fileEntries = parseFileEntries(info.ls)
-            fileEntries.forEach { file ->
-                Text(text = "  - ${file.name.padEnd(30)} ${file.size.padStart(15)}")
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(text = "Device Information", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.size(8.dp))
+                InfoRow(label = "バッテリーレベル", value = "${String.format("%.1f", info.batteryLevel)} %")
+                InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", info.batteryVoltage)} V")
+                InfoRow(label = "アプリ状態", value = info.appState)
+                InfoRow(label = "WiFi接続状態", value = info.wifiStatus)
+                InfoRow(label = "接続済みSSID", value = info.connectedSsid)
+                InfoRow(label = "WiFi RSSI", value = info.wifiRssi.toString())
+                InfoRow(label = "LittleFS使用率", value = "${info.littlefsUsagePercent} %")
+                InfoRow(label = "LittleFS使用量", value = "${info.littlefsUsedBytes} bytes")
+                InfoRow(label = "LittleFS総容量", value = "${info.littlefsTotalBytes} bytes")
+                
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(text = "ディレクトリ一覧:", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                val fileEntries = parseFileEntries(info.ls)
+                fileEntries.forEach { file ->
+                    Row {
+                        Text(text = file.name, modifier = Modifier.weight(1f))
+                        Text(text = file.size, modifier = Modifier.align(Alignment.CenterVertically))
+                    }
+                }
             }
-            Text(text = "--------------------------")
         }
     }
+}
+
+@Composable
+fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, modifier = Modifier.weight(1f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        Text(text = value, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+    }
+    Divider()
 }
 
 
