@@ -39,3 +39,10 @@ fun parseFileEntries(lsString: String): List<FileEntry> {
     }
 }
 
+// Helper function to count .wav files from the 'ls' string
+fun countWavFiles(lsString: String): Int {
+    val fileEntries = parseFileEntries(lsString)
+    return fileEntries.count { it.name.lowercase().endsWith(".wav") }
+}
+
+
