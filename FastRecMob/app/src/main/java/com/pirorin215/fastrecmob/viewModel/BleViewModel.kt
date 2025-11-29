@@ -18,13 +18,17 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.pirorin215.fastrecmob.data.DeviceInfoResponse
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.UUID
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import com.pirorin215.fastrecmob.data.DeviceInfoResponse
-import com.pirorin215.fastrecmob.data.FileEntry
-import com.pirorin215.fastrecmob.data.parseFileEntries
+import java.util.UUID
 
 private const val TAG = "BleViewModel"
 //from bletool.py
@@ -60,6 +64,32 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     // Buffer for assembling fragmented BLE packets
     private var responseBuffer = mutableListOf<Byte>()
+    private var autoRefreshJob: Job? = null
+
+    init {
+        connectionState.onEach { state ->
+            if (state == "Connected") {
+                startAutoRefresh()
+            } else {
+                stopAutoRefresh()
+            }
+        }.launchIn(viewModelScope)
+    }
+
+    private fun startAutoRefresh() {
+        stopAutoRefresh() // Ensure only one job is running
+        autoRefreshJob = viewModelScope.launch {
+            while (true) {
+                sendCommand("GET:info")
+                delay(5000) // 5 seconds
+            }
+        }
+    }
+
+    private fun stopAutoRefresh() {
+        autoRefreshJob?.cancel()
+        autoRefreshJob = null
+    }
 
     private fun addLog(message: String) {
         Log.d(TAG, message)
@@ -202,7 +232,6 @@ class BleViewModel(private val context: Context) : ViewModel() {
     fun startScan() {
         _receivedData.value = ""
         _logs.value = emptyList()
-        _deviceInfo.value = null // Clear previous device info
         addLog("Starting BLE scan (no filter)")
         val scanSettings = ScanSettings.Builder().build()
         bluetoothAdapter?.bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
@@ -225,7 +254,6 @@ class BleViewModel(private val context: Context) : ViewModel() {
     fun sendCommand(command: String) {
         if (commandCharacteristic != null) {
             responseBuffer.clear() // Clear buffer before sending a new command
-            _deviceInfo.value = null // Clear previous device info
             addLog("Sending command: $command")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 bluetoothGatt?.writeCharacteristic(commandCharacteristic!!, command.toByteArray(Charsets.UTF_8), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
