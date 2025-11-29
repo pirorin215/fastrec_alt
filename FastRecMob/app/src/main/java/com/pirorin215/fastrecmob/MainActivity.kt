@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material3.Icon
 
 class MainActivity : ComponentActivity() {
@@ -334,7 +335,7 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
                 Text(text = "${deviceInfo?.connectedSsid ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
 
-            Spacer(modifier = Modifier.width(8.dp)) // Small gap
+            Spacer(modifier = Modifier.width(6.dp)) // Small gap
 
             // Battery Level
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -343,11 +344,10 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
                     contentDescription = "バッテリーレベル",
                     modifier = Modifier.size(18.dp) // Smaller icon
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(text = "${String.format("%.1f", deviceInfo?.batteryLevel ?: 0.0f)} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                Text(text = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
 
-            Spacer(modifier = Modifier.width(8.dp)) // Small gap
+            Spacer(modifier = Modifier.width(6.dp)) // Small gap
 
             // Storage Usage
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -356,8 +356,21 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
                     contentDescription = "ストレージ使用率",
                     modifier = Modifier.size(18.dp) // Smaller icon
                 )
-                Spacer(modifier = Modifier.width(4.dp))
                 Text(text = "${deviceInfo?.littlefsUsagePercent ?: 0} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(modifier = Modifier.width(6.dp)) // Small gap
+
+            // WAV File Count
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Audiotrack,
+                    contentDescription = "録音ファイル数",
+                    modifier = Modifier.size(18.dp) // Smaller icon
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                val wavFileCount = com.pirorin215.fastrecmob.data.countWavFiles(deviceInfo?.ls ?: "")
+                Text(text = "$wavFileCount", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
         }
     }
