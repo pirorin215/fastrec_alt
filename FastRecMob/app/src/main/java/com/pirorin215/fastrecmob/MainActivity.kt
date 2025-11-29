@@ -197,6 +197,7 @@ fun BleControl() {
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val logs by viewModel.logs.collectAsState()
     var showLogs by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
 
     // Automatically start scanning when the composable enters the composition
     LaunchedEffect(Unit) {
@@ -242,7 +243,22 @@ fun BleControl() {
             }
         }
 
-        DeviceInfoDisplay(deviceInfo = deviceInfo)
+        // Display summary information
+        deviceInfo?.let {
+            SummaryInfoCard(deviceInfo = it)
+        }
+
+        // Toggle button for detailed information
+        Button(onClick = { showDetails = !showDetails }) {
+            Text(if (showDetails) "詳細を隠す" else "詳細表示")
+        }
+
+        // Display detailed information if toggled
+        if (showDetails) {
+            deviceInfo?.let {
+                DetailedInfoCard(deviceInfo = it)
+            }
+        }
 
         Button(onClick = { showLogs = !showLogs }) {
             Text(if (showLogs) "ログを隠す" else "ログ表示")
@@ -291,33 +307,43 @@ fun ConnectionStatusIndicator(connectionState: String) {
 }
 
 @Composable
-fun DeviceInfoDisplay(deviceInfo: DeviceInfoResponse?) {
-    deviceInfo?.let { info ->
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = "Device Information", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.size(8.dp))
-                InfoRow(label = "バッテリーレベル", value = "${String.format("%.1f", info.batteryLevel)} %")
-                InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", info.batteryVoltage)} V")
-                InfoRow(label = "アプリ状態", value = info.appState)
-                InfoRow(label = "WiFi接続状態", value = info.wifiStatus)
-                InfoRow(label = "接続済みSSID", value = info.connectedSsid)
-                InfoRow(label = "WiFi RSSI", value = info.wifiRssi.toString())
-                InfoRow(label = "LittleFS使用率", value = "${info.littlefsUsagePercent} %")
-                InfoRow(label = "LittleFS使用量", value = "${info.littlefsUsedBytes} bytes")
-                InfoRow(label = "LittleFS総容量", value = "${info.littlefsTotalBytes} bytes")
-                
-                Spacer(modifier = Modifier.size(8.dp))
-                Text(text = "ディレクトリ一覧:", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
-                val fileEntries = parseFileEntries(info.ls)
-                fileEntries.forEach { file ->
-                    Row {
-                        Text(text = file.name, modifier = Modifier.weight(1f))
-                        Text(text = file.size, modifier = Modifier.align(Alignment.CenterVertically))
-                    }
+fun SummaryInfoCard(deviceInfo: DeviceInfoResponse) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "サマリー", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            InfoRow(label = "バッテリーレベル", value = "${String.format("%.1f", deviceInfo.batteryLevel)} %")
+            InfoRow(label = "WiFi", value = "${deviceInfo.wifiStatus} (${deviceInfo.wifiRssi} dBm)")
+            InfoRow(label = "ストレージ使用量", value = "${deviceInfo.littlefsUsedBytes / 1024} KB")
+        }
+    }
+}
+
+@Composable
+fun DetailedInfoCard(deviceInfo: DeviceInfoResponse) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "詳細情報", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo.batteryVoltage)} V")
+            InfoRow(label = "アプリ状態", value = deviceInfo.appState)
+            InfoRow(label = "接続済みSSID", value = deviceInfo.connectedSsid)
+            InfoRow(label = "LittleFS使用率", value = "${deviceInfo.littlefsUsagePercent} %")
+            InfoRow(label = "LittleFS総容量", value = "${deviceInfo.littlefsTotalBytes / 1024 / 1024} MB")
+
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(text = "ディレクトリ一覧:", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+            val fileEntries = parseFileEntries(deviceInfo.ls)
+            fileEntries.forEach { file ->
+                Row {
+                    Text(text = file.name, modifier = Modifier.weight(1f))
+                    Text(text = file.size, modifier = Modifier.align(Alignment.CenterVertically))
                 }
             }
         }
