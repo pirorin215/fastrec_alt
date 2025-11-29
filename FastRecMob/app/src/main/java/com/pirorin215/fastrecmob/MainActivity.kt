@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,12 @@ import com.pirorin215.fastrecmob.data.FileEntry
 import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryStd
+import androidx.compose.material.icons.filled.SdStorage
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.Icon
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -219,8 +226,8 @@ fun BleControl() {
     ) {
         ConnectionStatusIndicator()
 
-                    // Display summary information
-                    SummaryInfoCard(deviceInfo = deviceInfo, connectionState = connectionState)
+        // Display summary information
+        SummaryInfoCard(deviceInfo = deviceInfo, connectionState = connectionState)
         // Toggle button for detailed information
         Button(onClick = { showDetails = !showDetails }) {
             Text(if (showDetails) "詳細を隠す" else "詳細表示")
@@ -256,7 +263,7 @@ fun BleControl() {
                 Text("状態取得")
             }
         }
-        
+
         Button(onClick = { showLogs = !showLogs }) {
             Text(if (showLogs) "ログを隠す" else "ログ表示")
         }
@@ -297,25 +304,61 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp), // Adjusted padding
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // BT Status
             val btStatusColor = if (connectionState == "Connected") Color.Green else Color.Red
-            Row(
+            Text(
+                text = "BT",
+                color = Color.Black, // Changed to Black
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = "BT", modifier = Modifier.weight(1f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(color = btStatusColor, shape = CircleShape)
+                    .background(color = btStatusColor, shape = RoundedCornerShape(50)) // Oval shape
+                    .padding(horizontal = 6.dp, vertical = 2.dp) // Padding inside the oval
+            )
+
+            Spacer(modifier = Modifier.width(8.dp)) // Small gap
+
+            // WiFi
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Wifi, // Standard WiFi icon
+                    contentDescription = "WiFi",
+                    modifier = Modifier.size(18.dp) // Smaller icon
                 )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "${deviceInfo?.connectedSsid ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             }
-            Spacer(modifier = Modifier.size(8.dp))
-            InfoRow(label = "バッテリーレベル", value = "${String.format("%.1f", deviceInfo?.batteryLevel ?: 0.0f)} %")
-            InfoRow(label = "WiFi", value = "${deviceInfo?.connectedSsid ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)")
-            InfoRow(label = "ストレージ使用率", value = "${deviceInfo?.littlefsUsagePercent ?: 0} %")
+
+            Spacer(modifier = Modifier.width(8.dp)) // Small gap
+
+            // Battery Level
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if ((deviceInfo?.batteryLevel ?: 0f) > 10) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
+                    contentDescription = "バッテリーレベル",
+                    modifier = Modifier.size(18.dp) // Smaller icon
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "${String.format("%.1f", deviceInfo?.batteryLevel ?: 0.0f)} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(modifier = Modifier.width(8.dp)) // Small gap
+
+            // Storage Usage
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.SdStorage,
+                    contentDescription = "ストレージ使用率",
+                    modifier = Modifier.size(18.dp) // Smaller icon
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "${deviceInfo?.littlefsUsagePercent ?: 0} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -329,10 +372,10 @@ fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = "詳細情報", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.size(8.dp))
-            InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
-            InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
-            InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
-            InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
+            InfoRow(label = { Text("バッテリー電圧") }, value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
+            InfoRow(label = { Text("アプリ状態") }, value = deviceInfo?.appState ?: "-")
+            InfoRow(label = { Text("ストレージ使用量") }, value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
+            InfoRow(label = { Text("ストレージ総容量") }, value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
 
             Spacer(modifier = Modifier.size(8.dp))
             Text(text = "ディレクトリ一覧:", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
@@ -348,14 +391,16 @@ fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
 }
 
 @Composable
-fun InfoRow(label: String, value: String) {
+fun InfoRow(label: @Composable () -> Unit, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, modifier = Modifier.weight(1f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        Box(modifier = Modifier.weight(1f)) {
+            label()
+        }
         Text(text = value, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
     }
     Divider()
