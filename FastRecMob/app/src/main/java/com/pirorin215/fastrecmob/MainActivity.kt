@@ -187,198 +187,91 @@ fun BleApp(modifier: Modifier = Modifier) {
 }
 
 @SuppressLint("MissingPermission")
-
 @Composable
-
 fun BleControl() {
-
     val context = LocalContext.current
-
     val viewModelFactory = BleViewModelFactory(context.applicationContext as Application)
-
     val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
 
-
-
     val connectionState by viewModel.connectionState.collectAsState()
-
     val deviceInfo by viewModel.deviceInfo.collectAsState()
-
     val logs by viewModel.logs.collectAsState()
-
     var showLogs by remember { mutableStateOf(false) }
-
     var showDetails by remember { mutableStateOf(false) }
 
-
-
     // Automatically start scanning when the composable enters the composition
-
     LaunchedEffect(Unit) {
-
         viewModel.startScan()
-
     }
-
-
 
     // Re-scan if disconnected
-
     LaunchedEffect(connectionState) {
-
         if (connectionState == "Disconnected") {
-
             viewModel.startScan()
-
         }
-
     }
 
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+    ) {
+        ConnectionStatusIndicator()
 
-
-        Column(
-
-
-
-            modifier = Modifier
-
-
-
-                .fillMaxSize()
-
-
-
-                .padding(16.dp),
-
-
-
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-
-
-
-        ) {
-
-
-
-            ConnectionStatusIndicator()
-
-
-
-            
-
-
-
-            // Display summary information
-
-
-
-            SummaryInfoCard(deviceInfo = deviceInfo)
-
-
-
+                    // Display summary information
+                    SummaryInfoCard(deviceInfo = deviceInfo, connectionState = connectionState)
         // Toggle button for detailed information
-
         Button(onClick = { showDetails = !showDetails }) {
-
             Text(if (showDetails) "詳細を隠す" else "詳細表示")
-
         }
-
-
 
         // Display detailed information if toggled
-
         if (showDetails) {
-
             DetailedInfoCard(deviceInfo = deviceInfo)
-
         }
-
-
 
         // Moved buttons to below info displays
-
         Row(
-
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-
             modifier = Modifier.fillMaxWidth()
-
         ) {
-
             val buttonText = if (connectionState == "Connected") "切断" else "接続"
-
             Button(
-
                 onClick = {
-
                     if (connectionState == "Connected") {
-
                         viewModel.disconnect()
-
                     } else {
-
                         viewModel.startScan()
-
                     }
-
                 },
-
                 modifier = Modifier.weight(1f)
-
             ) {
-
                 Text(buttonText)
-
             }
-
             Button(
-
                 onClick = { viewModel.sendCommand("GET:info") },
-
                 modifier = Modifier.weight(1f)
-
             ) {
-
                 Text("状態取得")
-
             }
-
         }
-
         
-
         Button(onClick = { showLogs = !showLogs }) {
-
             Text(if (showLogs) "ログを隠す" else "ログ表示")
-
         }
-
-
 
         if (showLogs) {
-
             Divider()
-
             Text(text = "Logs:")
-
             LazyColumn(modifier = Modifier.weight(1f)) {
-
                 items(logs) { log ->
-
                     Text(text = log)
-
                 }
-
             }
-
         }
-
     }
-
 }
-
-
 
 @Composable
 fun ConnectionStatusIndicator() {
@@ -398,116 +291,33 @@ fun ConnectionStatusIndicator() {
     }
 }
 
-
-
-
-
-
-
 @Composable
-
-
-
-
-
-
-
-fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
-
-
-
-
-
-
-
+fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
     Card(
-
-
-
-
-
-
-
         modifier = Modifier.fillMaxWidth(),
-
-
-
-
-
-
-
         shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-
-
-
-
-
-
-
     ) {
-
-
-
-
-
-
-
         Column(modifier = Modifier.padding(16.dp)) {
-
-
-
-
-
-
-
+            val btStatusColor = if (connectionState == "Connected") Color.Green else Color.Red
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "BT", modifier = Modifier.weight(1f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(color = btStatusColor, shape = CircleShape)
+                )
+            }
             Spacer(modifier = Modifier.size(8.dp))
-
-
-
-
-
-
-
             InfoRow(label = "バッテリーレベル", value = "${String.format("%.1f", deviceInfo?.batteryLevel ?: 0.0f)} %")
-
-
-
-
-
-
-
-            InfoRow(label = "WiFi", value = "${deviceInfo?.wifiStatus ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)")
-
-
-
-
-
-
-
+            InfoRow(label = "WiFi", value = "${deviceInfo?.connectedSsid ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)")
             InfoRow(label = "ストレージ使用率", value = "${deviceInfo?.littlefsUsagePercent ?: 0} %")
-
-
-
-
-
-
-
         }
-
-
-
-
-
-
-
     }
-
-
-
-
-
-
-
 }
 
 @Composable
@@ -521,7 +331,6 @@ fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
             Spacer(modifier = Modifier.size(8.dp))
             InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
             InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
-            InfoRow(label = "接続済みSSID", value = deviceInfo?.connectedSsid ?: "-")
             InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
             InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
 
