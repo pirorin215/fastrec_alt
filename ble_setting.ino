@@ -82,16 +82,9 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
     if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       applog("BLE Command Received: %s", value.c_str());
 
-      if (value.rfind("GET:log:", 0) == 0) {
+      if (value.rfind("GET:file:", 0) == 0) {
         g_file_to_transfer_name = "/";
-        g_file_to_transfer_name += value.substr(std::string("GET:log:").length());
-        g_start_file_transfer = true;
-        return;
-      }
-
-      if (value.rfind("GET:wav:", 0) == 0) {
-        g_file_to_transfer_name = "/";
-        g_file_to_transfer_name += value.substr(std::string("GET:wav:").length());
+        g_file_to_transfer_name += value.substr(std::string("GET:file:").length());
         g_start_file_transfer = true;
         return;
       }

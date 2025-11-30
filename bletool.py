@@ -281,7 +281,7 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
-async def _get_file_from_device(file_extension_filter: str, command_prefix: str, verbose: bool = False):
+async def _get_file_from_device(file_extension_filter: str, verbose: bool = False):
     global received_chunk_count, g_total_file_size_for_transfer
     received_chunk_count = 0 # Reset counter before each download
 
@@ -340,7 +340,7 @@ async def _get_file_from_device(file_extension_filter: str, command_prefix: str,
         return
 
     print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
-    command = f"{command_prefix}:{selected_filename}"
+    command = f"GET:file:{selected_filename}"
     g_total_file_size_for_transfer = selected_file_size
     file_content = await run_ble_command_for_file(command, verbose)
 
@@ -357,10 +357,10 @@ async def _get_file_from_device(file_extension_filter: str, command_prefix: str,
 
 
 async def get_log_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='log.', command_prefix='GET:log', verbose=verbose)
+    await _get_file_from_device(file_extension_filter='log.', verbose=verbose)
 
 async def get_wav_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='.wav', command_prefix='GET:wav', verbose=verbose)
+    await _get_file_from_device(file_extension_filter='.wav', verbose=verbose)
 
 
 async def reset_all(verbose: bool = False):
