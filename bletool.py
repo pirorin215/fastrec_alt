@@ -281,40 +281,39 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
-async def get_log_file(verbose: bool = False):
-    global received_chunk_count
+async def _get_file_from_device(file_extension_filter: str, command_prefix: str, verbose: bool = False):
+    global received_chunk_count, g_total_file_size_for_transfer
     received_chunk_count = 0 # Reset counter before each download
+
     info = await get_device_info(verbose, silent=True)
     if not info or 'ls' not in info:
         print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
         return
 
     ls_content = info.get('ls', '')
-    log_files_with_sizes = []
+    files_with_sizes = []
     for item in ls_content.strip().split('\n'):
-        if item.startswith('log.'): # Changed from item.endswith('.txt')
-            # Parse "log.0.txt (26762 bytes)" format
-            match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
-            if match:
-                filename = match.group(1)
-                size = int(match.group(2))
-                log_files_with_sizes.append((filename, size))
-            else:
-                # Fallback for unexpected format (shouldn't happen with updated ble_setting.ino)
-                # or for items that match log. and .txt but don't have size info for some reason
-                # We'll try to extract filename and assume 0 size
-                filename_only_match = re.match(r"(.+?)\.txt", item)
-                if filename_only_match:
-                    log_files_with_sizes.append((filename_only_match.group(0), 0))
-                else:
-                    log_files_with_sizes.append((item.strip(), 0))
+        # First, try to extract filename and size
+        match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
+        if match:
+            filename_from_ls = match.group(1)
+            size = int(match.group(2))
+        else:
+            filename_from_ls = item.strip()
+            size = 0 # Default size if not parsed
 
-    if not log_files_with_sizes:
-        print(f"{RED}ログファイルが見つかりませんでした。{RESET}")
+        # Now apply the filter to the extracted filename
+        if (file_extension_filter.startswith('.') and filename_from_ls.endswith(file_extension_filter)) or \
+           (not file_extension_filter.startswith('.') and filename_from_ls.startswith(file_extension_filter)):
+            files_with_sizes.append((filename_from_ls, size))
+
+
+    if not files_with_sizes:
+        print(f"{RED}該当するファイルが見つかりませんでした。{RESET}")
         return
 
-    print("\n取得するログファイルを選択してください:")
-    for i, (filename, size) in enumerate(log_files_with_sizes):
+    print(f"\n取得するファイルを選択してください:")
+    for i, (filename, size) in enumerate(files_with_sizes):
         print(f"{i + 1}. {filename} ({size} bytes)")
     print("0. キャンセル")
 
@@ -331,8 +330,8 @@ async def get_log_file(verbose: bool = False):
         if choice_num == 0:
             print("キャンセルしました。")
             return
-        if 1 <= choice_num <= len(log_files_with_sizes):
-            selected_filename, selected_file_size = log_files_with_sizes[choice_num - 1]
+        if 1 <= choice_num <= len(files_with_sizes):
+            selected_filename, selected_file_size = files_with_sizes[choice_num - 1]
         else:
             print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
             return
@@ -341,84 +340,7 @@ async def get_log_file(verbose: bool = False):
         return
 
     print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
-    command = f"GET:log:{selected_filename}"
-    global g_total_file_size_for_transfer
-    g_total_file_size_for_transfer = selected_file_size
-    file_content = await run_ble_command_for_file(command, verbose)
-
-    if file_content is not None:
-        print(f"Total received file size: {len(file_content)} bytes")
-        try:
-            with open(selected_filename, 'wb') as f: # Write as binary
-                f.write(file_content)
-            print(f"{GREEN}{selected_filename} を正常に取得し、カレントディレクトリに保存しました。{RESET}")
-        except IOError as e:
-            print(f"{RED}ファイル '{filename}' の保存中にエラーが発生しました: {e}{RESET}")
-    else:
-        print(f"{RED}{filename} の取得に失敗しました。{RESET}")
-
-
-async def get_wav_file(verbose: bool = False):
-    global received_chunk_count
-    received_chunk_count = 0 # Reset counter before each download
-    info = await get_device_info(verbose, silent=True)
-    if not info or 'ls' not in info:
-        print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
-        return
-
-    ls_content = info.get('ls', '')
-    wav_files_with_sizes = []
-    for item in ls_content.strip().split('\n'):
-        if ".wav" in item:
-            # Parse "audio_rec_YYMMDD_HHMMSS.wav (1234567 bytes)" format
-            match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
-            if match:
-                filename = match.group(1)
-                size = int(match.group(2))
-                wav_files_with_sizes.append((filename, size))
-            else:
-                # Fallback for unexpected format
-                filename_only_match = re.match(r"(.+?)\.wav", item)
-                if filename_only_match:
-                    wav_files_with_sizes.append((filename_only_match.group(0), 0))
-                else:
-                    wav_files_with_sizes.append((item.strip(), 0))
-
-
-    if not wav_files_with_sizes:
-        print(f"{RED}WAVファイルが見つかりませんでした。{RESET}")
-        return
-
-    print("\n取得するWAVファイルを選択してください:")
-    for i, (filename, size) in enumerate(wav_files_with_sizes):
-        print(f"{i + 1}. {filename} ({size} bytes)")
-    print("0. キャンセル")
-
-    sys.stdout.write("Enter your choice: ")
-    sys.stdout.flush()
-    choice = getch()
-    print(choice)
-
-    selected_filename = None
-    selected_file_size = 0
-
-    try:
-        choice_num = int(choice)
-        if choice_num == 0:
-            print("キャンセルしました。")
-            return
-        if 1 <= choice_num <= len(wav_files_with_sizes):
-            selected_filename, selected_file_size = wav_files_with_sizes[choice_num - 1]
-        else:
-            print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
-            return
-    except ValueError:
-        print(f"{RED}無効な入力です。もう一度お試しください。{RESET}")
-        return
-
-    print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
-    command = f"GET:wav:{selected_filename}"
-    global g_total_file_size_for_transfer
+    command = f"{command_prefix}:{selected_filename}"
     g_total_file_size_for_transfer = selected_file_size
     file_content = await run_ble_command_for_file(command, verbose)
 
@@ -432,6 +354,13 @@ async def get_wav_file(verbose: bool = False):
             print(f"{RED}ファイル '{selected_filename}' の保存中にエラーが発生しました: {e}{RESET}")
     else:
         print(f"{RED}{selected_filename} の取得に失敗しました。{RESET}")
+
+
+async def get_log_file(verbose: bool = False):
+    await _get_file_from_device(file_extension_filter='log.', command_prefix='GET:log', verbose=verbose)
+
+async def get_wav_file(verbose: bool = False):
+    await _get_file_from_device(file_extension_filter='.wav', command_prefix='GET:wav', verbose=verbose)
 
 
 async def reset_all(verbose: bool = False):
