@@ -36,7 +36,7 @@ void transferFileChunked() {
         
         pResponseCharacteristic->notify();
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(500)) != pdTRUE) {
+        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
           applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
           file.close();
           g_start_file_transfer = false;
