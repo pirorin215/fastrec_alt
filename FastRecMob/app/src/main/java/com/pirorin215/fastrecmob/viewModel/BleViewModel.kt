@@ -43,28 +43,42 @@ import kotlinx.coroutines.TimeoutCancellationException
 import com.pirorin215.fastrecmob.service.SpeechToTextService
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 
+import com.pirorin215.fastrecmob.data.TranscriptionResult
+import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+
 sealed class NavigationEvent {
     object NavigateBack : NavigationEvent()
 }
-
-private const val TAG = "BleViewModel"
-private const val DEVICE_NAME = "fastrec"
-private const val COMMAND_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26aa"
-private const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
-private const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
-private const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
+// ...
 
 @SuppressLint("MissingPermission")
 class BleViewModel(
     private val appSettingsRepository: AppSettingsRepository,
+    private val transcriptionResultRepository: TranscriptionResultRepository,
     private val context: Context
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "BleViewModel"
+        private const val DEVICE_NAME = "fastrec"
+        private const val COMMAND_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+        private const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+        private const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+        private const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
+    }
 
     val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = ""
+        )
+
+    val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
         )
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -265,11 +279,11 @@ class BleViewModel(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 addLog("Services discovered successfully")
                 gatt.services?.forEach { service ->
-                    val responseCharacteristic = service.getCharacteristic(UUID.fromString(RESPONSE_UUID_STRING))
+                    val responseCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.RESPONSE_UUID_STRING))
                     if (responseCharacteristic != null) {
                         addLog("Found response characteristic")
                         gatt.setCharacteristicNotification(responseCharacteristic, true)
-                        val descriptor = responseCharacteristic.getDescriptor(UUID.fromString(CCCD_UUID_STRING))
+                        val descriptor = responseCharacteristic.getDescriptor(UUID.fromString(BleViewModel.CCCD_UUID_STRING))
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             bluetoothGatt?.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                         } else {
@@ -278,9 +292,9 @@ class BleViewModel(
                         }
                         addLog("Writing descriptor to enable notifications")
                     }
-                    commandCharacteristic = service.getCharacteristic(UUID.fromString(COMMAND_UUID_STRING))
+                    commandCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.COMMAND_UUID_STRING))
                     if (commandCharacteristic != null) { addLog("Found command characteristic") }
-                    ackCharacteristic = service.getCharacteristic(UUID.fromString(ACK_UUID_STRING))
+                    ackCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.ACK_UUID_STRING))
                     if (ackCharacteristic != null) { addLog("Found ACK characteristic") }
                 }
             } else {
@@ -290,7 +304,7 @@ class BleViewModel(
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             super.onCharacteristicChanged(gatt, characteristic, value)
-            if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
+            if (characteristic.uuid != UUID.fromString(BleViewModel.RESPONSE_UUID_STRING)) return
 
             when (_currentOperation.value) {
                 Operation.FETCHING_INFO -> {
@@ -438,7 +452,7 @@ class BleViewModel(
     }
     
     private fun saveFile(data: ByteArray): String? {
-        val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}"
+        val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.wav"
         return try {
             val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val file = File(path, fileName)
@@ -455,7 +469,7 @@ class BleViewModel(
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
-            if (result.device.name == DEVICE_NAME) {
+            if (result.device.name == BleViewModel.DEVICE_NAME) {
                 addLog("Found fastrec device, stopping scan and connecting")
                 stopScan()
                 connectToDevice(result.device)
@@ -604,6 +618,12 @@ class BleViewModel(
                 _transcriptionState.value = "Success"
                 _transcriptionResult.value = transcription
                 addLog("Transcription successful.")
+                val actualFileName = File(filePath).name // filePath からファイル名だけ取得
+                val newResult = TranscriptionResult(actualFileName, transcription) // actualFileName を使う
+                viewModelScope.launch {
+                    transcriptionResultRepository.addResult(newResult)
+                    addLog("Transcription result saved for $actualFileName.")
+                }
             }.onFailure { error ->
                 _transcriptionState.value = "Error: ${error.message}"
                 _transcriptionResult.value = null
@@ -629,6 +649,21 @@ class BleViewModel(
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
             addLog("API Key saved.")
+        }
+    }
+
+    fun clearTranscriptionResults() {
+        viewModelScope.launch {
+            transcriptionResultRepository.clearResults()
+            addLog("All transcription results cleared.")
+        }
+    }
+
+    // 特定の文字起こし結果を削除する関数
+    fun removeTranscriptionResult(result: TranscriptionResult) {
+        viewModelScope.launch {
+            transcriptionResultRepository.removeResult(result)
+            addLog("Transcription result removed: ${result.fileName}")
         }
     }
 }

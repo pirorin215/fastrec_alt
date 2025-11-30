@@ -40,6 +40,7 @@ import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
+import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import androidx.compose.foundation.shape.CircleShape
 
 class MainActivity : ComponentActivity() {
@@ -144,6 +145,7 @@ fun BleControl() {
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
+    var showTranscriptionResults by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -160,11 +162,13 @@ fun BleControl() {
         }
     }
 
-    TranscriptionStatusDialog(
-        transcriptionState = transcriptionState,
-        transcriptionResult = transcriptionResult,
-        onDismiss = { viewModel.resetTranscriptionState() }
-    )
+    if (transcriptionState == "Transcribing") { // 処理中のみ表示
+        TranscriptionStatusDialog(
+            transcriptionState = transcriptionState,
+            transcriptionResult = transcriptionResult,
+            onDismiss = { viewModel.resetTranscriptionState() }
+        )
+    }
 
     when {
         showSettings -> {
@@ -173,6 +177,9 @@ fun BleControl() {
         showAppSettings -> {
             // AppSettingsScreenのインポートが必要になる可能性
             com.pirorin215.fastrecmob.ui.screen.AppSettingsScreen(viewModel = viewModel, onBack = { showAppSettings = false })
+        }
+        showTranscriptionResults -> {
+            com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen(viewModel = viewModel, onBack = { showTranscriptionResults = false })
         }
         else -> {
             Scaffold(
@@ -248,6 +255,16 @@ fun BleControl() {
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("アプリ設定")
+                        }
+                    }
+
+                    // 新しい行: 文字起こし履歴ボタン
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { showTranscriptionResults = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("文字起こし履歴")
                         }
                     }
 
@@ -461,8 +478,9 @@ class BleViewModelFactory(private val application: Application) : ViewModelProvi
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
             val appSettingsRepository = AppSettingsRepository(application)
+            val transcriptionResultRepository = TranscriptionResultRepository(application)
             @Suppress("UNCHECKED_CAST")
-            return BleViewModel(appSettingsRepository, application) as T
+            return BleViewModel(appSettingsRepository, transcriptionResultRepository, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
