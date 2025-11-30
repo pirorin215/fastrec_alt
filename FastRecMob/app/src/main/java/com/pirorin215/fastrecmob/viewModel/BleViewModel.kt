@@ -35,8 +35,13 @@ import java.util.UUID
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import com.pirorin215.fastrecmob.service.SpeechToTextService
+import com.pirorin215.fastrecmob.data.AppSettingsRepository
 
 sealed class NavigationEvent {
     object NavigateBack : NavigationEvent()
@@ -50,9 +55,26 @@ private const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 private const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
 
 @SuppressLint("MissingPermission")
-class BleViewModel(private val context: Context) : ViewModel() {
+class BleViewModel(
+    private val appSettingsRepository: AppSettingsRepository,
+    private val context: Context
+) : ViewModel() {
+
+    val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ""
+        )
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private var speechToTextService: SpeechToTextService? = null // Change to nullable var
+
+    private val _transcriptionState = MutableStateFlow("Idle")
+    val transcriptionState: StateFlow<String> = _transcriptionState.asStateFlow()
+
+    private val _transcriptionResult = MutableStateFlow<String?>(null)
+    val transcriptionResult: StateFlow<String?> = _transcriptionResult.asStateFlow()
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
 
     private val _connectionState = MutableStateFlow("Disconnected")
@@ -67,7 +89,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
     private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
     val deviceInfo = _deviceInfo.asStateFlow()
 
-    private val _deviceSettings = MutableStateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?>(null)
+    private val _deviceSettings = MutableStateFlow(com.pirorin215.fastrecmob.data.DeviceSettings()) // Change to non-nullable and provide default
     val deviceSettings = _deviceSettings.asStateFlow()
 
     private val _remoteDeviceSettings = MutableStateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?>(null)
@@ -117,6 +139,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     private var responseBuffer = mutableListOf<Byte>()
     private var autoRefreshJob: Job? = null
+    private var scanTimeoutJob: Job? = null
     private var _transferStartTime = 0L
     private var connectionRetries = 0
     private val maxConnectionRetries = 3
@@ -131,6 +154,19 @@ class BleViewModel(private val context: Context) : ViewModel() {
         deviceInfo.onEach { info ->
             info?.ls?.let { fileString ->
                 _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
+            }
+        }.launchIn(viewModelScope)
+
+        // APIキーの変更を監視してSpeechToTextServiceを初期化
+        appSettingsRepository.apiKeyFlow.onEach { apiKey ->
+            if (apiKey.isNotEmpty()) {
+                speechToTextService?.close()
+                speechToTextService = SpeechToTextService(apiKey)
+                addLog("SpeechToTextService initialized with API Key.")
+            } else {
+                speechToTextService?.close()
+                speechToTextService = null
+                addLog("SpeechToTextService cleared (API Key not set).")
             }
         }.launchIn(viewModelScope)
     }
@@ -174,8 +210,8 @@ class BleViewModel(private val context: Context) : ViewModel() {
         _currentOperation.value = Operation.IDLE
         _fileTransferState.value = "Idle"
         _downloadProgress.value = 0
-        _currentFileTotalSize = 0L
-        _transferKbps = 0.0f
+        _currentFileTotalSize.value = 0L
+        _transferKbps.value = 0.0f
         _transferStartTime = 0L
         responseBuffer.clear()
         currentDownloadingFileName = null
@@ -191,6 +227,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
                     connectionRetries = 0
                     addLog("Requesting MTU of 517")
                     gatt.requestMtu(517)
+                    stopScan()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     _connectionState.value = "Disconnected"
                     addLog("Successfully disconnected from $deviceAddress")
@@ -283,8 +320,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
                             val remoteSettings = com.pirorin215.fastrecmob.data.DeviceSettings.fromIniString(settingsString)
                             _remoteDeviceSettings.value = remoteSettings
                             
-                            val localSettings = _deviceSettings.value ?: com.pirorin215.fastrecmob.data.DeviceSettings()
-                            val diff = remoteSettings.diff(localSettings)
+                            val diff = remoteSettings.diff(_deviceSettings.value)
                             
                             if (diff.isNotBlank()) {
                                 _settingsDiff.value = diff
@@ -327,8 +363,11 @@ class BleViewModel(private val context: Context) : ViewModel() {
                         val isSuccess = value.contentEquals("EOF".toByteArray())
                         if (isSuccess) {
                             addLog("End of file transfer signal received.")
-                            saveFile(responseBuffer.toByteArray())
-                            _fileTransferState.value = "Success"
+                            val filePath = saveFile(responseBuffer.toByteArray())
+                            if (filePath != null) {
+                                _fileTransferState.value = "Success: $filePath"
+                                startTranscription(filePath)
+                            }
                         } else {
                             val errorMessage = value.toString(Charsets.UTF_8)
                             addLog("Received error during transfer: $errorMessage")
@@ -346,7 +385,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
                         _downloadProgress.value = responseBuffer.size
                         val elapsedTime = (System.currentTimeMillis() - _transferStartTime) / 1000.0f
                         if (elapsedTime > 0) {
-                            _transferKbps = (responseBuffer.size / 1024.0f) / elapsedTime
+                            _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
                         }
                         sendAck("ACK".toByteArray(Charsets.UTF_8))
                     }
@@ -398,17 +437,18 @@ class BleViewModel(private val context: Context) : ViewModel() {
         }
     }
     
-    private fun saveFile(data: ByteArray) {
+    private fun saveFile(data: ByteArray): String? {
         val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}"
-        try {
+        return try {
             val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val file = File(path, fileName)
             FileOutputStream(file).use { it.write(data) }
             addLog("File saved successfully: ${file.absolutePath}")
-            _fileTransferState.value = "Success: ${file.absolutePath}"
+            file.absolutePath
         } catch (e: Exception) {
             addLog("Error saving file: ${e.message}")
             _fileTransferState.value = "Error: ${e.message}"
+            null
         }
     }
     
@@ -432,12 +472,18 @@ class BleViewModel(private val context: Context) : ViewModel() {
         addLog("Starting BLE scan")
         val scanSettings = ScanSettings.Builder().build()
         bluetoothAdapter?.bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
-        Handler(Looper.getMainLooper()).postDelayed({ stopScan() }, 10000)
+
+        scanTimeoutJob = viewModelScope.launch {
+            delay(10000) // 10秒待機
+            stopScan() // タイムアウトでスキャン停止
+        }
     }
     
     private fun stopScan() {
         addLog("Stopping BLE scan")
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = null
     }
     
     private fun connectToDevice(device: BluetoothDevice) {
@@ -501,10 +547,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
             addLog("Cannot send settings, busy or not connected.")
             return
         }
-        val settings = _deviceSettings.value ?: run {
-            addLog("Cannot send settings, settings data is null.")
-            return
-        }
+        val settings = _deviceSettings.value
         dismissSettingsDiff()
         _currentOperation.value = Operation.SENDING_SETTINGS
         val iniString = settings.toIniString()
@@ -517,8 +560,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
     
     fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
         dismissSettingsDiff()
-        val currentSettings = _deviceSettings.value ?: com.pirorin215.fastrecmob.data.DeviceSettings()
-        _deviceSettings.value = updater(currentSettings)
+        _deviceSettings.value = updater(_deviceSettings.value)
     }
     
     fun downloadFile(fileName: String) {
@@ -531,7 +573,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
         currentDownloadingFileName = fileName
     
         val fileEntry = _fileList.value.find { it.name == fileName }
-        _currentFileTotalSize = fileEntry?.size?.substringBefore(" ")?.toLongOrNull() ?: 0L
+        _currentFileTotalSize.value = fileEntry?.size?.substringBefore(" ")?.toLongOrNull() ?: 0L
     
         addLog("Requesting file: $currentDownloadingFileName (size: ${_currentFileTotalSize.value} bytes)")
         sendCommand("GET:file:$currentDownloadingFileName")
@@ -541,5 +583,52 @@ class BleViewModel(private val context: Context) : ViewModel() {
         addLog("Disconnecting from device")
         resetOperationStates()
         bluetoothGatt?.disconnect()
+    }
+
+    private fun startTranscription(filePath: String) {
+        viewModelScope.launch {
+            _transcriptionState.value = "Transcribing"
+            _transcriptionResult.value = null
+            addLog("Starting transcription for $filePath")
+
+            val currentService = speechToTextService
+            if (currentService == null) {
+                _transcriptionState.value = "Error: API key is not set. Please set it in the settings."
+                addLog("Transcription failed: API key is not set.")
+                return@launch
+            }
+
+            val result = currentService.transcribeFile(filePath)
+
+            result.onSuccess { transcription ->
+                _transcriptionState.value = "Success"
+                _transcriptionResult.value = transcription
+                addLog("Transcription successful.")
+            }.onFailure { error ->
+                _transcriptionState.value = "Error: ${error.message}"
+                _transcriptionResult.value = null
+                addLog("Transcription failed: ${error.message}")
+            }
+        }
+    }
+
+    fun resetTranscriptionState() {
+        _transcriptionState.value = "Idle"
+        _transcriptionResult.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        speechToTextService?.close()
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        addLog("ViewModel cleared, resources released.")
+    }
+
+    fun saveApiKey(apiKey: String) {
+        viewModelScope.launch {
+            appSettingsRepository.saveApiKey(apiKey)
+            addLog("API Key saved.")
+        }
     }
 }

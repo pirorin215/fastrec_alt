@@ -37,6 +37,17 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/DEPENDENCIES"
+            pickFirsts += "META-INF/LICENSE.md"
+            pickFirsts += "META-INF/LICENSE.txt"
+            pickFirsts += "META-INF/LICENSE"
+        }
     }
 }
 
@@ -53,6 +64,21 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.kotlinx.serialization.json)
+
+    // Google Cloud
+    val librariesBomVersion = "26.36.0"
+    implementation(platform("com.google.cloud:libraries-bom:$librariesBomVersion"))
+    implementation("com.google.cloud:google-cloud-speech")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava")
+
+    // gRPCトランスポートを追加 (Google Cloud Libraries BOMがバージョンを管理)
+    implementation("io.grpc:grpc-okhttp")
+
+    // DataStore for persistent settings
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
