@@ -49,12 +49,12 @@ void transferFileChunked() {
       bool transferAborted = false;
 
       while (true) {
-        applog("Reading chunk %d at position %u", chunkIndex, file.position());
+        //applog("Reading chunk %d at position %u", chunkIndex, file.position());
         bytesRead = file.read(buffer, chunkSize);
         if (bytesRead <= 0) {
             break;
         }
-        applog("Read %u bytes. New position %u", bytesRead, file.position());
+        //applog("Read %u bytes. New position %u", bytesRead, file.position());
         
         pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
