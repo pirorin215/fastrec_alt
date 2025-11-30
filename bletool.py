@@ -21,6 +21,7 @@ ACK_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 # Global variables and events for response data
 received_response_data = bytearray()
 response_event = asyncio.Event()
+start_transfer_event = asyncio.Event() # For handshake
 is_receiving_file = False
 total_received_bytes = 0 
 g_client = None  # Global client object
@@ -33,8 +34,14 @@ async def notification_handler(characteristic: BleakGATTCharacteristic, data: by
     global received_response_data, is_receiving_file, g_client, total_received_bytes
     global g_total_file_size_for_transfer, file_transfer_start_time
     if is_receiving_file:
-        if data == b'EOF':  # End of file transfer
-            print("\nEnd of file transfer signal received.") # Added newline
+        if data == b'START':
+            print("Received START signal.")
+            start_transfer_event.set()
+        elif data == b'EOF' or data.startswith(b'ERROR:'):  # End of file transfer or error
+            if data.startswith(b'ERROR:'):
+                print(f"\n{RED}マイコンからエラーを受信: {data.decode()}{RESET}")
+            else:
+                print("\nEnd of file transfer signal received.")
             response_event.set()
             g_total_file_size_for_transfer = 0 # Reset after transfer
             file_transfer_start_time = 0.0 # Reset start time
@@ -119,9 +126,9 @@ async def run_ble_command_for_file(command_str: str, verbose: bool = False, time
     is_receiving_file = True
     received_response_data.clear()
     response_event.clear()
+    start_transfer_event.clear()
     total_received_bytes = 0 
-    file_transfer_start_time = time.time()
-
+    
     if verbose:
         print(f"\n--- BLEファイル転送コマンド実行: コマンド='{command_str}' ---")
     if not g_client or not g_client.is_connected:
@@ -130,12 +137,30 @@ async def run_ble_command_for_file(command_str: str, verbose: bool = False, time
     
     await g_client.write_gatt_char(COMMAND_UUID, bytes(command_str, 'utf-8'), response=True)
     if verbose:
-        print(f"{GREEN}   -> ファイル転送コマンド送信完了。応答を待機中...{RESET}")
+        print(f"{GREEN}   -> ファイル転送コマンド送信完了。START信号を待機中...{RESET}")
+    
     try:
+        # Wait for the START signal from the device
+        await asyncio.wait_for(start_transfer_event.wait(), timeout=5.0)
+        
+        # Send START_ACK to the device
+        if verbose:
+            print(f"{GREEN}   -> START信号受信。START_ACKを送信...{RESET}")
+        await g_client.write_gatt_char(ACK_UUID, b'START_ACK', response=True)
+        
+        # Now, start the timer and wait for the file data
+        file_transfer_start_time = time.time()
+        if verbose:
+            print(f"{GREEN}   -> ハンドシェイク完了。ファイルデータ受信中...{RESET}")
+
         await asyncio.wait_for(response_event.wait(), timeout=timeout)
         return received_response_data
+    
     except asyncio.TimeoutError:
-        print(f"{RED}タイムアウト: ファイルデータが受信されませんでした。{RESET}")
+        if not start_transfer_event.is_set():
+            print(f"{RED}タイムアウト: デバイスからSTART信号が受信されませんでした。{RESET}")
+        else:
+            print(f"{RED}タイムアウト: ファイルデータが受信されませんでした。{RESET}")
         return None
     finally:
         is_receiving_file = False

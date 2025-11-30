@@ -1,7 +1,6 @@
 package com.pirorin215.fastrecmob
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Build
@@ -11,38 +10,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -50,13 +30,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
-import com.pirorin215.fastrecmob.data.FileEntry
-import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.Icon
+import com.pirorin215.fastrecmob.data.countWavFiles
+import com.pirorin215.fastrecmob.data.parseFileEntries
+import kotlinx.coroutines.launch
+import android.annotation.SuppressLint
+import androidx.compose.foundation.shape.CircleShape
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,9 +46,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             FastRecMobTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    BleApp(modifier = Modifier.padding(innerPadding))
-                }
+                BleApp(modifier = Modifier.fillMaxSize())
             }
         }
     }
@@ -77,18 +57,26 @@ fun BleApp(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val activity = (LocalContext.current as? ComponentActivity)
 
-    val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        listOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
-    } else {
-        listOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
+    val requiredPermissions = remember {
+        val basePermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            listOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            basePermissions + Manifest.permission.WRITE_EXTERNAL_STORAGE
+        } else {
+            basePermissions
+        }
     }
+
 
     var permissionsGranted by remember {
         mutableStateOf(requiredPermissions.all {
@@ -96,20 +84,10 @@ fun BleApp(modifier: Modifier = Modifier) {
         })
     }
 
-    var shouldShowRationale by remember { mutableStateOf(false) }
-    var isPermanentlyDenied by remember { mutableStateOf(false) }
-
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         permissionsGranted = permissions.values.all { it }
-        if (!permissionsGranted) {
-            if (activity != null && requiredPermissions.any { !activity.shouldShowRequestPermissionRationale(it) }) {
-                isPermanentlyDenied = true
-            } else {
-                shouldShowRationale = true
-            }
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -125,67 +103,15 @@ fun BleApp(modifier: Modifier = Modifier) {
             modifier = modifier
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
-            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("このアプリの機能を利用するには、Bluetoothと位置情報の権限が必要です。")
+            Text("このアプリの機能を利用するには、必要な権限を許可してください。")
+            Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = {
-                if (isPermanentlyDenied) {
-                    // 設定画面に誘導
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    val uri = android.net.Uri.fromParts("package", context.packageName, null)
-                    intent.data = uri
-                    context.startActivity(intent)
-                } else {
-                    permissionLauncher.launch(requiredPermissions.toTypedArray())
-                }
+                permissionLauncher.launch(requiredPermissions.toTypedArray())
             }) {
-                Text(if (isPermanentlyDenied) "設定を開く" else "権限を許可する")
-            }
-
-            if (shouldShowRationale) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { shouldShowRationale = false },
-                    title = { Text("権限が必要です") },
-                    text = { Text("BLEデバイスをスキャンして接続するために、Bluetoothと位置情報の権限を許可してください。") },
-                    confirmButton = {
-                        Button(onClick = {
-                            shouldShowRationale = false
-                            permissionLauncher.launch(requiredPermissions.toTypedArray())
-                        }) {
-                            Text("OK")
-                        }
-                    },
-                    dismissButton = {
-                        Button(onClick = { shouldShowRationale = false }) {
-                            Text("キャンセル")
-                        }
-                    }
-                )
-            }
-
-            if (isPermanentlyDenied) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { isPermanentlyDenied = false },
-                    title = { Text("権限が拒否されました") },
-                    text = { Text("権限が恒久的に拒否されたため、アプリの機能を利用できません。スマートフォンの設定画面から、このアプリの権限を手動で許可してください。") },
-                    confirmButton = {
-                        Button(onClick = {
-                            isPermanentlyDenied = false
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            val uri = android.net.Uri.fromParts("package", context.packageName, null)
-                            intent.data = uri
-                            context.startActivity(intent)
-                        }) {
-                            Text("設定を開く")
-                        }
-                    },
-                    dismissButton = {
-                        Button(onClick = { isPermanentlyDenied = false }) {
-                            Text("閉じる")
-                        }
-                    }
-                )
+                Text("権限を許可する")
             }
         }
     }
@@ -201,217 +127,265 @@ fun BleControl() {
     val connectionState by viewModel.connectionState.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val logs by viewModel.logs.collectAsState()
+    val fileList by viewModel.fileList.collectAsState()
+    val fileTransferState by viewModel.fileTransferState.collectAsState()
+    val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val currentFileTotalSize by viewModel.currentFileTotalSize.collectAsState()
+
     var showLogs by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
 
-    // Automatically start scanning when the composable enters the composition
-    LaunchedEffect(Unit) {
-        viewModel.startScan()
-    }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    // Re-scan if disconnected
-    LaunchedEffect(connectionState) {
-        if (connectionState == "Disconnected") {
-            viewModel.startScan()
+    LaunchedEffect(fileTransferState) {
+        if (fileTransferState.startsWith("Success")) {
+            scope.launch {
+                snackbarHostState.showSnackbar("ファイル保存完了: ${fileTransferState.substringAfter("Success: ")}")
+            }
+        } else if (fileTransferState.startsWith("Error")) {
+            scope.launch {
+                snackbarHostState.showSnackbar("エラー: ${fileTransferState.substringAfter("Error: ")}")
+            }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-    ) {
-        ConnectionStatusIndicator()
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Spacer(modifier = Modifier.height(8.dp))
+            ConnectionStatusIndicator(connectionState)
 
-        // Display summary information
-        SummaryInfoCard(deviceInfo = deviceInfo, connectionState = connectionState)
-        // Toggle button for detailed information
-        Button(onClick = { showDetails = !showDetails }) {
-            Text(if (showDetails) "詳細を隠す" else "詳細表示")
+            SummaryInfoCard(deviceInfo = deviceInfo)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { showDetails = !showDetails },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (showDetails) "詳細非表示" else "詳細表示")
+                }
+                Button(
+                    onClick = {
+                        if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (connectionState == "Connected") "切断" else "スキャン")
+                }
+            }
+
+
+            if (showDetails) {
+                DetailedInfoCard(deviceInfo = deviceInfo)
+            }
+
+            FileDownloadSection(
+                fileList = fileList,
+                fileTransferState = fileTransferState,
+                downloadProgress = downloadProgress,
+                totalFileSize = currentFileTotalSize,
+                onDownloadClick = { fileName -> viewModel.downloadFile(fileName) },
+                onRefreshClick = { viewModel.fetchFileList() }
+            )
+
+            Button(onClick = { showLogs = !showLogs }) {
+                Text(if (showLogs) "ログ非表示" else "ログ表示")
+            }
+
+            if (showLogs) {
+                Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                    LazyColumn(modifier = Modifier.padding(8.dp)) {
+                        items(logs) { log ->
+                            Text(text = log, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
+    }
+}
 
-        // Display detailed information if toggled
-        if (showDetails) {
-            DetailedInfoCard(deviceInfo = deviceInfo)
-        }
 
-        // Moved buttons to below info displays
+@Composable
+fun FileDownloadSection(
+    fileList: List<com.pirorin215.fastrecmob.data.FileEntry>,
+    fileTransferState: String,
+    downloadProgress: Int,
+    totalFileSize: Long,
+    onDownloadClick: suspend (String) -> Unit, // ここをsuspendにする
+    onRefreshClick: () -> Unit
+) {
+    val wavFiles = fileList.filter { it.name.endsWith(".wav", ignoreCase = true) }
+    val logFiles = fileList.filter { it.name.startsWith("log.", ignoreCase = true) }
+
+    Column {
         Row(
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            val buttonText = if (connectionState == "Connected") "切断" else "接続"
-            Button(
-                onClick = {
-                    if (connectionState == "Connected") {
-                        viewModel.disconnect()
-                    } else {
-                        viewModel.startScan()
+            Text("ファイル", style = MaterialTheme.typography.titleMedium)
+            Button(onClick = onRefreshClick) {
+                Text("リスト更新")
+            }
+        }
+
+        if (fileTransferState == "Downloading") {
+            val progress = if (totalFileSize > 0) downloadProgress.toFloat() / totalFileSize.toFloat() else 0f
+            val percentage = (progress * 100).toInt()
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                Text("ダウンロード中... $downloadProgress / $totalFileSize bytes ($percentage%)")
+            }
+        }
+
+        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState)
+        Spacer(modifier = Modifier.height(8.dp))
+        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState)
+    }
+}
+
+@Composable
+fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: suspend (String) -> Unit, fileTransferState: String) {
+    val scope = rememberCoroutineScope() // ここでCoroutineScopeを取得
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+            if (files.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 150.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(files) { file ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("${file.name} (${file.size})", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Button(
+                                onClick = { scope.launch { onDownloadClick(file.name) } },
+                                enabled = fileTransferState != "Downloading"
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = "Download")
+                            }
+                        }
                     }
-                },
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(buttonText)
-            }
-            Button(
-                onClick = { viewModel.sendCommand("GET:info") },
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("状態取得")
-            }
-        }
-
-        Button(onClick = { showLogs = !showLogs }) {
-            Text(if (showLogs) "ログを隠す" else "ログ表示")
-        }
-
-        if (showLogs) {
-            Divider()
-            Text(text = "Logs:")
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(logs) { log ->
-                    Text(text = log)
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("該当するファイルはありません。", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
     }
 }
 
+
 @Composable
-fun ConnectionStatusIndicator() {
+fun ConnectionStatusIndicator(connectionState: String) {
+    val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(color = statusColor, shape = CircleShape)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "bletool",
-                style = androidx.compose.material3.MaterialTheme.typography.titleLarge
+                text = "FastRec Manager ($connectionState)",
+                style = MaterialTheme.typography.titleLarge
             )
         }
     }
 }
 
 @Composable
-fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?, connectionState: String) {
+fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp), // Adjusted padding
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // BT Status
-            val btStatusColor = if (connectionState == "Connected") Color.Green else Color.Red
-            Text(
-                text = "BT",
-                color = Color.Black, // Changed to Black
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                modifier = Modifier
-                    .background(color = btStatusColor, shape = RoundedCornerShape(50)) // Oval shape
-                    .padding(horizontal = 6.dp, vertical = 2.dp) // Padding inside the oval
-            )
-
-            Spacer(modifier = Modifier.width(8.dp)) // Small gap
-
-            // WiFi
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = getWifiIcon(deviceInfo?.wifiRssi ?: -100), // Dynamic WiFi icon
-                    contentDescription = "WiFi",
-                    modifier = Modifier.size(18.dp) // Smaller icon
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(text = "${deviceInfo?.connectedSsid ?: "-"} (${deviceInfo?.wifiRssi ?: "-"} dBm)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm")
+                InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%")
             }
-
-            Spacer(modifier = Modifier.width(6.dp)) // Small gap
-
-            // Battery Level
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if ((deviceInfo?.batteryLevel ?: 0f) > 10) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
-                    contentDescription = "バッテリーレベル",
-                    modifier = Modifier.size(18.dp) // Smaller icon
-                )
-                Text(text = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(modifier = Modifier.width(6.dp)) // Small gap
-
-            // Storage Usage
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.SdStorage,
-                    contentDescription = "ストレージ使用率",
-                    modifier = Modifier.size(18.dp) // Smaller icon
-                )
-                Text(text = "${deviceInfo?.littlefsUsagePercent ?: 0} %", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(modifier = Modifier.width(6.dp)) // Small gap
-
-            // WAV File Count
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Audiotrack,
-                    contentDescription = "録音ファイル数",
-                    modifier = Modifier.size(18.dp) // Smaller icon
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                val wavFileCount = com.pirorin215.fastrecmob.data.countWavFiles(deviceInfo?.ls ?: "")
-                Text(text = "$wavFileCount", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%")
+                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString())
             }
         }
     }
 }
+
+@Composable
+fun InfoItem(icon: ImageVector, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.width(120.dp)) {
+        Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Column {
+            Text(text = label, style = MaterialTheme.typography.bodySmall)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
 
 @Composable
 fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "詳細情報", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+            Text(text = "詳細情報", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.size(8.dp))
-            InfoRow(label = { Text("バッテリー電圧") }, value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
-            InfoRow(label = { Text("アプリ状態") }, value = deviceInfo?.appState ?: "-")
-            InfoRow(label = { Text("ストレージ使用量") }, value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
-            InfoRow(label = { Text("ストレージ総容量") }, value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
+            InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
+            InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
+            InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
+            InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
 
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(text = "ディレクトリ一覧:", style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
-            val fileEntries = deviceInfo?.ls?.let { parseFileEntries(it) } ?: emptyList()
-            fileEntries.forEach { file ->
-                Row {
-                    Text(text = file.name, modifier = Modifier.weight(1f))
-                    Text(text = file.size, modifier = Modifier.align(Alignment.CenterVertically))
-                }
-            }
         }
     }
 }
 
 @Composable
-fun InfoRow(label: @Composable () -> Unit, value: String) {
+fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(modifier = Modifier.weight(1f)) {
-            label()
-        }
-        Text(text = value, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        Text(text = value, style = MaterialTheme.typography.bodyMedium)
     }
     Divider()
 }
@@ -429,11 +403,11 @@ class BleViewModelFactory(private val application: Application) : ViewModelProvi
 
 // Helper function to get the appropriate WiFi icon based on RSSI
 fun getWifiIcon(rssi: Int): ImageVector {
-    return when (rssi) {
-        in -50..-30 -> Icons.Default.SignalWifi4Bar // Very Good (4 bars)
-        in -60..-51 -> Icons.Default.NetworkWifi3Bar
-        in -70..-61 -> Icons.Default.NetworkWifi2Bar // Normal (2-3 bars)
-        in -80..-71 -> Icons.Default.NetworkWifi1Bar // Weak (1-2 bars)
-        else -> Icons.Default.WifiOff // Very Weak/Out of Range (0-1 bar)
+    return when {
+        rssi >= -50 -> Icons.Default.SignalWifi4Bar
+        rssi >= -67 -> Icons.Default.NetworkWifi3Bar
+        rssi >= -70 -> Icons.Default.NetworkWifi2Bar
+        rssi >= -80 -> Icons.Default.NetworkWifi1Bar
+        else -> Icons.Default.WifiOff
     }
 }

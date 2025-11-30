@@ -16,39 +16,68 @@ NimBLECharacteristic *pResponseCharacteristic;
 NimBLECharacteristic *pAckCharacteristic;
 
 SemaphoreHandle_t ackSemaphore = NULL;
+SemaphoreHandle_t startTransferSemaphore = NULL; // 新しく追加するセマフォ
 
 void transferFileChunked() {
   if (!g_start_file_transfer) {
     return;
   }
 
+  // --- START 信号送信とACK待機 ---
+  pResponseCharacteristic->setValue("START");
+  pResponseCharacteristic->notify();
+  applog("Sent START signal. Waiting for ACK...");
+  if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    applog("START ACK timeout. Aborting file transfer.");
+    pResponseCharacteristic->setValue("ERROR: START ACK timeout");
+    pResponseCharacteristic->notify();
+    g_start_file_transfer = false;
+    return;
+  }
+  applog("Received START ACK. Starting file transfer.");
+  // --- END START 信号送信とACK待機 ---
+
+
   if (LittleFS.exists(g_file_to_transfer_name.c_str())) {
     File file = LittleFS.open(g_file_to_transfer_name.c_str(), "r");
     if (file) {
-      applog("Starting to send file: %s", g_file_to_transfer_name.c_str());
+      applog("Starting to send file: %s, size: %u", g_file_to_transfer_name.c_str(), file.size());
       const size_t chunkSize = 512;
       uint8_t buffer[chunkSize];
       size_t bytesRead;
       int chunkIndex = 0;
+      bool transferAborted = false;
 
-      while ((bytesRead = file.read(buffer, chunkSize)) > 0) {
-        pResponseCharacteristic->setValue(buffer, bytesRead);
+      while (true) {
+        applog("Reading chunk %d at position %u", chunkIndex, file.position());
+        bytesRead = file.read(buffer, chunkSize);
+        if (bytesRead <= 0) {
+            break;
+        }
+        applog("Read %u bytes. New position %u", bytesRead, file.position());
         
+        pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
 
         if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
           applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
-          file.close();
-          g_start_file_transfer = false;
-          return;
+          transferAborted = true; // フラグを立ててループを抜ける
+          break; // ★ ACKタイムアウトでループを抜ける
         }
         chunkIndex++;
       }
       file.close();
 
-      pResponseCharacteristic->setValue("EOF");
-      pResponseCharacteristic->notify();
-      applog("File sent: %s", g_file_to_transfer_name.c_str());
+      if (!transferAborted) { // 正常終了の場合のみEOF送信
+        pResponseCharacteristic->setValue("EOF");
+        pResponseCharacteristic->notify();
+        applog("File sent: %s", g_file_to_transfer_name.c_str());
+      } else { // タイムアウトで中断した場合
+        pResponseCharacteristic->setValue("ERROR: Transfer aborted due to ACK timeout");
+        pResponseCharacteristic->notify();
+        applog("ERROR: Transfer aborted for %s due to ACK timeout.", g_file_to_transfer_name.c_str());
+      }
+
     } else {
       std::string errorMessage = "ERROR: Failed to open file: ";
       errorMessage += g_file_to_transfer_name;
@@ -73,6 +102,8 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
     if (pCharacteristic->getUUID().toString() == ACK_UUID) {
       if (value == "ACK") {
         xSemaphoreGive(ackSemaphore);
+      } else if (value == "START_ACK") { // 新しいハンドシェイク用のACK
+        xSemaphoreGive(startTransferSemaphore);
       }
       return;
     }
@@ -287,6 +318,8 @@ void trim_whitespace(char* str) {
 // --- BLEサーバー開始処理 ---
 void start_ble_server() {
   ackSemaphore = xSemaphoreCreateBinary();
+  startTransferSemaphore = xSemaphoreCreateBinary(); // 新しく追加するセマフォ
+  // startTransferSemaphore = xSemaphoreCreateBinary(); // 新しく追加するセマフォ
 
   NimBLEDevice::init(DEVICE_NAME);
   NimBLEDevice::setDefaultPhy(2, 2);
