@@ -39,6 +39,7 @@ import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
+import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import androidx.compose.foundation.shape.CircleShape
 
 class MainActivity : ComponentActivity() {
@@ -136,10 +137,13 @@ fun BleControl() {
     val currentOperation by viewModel.currentOperation.collectAsState()
     val transferKbps by viewModel.transferKbps.collectAsState()
     val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
+    val transcriptionState by viewModel.transcriptionState.collectAsState()
+    val transcriptionResult by viewModel.transcriptionResult.collectAsState()
 
     var showLogs by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showAppSettings by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -156,103 +160,127 @@ fun BleControl() {
         }
     }
 
-    if (showSettings) {
-        SettingsScreen(viewModel = viewModel, onBack = { showSettings = false })
-    } else {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Spacer(modifier = Modifier.height(8.dp))
-                ConnectionStatusIndicator(connectionState)
+    TranscriptionStatusDialog(
+        transcriptionState = transcriptionState,
+        transcriptionResult = transcriptionResult,
+        onDismiss = { viewModel.resetTranscriptionState() }
+    )
 
-                SummaryInfoCard(deviceInfo = deviceInfo)
+    when {
+        showSettings -> {
+            SettingsScreen(viewModel = viewModel, onBack = { showSettings = false })
+        }
+        showAppSettings -> {
+            // AppSettingsScreenのインポートが必要になる可能性
+            com.pirorin215.fastrecmob.ui.screen.AppSettingsScreen(viewModel = viewModel, onBack = { showAppSettings = false })
+        }
+        else -> {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+            ) { innerPadding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ConnectionStatusIndicator(connectionState)
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    val isBusy = currentOperation != BleViewModel.Operation.IDLE
-                    val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
+                    SummaryInfoCard(deviceInfo = deviceInfo)
 
-                    // スキャン/切断ボタン
-                    Button(
-                        onClick = {
-                            if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = !isBusy
-                    ) {
-                        Text(connectionButtonText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        val isBusy = currentOperation != BleViewModel.Operation.IDLE
+                        val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
+
+                        // スキャン/切断ボタン
+                        Button(
+                            onClick = {
+                                if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isBusy
+                        ) {
+                            Text(connectionButtonText)
+                        }
+
+                        // 詳細表示ボタン
+                        Button(
+                            onClick = { showDetails = !showDetails },
+                            modifier = Modifier.weight(1f),
+                            enabled = currentOperation == BleViewModel.Operation.IDLE
+                        ) {
+                            Text(if (showDetails) "詳細非表示" else "詳細表示")
+                        }
+
+                        // 自動更新トグルスイッチ
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text("自動更新", style = MaterialTheme.typography.labelMedium)
+                            Switch(
+                                checked = isAutoRefreshEnabled,
+                                onCheckedChange = { viewModel.setAutoRefresh(it) },
+                                enabled = currentOperation == BleViewModel.Operation.IDLE && connectionState == "Connected"
+                            )
+                        }
                     }
 
-                    // 設定ボタン
-                    Button(
-                        onClick = { showSettings = true },
-                        modifier = Modifier.weight(1f),
-                        enabled = connectionState == "Connected"
-                    ) {
-                        Text("設定")
+                    // 2行目: マイコン設定 | アプリ設定
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        // マイコン設定ボタン
+                        Button(
+                            onClick = { showSettings = true },
+                            modifier = Modifier.weight(1f),
+                            enabled = connectionState == "Connected"
+                        ) {
+                            Text("マイコン設定")
+                        }
+
+                        // アプリ設定ボタン
+                        Button(
+                            onClick = { showAppSettings = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("アプリ設定")
+                        }
                     }
-                }
-                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()){
-                    // 詳細表示ボタン
-                    Button(
-                        onClick = { showDetails = !showDetails },
-                        modifier = Modifier.weight(1f),
-                        enabled = currentOperation == BleViewModel.Operation.IDLE
-                    ) {
-                        Text(if (showDetails) "詳細非表示" else "詳細表示")
+
+
+                    if (showDetails) {
+                        DetailedInfoCard(deviceInfo = deviceInfo)
                     }
-                     // 自動更新トグルスイッチ
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Text("自動更新", style = MaterialTheme.typography.labelMedium)
-                        Switch(
-                            checked = isAutoRefreshEnabled,
-                            onCheckedChange = { viewModel.setAutoRefresh(it) },
-                            enabled = currentOperation == BleViewModel.Operation.IDLE && connectionState == "Connected"
-                        )
+
+                    FileDownloadSection(
+                        fileList = fileList,
+                        fileTransferState = fileTransferState,
+                        downloadProgress = downloadProgress,
+                        totalFileSize = currentFileTotalSize,
+                        isBusy = currentOperation != BleViewModel.Operation.IDLE,
+                        transferKbps = transferKbps,
+                        onDownloadClick = { viewModel.downloadFile(it) }
+                    )
+
+                    Button(onClick = { showLogs = !showLogs }) {
+                        Text(if (showLogs) "ログ非表示" else "ログ表示")
                     }
-                }
 
-
-                if (showDetails) {
-                    DetailedInfoCard(deviceInfo = deviceInfo)
-                }
-
-                FileDownloadSection(
-                    fileList = fileList,
-                    fileTransferState = fileTransferState,
-                    downloadProgress = downloadProgress,
-                    totalFileSize = currentFileTotalSize,
-                    isBusy = currentOperation != BleViewModel.Operation.IDLE,
-                    transferKbps = transferKbps,
-                    onDownloadClick = { viewModel.downloadFile(it) }
-                )
-
-                Button(onClick = { showLogs = !showLogs }) {
-                    Text(if (showLogs) "ログ非表示" else "ログ表示")
-                }
-
-                if (showLogs) {
-                    Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                        LazyColumn(modifier = Modifier.padding(8.dp)) {
-                            items(logs) { log ->
-                                Text(text = log, style = MaterialTheme.typography.bodySmall)
+                    if (showLogs) {
+                        Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                            LazyColumn(modifier = Modifier.padding(8.dp)) {
+                                items(logs) { log ->
+                                    Text(text = log, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -432,8 +460,9 @@ fun InfoRow(label: String, value: String) {
 class BleViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
+            val appSettingsRepository = AppSettingsRepository(application)
             @Suppress("UNCHECKED_CAST")
-            return BleViewModel(application) as T
+            return BleViewModel(appSettingsRepository, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -448,4 +477,56 @@ fun getWifiIcon(rssi: Int): ImageVector {
         rssi >= -80 -> Icons.Default.NetworkWifi1Bar
         else -> Icons.Default.WifiOff
     }
+}
+
+@Composable
+fun TranscriptionStatusDialog(
+    transcriptionState: String,
+    transcriptionResult: String?,
+    onDismiss: () -> Unit
+) {
+    if (transcriptionState == "Idle") return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when {
+                    transcriptionState == "Transcribing" -> "文字起こし中..."
+                    transcriptionState == "Success" -> "文字起こし結果"
+                    transcriptionState.startsWith("Error") -> "エラー"
+                    else -> ""
+                }
+            )
+        },
+        text = {
+            when {
+                transcriptionState == "Transcribing" -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("wavファイルをテキストに変換しています...")
+                    }
+                }
+                transcriptionState == "Success" -> {
+                    val scrollState = rememberScrollState()
+                    Column(modifier = Modifier.verticalScroll(scrollState).heightIn(max=400.dp)) {
+                        Text(transcriptionResult ?: "結果がありません。")
+                    }
+                }
+                transcriptionState.startsWith("Error") -> {
+                    Text(transcriptionState.substringAfter("Error: "))
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("閉じる")
+            }
+        }
+    )
 }
