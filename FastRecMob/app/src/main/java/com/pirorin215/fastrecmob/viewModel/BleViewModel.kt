@@ -261,7 +261,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                fun setAutoRefresh(enabled: Boolean) {
+                    fun setAutoRefresh(enabled: Boolean) {
 
     
 
@@ -269,7 +269,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                    _isAutoRefreshEnabled.value = enabled
+                        _isAutoRefreshEnabled.value = enabled
 
     
 
@@ -277,7 +277,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                    if (enabled) {
+                        if (enabled) {
 
     
 
@@ -285,7 +285,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                        addLog("Auto-refresh enabled.")
+                            addLog("Auto-refresh enabled.")
 
     
 
@@ -293,7 +293,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                        startAutoRefresh()
+                            fetchFileList() // Fetch immediately when enabled
 
     
 
@@ -301,7 +301,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                    } else {
+                            startAutoRefresh()
 
     
 
@@ -309,7 +309,7 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                        addLog("Auto-refresh disabled.")
+                        } else {
 
     
 
@@ -317,7 +317,23 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-                        stopAutoRefresh()
+                            addLog("Auto-refresh disabled.")
+
+    
+
+        
+
+    
+
+                            stopAutoRefresh()
+
+    
+
+        
+
+    
+
+                        }
 
     
 
@@ -326,14 +342,6 @@ class BleViewModel(private val context: Context) : ViewModel() {
     
 
                     }
-
-    
-
-        
-
-    
-
-                }
 
     
 
