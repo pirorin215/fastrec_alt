@@ -131,6 +131,9 @@ fun BleControl() {
     val fileTransferState by viewModel.fileTransferState.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val currentFileTotalSize by viewModel.currentFileTotalSize.collectAsState()
+    val isInfoLoading by viewModel.isInfoLoading.collectAsState()
+    val transferKbps by viewModel.transferKbps.collectAsState()
+    val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
 
     var showLogs by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
@@ -167,23 +170,44 @@ fun BleControl() {
 
             SummaryInfoCard(deviceInfo = deviceInfo)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                val isBusy = isInfoLoading || fileTransferState != "Idle"
+                val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
+
+                // 詳細表示ボタン
                 Button(
                     onClick = { showDetails = !showDetails },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    enabled = !isBusy
                 ) {
                     Text(if (showDetails) "詳細非表示" else "詳細表示")
                 }
+
+                // スキャン/切断ボタン
                 Button(
                     onClick = {
                         if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    enabled = !isBusy // Changed this line to ensure it is not busy for any operation
                 ) {
-                    Text(if (connectionState == "Connected") "切断" else "スキャン")
+                    Text(connectionButtonText)
+                }
+
+                // 自動更新トグルスイッチ
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text("自動更新", style = MaterialTheme.typography.labelMedium)
+                    Switch(
+                        checked = isAutoRefreshEnabled,
+                        onCheckedChange = { viewModel.setAutoRefresh(it) },
+                        enabled = !isBusy && connectionState == "Connected"
+                    )
                 }
             }
-
 
             if (showDetails) {
                 DetailedInfoCard(deviceInfo = deviceInfo)
@@ -194,8 +218,9 @@ fun BleControl() {
                 fileTransferState = fileTransferState,
                 downloadProgress = downloadProgress,
                 totalFileSize = currentFileTotalSize,
-                onDownloadClick = { fileName -> viewModel.downloadFile(fileName) },
-                onRefreshClick = { viewModel.fetchFileList() }
+                isInfoLoading = isInfoLoading,
+                transferKbps = transferKbps,
+                onDownloadClick = { viewModel.downloadFile(it) }
             )
 
             Button(onClick = { showLogs = !showLogs }) {
@@ -223,42 +248,36 @@ fun FileDownloadSection(
     fileTransferState: String,
     downloadProgress: Int,
     totalFileSize: Long,
-    onDownloadClick: suspend (String) -> Unit, // ここをsuspendにする
-    onRefreshClick: () -> Unit
+    isInfoLoading: Boolean,
+    transferKbps: Float,
+    onDownloadClick: (String) -> Unit
 ) {
     val wavFiles = fileList.filter { it.name.endsWith(".wav", ignoreCase = true) }
     val logFiles = fileList.filter { it.name.startsWith("log.", ignoreCase = true) }
+    val isBusy = isInfoLoading || fileTransferState != "Idle"
 
     Column {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("ファイル", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = onRefreshClick) {
-                Text("リスト更新")
-            }
-        }
-
-        if (fileTransferState == "Downloading") {
+        if (fileTransferState == "WaitingForStart" || fileTransferState == "Downloading") {
             val progress = if (totalFileSize > 0) downloadProgress.toFloat() / totalFileSize.toFloat() else 0f
             val percentage = (progress * 100).toInt()
+            val statusText = if (fileTransferState == "WaitingForStart") "ハンドシェイク中..." else "ダウンロード中... $downloadProgress / $totalFileSize bytes ($percentage%) - ${"%.2f".format(transferKbps)} kbps"
+
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
-                Text("ダウンロード中... $downloadProgress / $totalFileSize bytes ($percentage%)")
+                if (fileTransferState == "Downloading") {
+                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                }
+                Text(statusText)
             }
         }
 
-        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState)
+        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState, isInfoLoading = isInfoLoading)
         Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState)
+        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState, isInfoLoading = isInfoLoading)
     }
 }
 
 @Composable
-fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: suspend (String) -> Unit, fileTransferState: String) {
-    val scope = rememberCoroutineScope() // ここでCoroutineScopeを取得
+fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: (String) -> Unit, fileTransferState: String, isInfoLoading: Boolean) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
@@ -277,8 +296,8 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
                         ) {
                             Text("${file.name} (${file.size})", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                             Button(
-                                onClick = { scope.launch { onDownloadClick(file.name) } },
-                                enabled = fileTransferState != "Downloading"
+                                onClick = { onDownloadClick(file.name) },
+                                enabled = !isInfoLoading && fileTransferState == "Idle"
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = "Download")
                             }
@@ -331,22 +350,25 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm")
-                InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%")
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%")
-                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString())
-            }
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceAround // 均等配置
+        ) {
+            InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm")
+            Spacer(Modifier.width(8.dp))
+            InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%")
+            Spacer(Modifier.width(8.dp))
+            InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%")
+            Spacer(Modifier.width(8.dp))
+            InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString())
         }
     }
 }
 
 @Composable
-fun InfoItem(icon: ImageVector, label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.width(120.dp)) {
+fun InfoItem(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(4.dp))
         Column {

@@ -35,6 +35,8 @@ import java.util.UUID
 
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 private const val TAG = "BleViewModel"
 //from bletool.py
@@ -59,79 +61,159 @@ class BleViewModel(private val context: Context) : ViewModel() {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs = _logs.asStateFlow()
 
-    private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
-    val deviceInfo = _deviceInfo.asStateFlow()
+        private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
 
-    private val _isReceivingFile = MutableStateFlow(false)
+        val deviceInfo = _deviceInfo.asStateFlow()
 
-    private val _fileList = MutableStateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>(emptyList())
-    val fileList = _fileList.asStateFlow()
+    
 
-    private val _downloadProgress = MutableStateFlow(0)
-    val downloadProgress = _downloadProgress.asStateFlow()
+        private val _fileList = MutableStateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>(emptyList())
 
-    private val _currentFileTotalSize = MutableStateFlow(0L)
-    val currentFileTotalSize = _currentFileTotalSize.asStateFlow()
+        val fileList = _fileList.asStateFlow()
 
-    private val _fileTransferState = MutableStateFlow("Idle")
-    val fileTransferState = _fileTransferState.asStateFlow()
+    
 
-    private var bluetoothGatt: BluetoothGatt? = null
-    private var commandCharacteristic: BluetoothGattCharacteristic? = null
-    private var ackCharacteristic: BluetoothGattCharacteristic? = null
-    private var currentDownloadingFileName: String? = null
+        private val _downloadProgress = MutableStateFlow(0)
 
-    // Handshake for file transfer start
-    private val _transferReady = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val downloadProgress = _downloadProgress.asStateFlow()
 
+    
 
-    private val json = Json { ignoreUnknownKeys = true }
+        private val _currentFileTotalSize = MutableStateFlow(0L)
+
+        val currentFileTotalSize = _currentFileTotalSize.asStateFlow()
+
+    
+
+        private val _fileTransferState = MutableStateFlow("Idle")
+
+        val fileTransferState = _fileTransferState.asStateFlow()
+
+    
+
+        private val _isInfoLoading = MutableStateFlow(false)
+
+        val isInfoLoading = _isInfoLoading.asStateFlow()
+
+    
+
+        private val _transferKbps = MutableStateFlow(0.0f)
+
+            val transferKbps = _transferKbps.asStateFlow()
+
+        
+
+            private val _isAutoRefreshEnabled = MutableStateFlow(true)
+
+            val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
+
+        
+
+            private var bluetoothGatt: BluetoothGatt? = null
+
+        private var commandCharacteristic: BluetoothGattCharacteristic? = null
+
+        private var ackCharacteristic: BluetoothGattCharacteristic? = null
+
+        private var currentDownloadingFileName: String? = null
+
+    
+
+        private val json = Json { ignoreUnknownKeys = true }
+
+    
 
         // Buffer for assembling fragmented BLE packets
 
         private var responseBuffer = mutableListOf<Byte>()
 
-        // private var autoRefreshJob: Job? = null // Disabled for manual refresh
+            private var autoRefreshJob: Job? = null
+
+            private var _transferStartTime = 0L
+
+            private var connectionRetries = 0
+
+            private val maxConnectionRetries = 3
+
+        
 
     
 
-        init {
+                        init {
 
-            /* // Disabled for manual refresh
-
-            connectionState.onEach { state ->
-
-                if (state == "Connected") {
-
-                    startAutoRefresh()
-
-                } else {
-
-                    stopAutoRefresh()
-
-                }
-
-            }.launchIn(viewModelScope)
-
-            */
+        
 
     
 
-            deviceInfo.onEach { info ->
+                            connectionState.onEach { state ->
 
-                info?.ls?.let { fileString ->
-
-                    _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
-
-                }
-
-            }.launchIn(viewModelScope)
-
-        }
+        
 
     
 
-        /* // Disabled for manual refresh
+                                if (state != "Connected") {
+
+        
+
+    
+
+                                    stopAutoRefresh()
+
+        
+
+    
+
+                                }
+
+        
+
+    
+
+                            }.launchIn(viewModelScope)
+
+        
+
+    
+
+                    
+
+        
+
+    
+
+                            deviceInfo.onEach { info ->
+
+        
+
+    
+
+                                info?.ls?.let { fileString ->
+
+        
+
+    
+
+                                    _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
+
+        
+
+    
+
+                                }
+
+        
+
+    
+
+                            }.launchIn(viewModelScope)
+
+        
+
+    
+
+                        }
+
+    
 
         private fun startAutoRefresh() {
 
@@ -141,13 +223,15 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
                 while (true) {
 
-                    if (!_isReceivingFile.value) {
+                    delay(30000) // 30 seconds
 
-                        sendCommand("GET:info")
+                    // Only refresh if not busy with another operation
+
+                    if (!_isInfoLoading.value && _fileTransferState.value == "Idle") {
+
+                        fetchFileList()
 
                     }
-
-                    delay(5000) // 5 seconds
 
                 }
 
@@ -157,39 +241,154 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     
 
-        private fun stopAutoRefresh() {
+            private fun stopAutoRefresh() {
 
-            autoRefreshJob?.cancel()
+    
 
-            autoRefreshJob = null
+                autoRefreshJob?.cancel()
 
-        }
+    
 
-        */
+                autoRefreshJob = null
 
-    private fun addLog(message: String) {
+    
+
+            }
+
+    
+
+        
+
+    
+
+                fun setAutoRefresh(enabled: Boolean) {
+
+    
+
+        
+
+    
+
+                    _isAutoRefreshEnabled.value = enabled
+
+    
+
+        
+
+    
+
+                    if (enabled) {
+
+    
+
+        
+
+    
+
+                        addLog("Auto-refresh enabled.")
+
+    
+
+        
+
+    
+
+                        startAutoRefresh()
+
+    
+
+        
+
+    
+
+                    } else {
+
+    
+
+        
+
+    
+
+                        addLog("Auto-refresh disabled.")
+
+    
+
+        
+
+    
+
+                        stopAutoRefresh()
+
+    
+
+        
+
+    
+
+                    }
+
+    
+
+        
+
+    
+
+                }
+
+    
+
+        
+
+    
+
+            private fun addLog(message: String) {
         Log.d(TAG, message)
         _logs.value = (_logs.value + message).takeLast(100)
     }
 
-    private val gattCallback = object : BluetoothGattCallback() {
+    private fun resetOperationStates() {
+        addLog("Resetting all operation states.")
+        _fileTransferState.value = "Idle"
+        _isInfoLoading.value = false
+        _downloadProgress.value = 0
+        _currentFileTotalSize.value = 0L
+        _transferKbps.value = 0.0f
+        _transferStartTime = 0L
+        responseBuffer.clear()
+        currentDownloadingFileName = null
+    }
+
+    private val gattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             val deviceAddress = gatt.device.address
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     _connectionState.value = "Connected"
                     addLog("Successfully connected to $deviceAddress")
+                    // Reset retries on successful connection
+                    connectionRetries = 0
                     addLog("Requesting MTU of 517")
                     gatt.requestMtu(517)
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     _connectionState.value = "Disconnected"
                     addLog("Successfully disconnected from $deviceAddress")
+                    resetOperationStates()
                     gatt.close()
                 }
             } else {
-                _connectionState.value = "Disconnected"
-                addLog("Error $status encountered for $deviceAddress! Disconnecting...")
-                gatt.close()
+                if (status == 133 && connectionRetries < maxConnectionRetries) {
+                    connectionRetries++
+                    addLog("GATT error 133. Retrying connection... (Attempt ${connectionRetries})")
+                    viewModelScope.launch {
+                        delay(500) // Wait before retrying
+                        gatt.device.connectGatt(context, false, gattCallback)
+                    }
+                } else {
+                    _connectionState.value = "Disconnected"
+                    addLog("Error $status encountered for $deviceAddress! Disconnecting...")
+                    resetOperationStates()
+                    gatt.close()
+                }
             }
         }
 
@@ -238,53 +437,83 @@ class BleViewModel(private val context: Context) : ViewModel() {
             super.onCharacteristicChanged(gatt, characteristic, value)
             if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
-            if (_isReceivingFile.value) {
-                // Check for START signal before actual file data
-                if (value.contentEquals("START".toByteArray())) {
-                    addLog("Received START signal. Sending START_ACK.")
-                    sendAck("START_ACK".toByteArray(Charsets.UTF_8))
-                    viewModelScope.launch { _transferReady.emit(Unit) }
-                    // Do not clear responseBuffer here, actual file data will follow
-                    return // No need to process further or send another general ACK
-                }
-                
-                if (value.contentEquals("EOF".toByteArray())) {
-                    addLog("End of file transfer signal received.")
-                    val fileData = responseBuffer.toByteArray()
-                    val header = fileData.take(8).joinToString(" ") { String.format("%02x", it) }
-                    addLog("Saving file... Header: $header. Size: ${fileData.size} bytes.")
-                    saveFile(fileData)
-                    responseBuffer.clear()
-                    _isReceivingFile.value = false
-                    _fileTransferState.value = "Success"
-                    currentDownloadingFileName = null
-                    return // Do not send ACK for EOF
-                } else {
-                    responseBuffer.addAll(value.toList())
-                    _downloadProgress.value = responseBuffer.size
-                    // addLog("Received file chunk: ${value.size} bytes. Total: ${responseBuffer.size} bytes")
-                }
-            } else {
-                // This is for general command responses (like GET:info)
-                responseBuffer.addAll(value.toList())
-                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                if (currentBufferAsString.trim().endsWith("}")) {
-                    _receivedData.value = currentBufferAsString
-                    addLog("Assembled data: $currentBufferAsString")
-                    try {
-                        val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
-                        _deviceInfo.value = parsedResponse
-                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                        _receivedData.value = "" // Clear raw received data after parsing
-                    } catch (e: Exception) {
-                        addLog("Error parsing JSON: ${e.message}")
+            when (_fileTransferState.value) {
+                "WaitingForStart" -> {
+                    if (value.contentEquals("START".toByteArray())) {
+                        addLog("Received START signal. Sending START_ACK.")
+                        sendAck("START_ACK".toByteArray(Charsets.UTF_8))
+                        _fileTransferState.value = "Downloading"
+                        _transferStartTime = System.currentTimeMillis() // Start timer after handshake
+                        responseBuffer.clear()
+                        _downloadProgress.value = 0
+                    } else {
+                        addLog("Waiting for START, but received unexpected data: ${value.toString(Charsets.UTF_8)}")
                     }
-                    responseBuffer.clear()
+                }
+                "Downloading" -> {
+                    if (value.contentEquals("EOF".toByteArray()) || value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
+                        val isSuccess = value.contentEquals("EOF".toByteArray())
+                        if (isSuccess) {
+                            addLog("End of file transfer signal received.")
+                            val fileData = responseBuffer.toByteArray()
+                            val header = fileData.take(8).joinToString(" ") { String.format("%02x", it) }
+                            addLog("Saving file... Header: $header. Size: ${fileData.size} bytes.")
+                            saveFile(fileData)
+                            _fileTransferState.value = "Success"
+                        } else {
+                            val errorMessage = value.toString(Charsets.UTF_8)
+                            addLog("Received error during transfer: $errorMessage")
+                            _fileTransferState.value = "Error: $errorMessage"
+                        }
+                        // Reset for next transfer
+                        responseBuffer.clear()
+                        currentDownloadingFileName = null
+                        _transferStartTime = 0L
+                        _transferKbps.value = 0.0f
+                        // Transition back to Idle after a short delay to allow UI to update
+                        viewModelScope.launch {
+                            delay(1000)
+                            _fileTransferState.value = "Idle"
+                        }
+                    } else {
+                        // First data packet
+                        if (_transferStartTime == 0L) {
+                            _transferStartTime = System.currentTimeMillis()
+                        }
+                        responseBuffer.addAll(value.toList())
+                        _downloadProgress.value = responseBuffer.size
+
+                        val elapsedTime = (System.currentTimeMillis() - _transferStartTime) / 1000.0f
+                        if (elapsedTime > 0) {
+                            _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
+                        }
+                        sendAck("ACK".toByteArray(Charsets.UTF_8))
+                    }
+                }
+                "Idle" -> {
+                    // This is for general command responses (like GET:info)
+                    if (!_isInfoLoading.value) {
+                        addLog("Received unexpected data in Idle state: ${value.toString(Charsets.UTF_8)}")
+                        return
+                    }
+                    responseBuffer.addAll(value.toList())
+                    val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                    if (currentBufferAsString.trim().endsWith("}")) {
+                        addLog("Assembled data: $currentBufferAsString")
+                        try {
+                            val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
+                            _deviceInfo.value = parsedResponse
+                            addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                            _receivedData.value = "" // Clear raw received data after parsing
+                        } catch (e: Exception) {
+                            addLog("Error parsing JSON: ${e.message}")
+                        } finally {
+                            _isInfoLoading.value = false // Reset loading state
+                            responseBuffer.clear()
+                        }
+                    }
                 }
             }
-
-            // Send general ACK for data chunks (not EOF or START)
-            sendAck("ACK".toByteArray(Charsets.UTF_8))
         }
 
         private fun sendAck(ackValue: ByteArray) {
@@ -307,7 +536,11 @@ class BleViewModel(private val context: Context) : ViewModel() {
         override fun onDescriptorWrite(gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor?, status: Int) {
             super.onDescriptorWrite(gatt, descriptor, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                addLog("Descriptor written successfully")
+                addLog("Descriptor written successfully. Ready to communicate.")
+                viewModelScope.launch {
+                    fetchFileList()
+                    startAutoRefresh()
+                }
             } else {
                 addLog("Descriptor write failed with status $status")
             }
@@ -378,77 +611,121 @@ class BleViewModel(private val context: Context) : ViewModel() {
 
     private fun connectToDevice(device: BluetoothDevice) {
         addLog("Connecting to device ${device.address}")
+        connectionRetries = 0 // Reset retry counter on new connection attempt
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
     }
 
-    fun sendCommand(command: String) {
-        if (commandCharacteristic == null) {
-            addLog("Command characteristic not found")
-            return
-        }
-        // Do not clear buffer if we are in the middle of receiving a file
-        if (!_isReceivingFile.value) {
-            responseBuffer.clear()
+        fun sendCommand(command: String) {
+
+            if (commandCharacteristic == null) {
+
+                addLog("Command characteristic not found")
+
+                return
+
+            }
+
+    
+
+            // Buffer clearing is now handled by the state machine logic
+
+            addLog("Sending command: $command")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+
+                bluetoothGatt?.writeCharacteristic(
+
+                    commandCharacteristic!!,
+
+                    command.toByteArray(Charsets.UTF_8),
+
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+
+                )
+
+            } else {
+
+                commandCharacteristic?.value = command.toByteArray(Charsets.UTF_8)
+
+                commandCharacteristic?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+
+                bluetoothGatt?.writeCharacteristic(commandCharacteristic!!)
+
+            }
+
         }
 
-        addLog("Sending command: $command")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            bluetoothGatt?.writeCharacteristic(
-                commandCharacteristic!!,
-                command.toByteArray(Charsets.UTF_8),
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            )
-        } else {
-            commandCharacteristic?.value = command.toByteArray(Charsets.UTF_8)
-            commandCharacteristic?.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            bluetoothGatt?.writeCharacteristic(commandCharacteristic!!)
-        }
-    }
+    
 
-    fun fetchFileList() {
-        if (connectionState.value == "Connected") {
+        fun fetchFileList() {
+
+            if (connectionState.value != "Connected") {
+
+                addLog("Cannot fetch file list, not connected.")
+
+                return
+
+            }
+
+            if (_isInfoLoading.value || _fileTransferState.value != "Idle") {
+
+                addLog("Cannot fetch file list, another operation is in progress.")
+
+                return
+
+            }
+
+            _isInfoLoading.value = true
+
             addLog("Requesting file list from device...")
+
             sendCommand("GET:info")
-        } else {
-            addLog("Cannot fetch file list, not connected.")
-        }
-    }
 
-    suspend fun downloadFile(fileName: String) {
-        if (connectionState.value != "Connected") {
-            addLog("Cannot download file, not connected.")
-            return
-        }
-        if (_isReceivingFile.value) {
-            addLog("Another file download is already in progress.")
-            return
         }
 
-        _isReceivingFile.value = true
-        _fileTransferState.value = "Downloading"
-        _downloadProgress.value = 0
-        responseBuffer.clear()
-        currentDownloadingFileName = fileName
+    
 
-        val fileEntry = _fileList.value.find { it.name == fileName }
-        _currentFileTotalSize.value = fileEntry?.size?.substringBefore(" ")?.toLongOrNull() ?: 0L
+        fun downloadFile(fileName: String) {
 
-        addLog("Requesting file: $currentDownloadingFileName (size: ${_currentFileTotalSize.value} bytes)")
-        sendCommand("GET:file:$currentDownloadingFileName")
+            if (connectionState.value != "Connected") {
 
-        // Wait for START signal from device
-        addLog("Waiting for START signal from device...")
-        _transferReady.first() // Suspend until START signal is received
-        addLog("Received START signal. Proceeding with file transfer.")
+                addLog("Cannot download file, not connected.")
 
-        // Now that handshake is complete, clear the buffer for incoming file data
-        responseBuffer.clear()
-        _downloadProgress.value = 0
+                return
 
-    }
+            }
+
+            if (_isInfoLoading.value || _fileTransferState.value != "Idle") {
+
+                addLog("Cannot start download, another operation is in progress.")
+
+                return
+
+            }
+
+            
+
+            _fileTransferState.value = "WaitingForStart"
+
+            currentDownloadingFileName = fileName
+
+    
+
+            val fileEntry = _fileList.value.find { it.name == fileName }
+
+            _currentFileTotalSize.value = fileEntry?.size?.substringBefore(" ")?.toLongOrNull() ?: 0L
+
+    
+
+            addLog("Requesting file: $currentDownloadingFileName (size: ${_currentFileTotalSize.value} bytes)")
+
+            sendCommand("GET:file:$currentDownloadingFileName")
+
+        }
 
     fun disconnect() {
         addLog("Disconnecting from device")
+        resetOperationStates()
         bluetoothGatt?.disconnect()
     }
 }
