@@ -281,7 +281,7 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
-async def _get_file_from_device(file_extension_filter: str, command_prefix: str, file_type_display_name: str, verbose: bool = False):
+async def _get_file_from_device(file_extension_filter: str, command_prefix: str, verbose: bool = False):
     global received_chunk_count, g_total_file_size_for_transfer
     received_chunk_count = 0 # Reset counter before each download
 
@@ -309,10 +309,10 @@ async def _get_file_from_device(file_extension_filter: str, command_prefix: str,
 
 
     if not files_with_sizes:
-        print(f"{RED}{file_type_display_name}が見つかりませんでした。{RESET}")
+        print(f"{RED}該当するファイルが見つかりませんでした。{RESET}")
         return
 
-    print(f"\n取得する{file_type_display_name}を選択してください:")
+    print(f"\n取得するファイルを選択してください:")
     for i, (filename, size) in enumerate(files_with_sizes):
         print(f"{i + 1}. {filename} ({size} bytes)")
     print("0. キャンセル")
@@ -357,10 +357,10 @@ async def _get_file_from_device(file_extension_filter: str, command_prefix: str,
 
 
 async def get_log_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='log.', command_prefix='GET:log', file_type_display_name='ログファイル', verbose=verbose)
+    await _get_file_from_device(file_extension_filter='log.', command_prefix='GET:log', verbose=verbose)
 
 async def get_wav_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='.wav', command_prefix='GET:wav', file_type_display_name='WAVファイル', verbose=verbose)
+    await _get_file_from_device(file_extension_filter='.wav', command_prefix='GET:wav', verbose=verbose)
 
 
 async def reset_all(verbose: bool = False):
