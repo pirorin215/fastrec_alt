@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import com.pirorin215.fastrecmob.data.countWavFiles
 import com.pirorin215.fastrecmob.data.parseFileEntries
+import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import androidx.compose.foundation.shape.CircleShape
@@ -117,6 +118,7 @@ fun BleApp(modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun BleControl() {
@@ -131,12 +133,13 @@ fun BleControl() {
     val fileTransferState by viewModel.fileTransferState.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val currentFileTotalSize by viewModel.currentFileTotalSize.collectAsState()
-    val isInfoLoading by viewModel.isInfoLoading.collectAsState()
+    val currentOperation by viewModel.currentOperation.collectAsState()
     val transferKbps by viewModel.transferKbps.collectAsState()
     val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
 
     var showLogs by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -153,90 +156,104 @@ fun BleControl() {
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            ConnectionStatusIndicator(connectionState)
+    if (showSettings) {
+        SettingsScreen(viewModel = viewModel, onBack = { showSettings = false })
+    } else {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Spacer(modifier = Modifier.height(8.dp))
+                ConnectionStatusIndicator(connectionState)
 
-            SummaryInfoCard(deviceInfo = deviceInfo)
+                SummaryInfoCard(deviceInfo = deviceInfo)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                val isBusy = isInfoLoading || fileTransferState != "Idle"
-                val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    val isBusy = currentOperation != BleViewModel.Operation.IDLE
+                    val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
 
-                // 詳細表示ボタン
-                Button(
-                    onClick = { showDetails = !showDetails },
-                    modifier = Modifier.weight(1f),
-                    enabled = !isBusy
-                ) {
-                    Text(if (showDetails) "詳細非表示" else "詳細表示")
+                    // スキャン/切断ボタン
+                    Button(
+                        onClick = {
+                            if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isBusy
+                    ) {
+                        Text(connectionButtonText)
+                    }
+
+                    // 設定ボタン
+                    Button(
+                        onClick = { showSettings = true },
+                        modifier = Modifier.weight(1f),
+                        enabled = connectionState == "Connected"
+                    ) {
+                        Text("設定")
+                    }
+                }
+                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()){
+                    // 詳細表示ボタン
+                    Button(
+                        onClick = { showDetails = !showDetails },
+                        modifier = Modifier.weight(1f),
+                        enabled = currentOperation == BleViewModel.Operation.IDLE
+                    ) {
+                        Text(if (showDetails) "詳細非表示" else "詳細表示")
+                    }
+                     // 自動更新トグルスイッチ
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text("自動更新", style = MaterialTheme.typography.labelMedium)
+                        Switch(
+                            checked = isAutoRefreshEnabled,
+                            onCheckedChange = { viewModel.setAutoRefresh(it) },
+                            enabled = currentOperation == BleViewModel.Operation.IDLE && connectionState == "Connected"
+                        )
+                    }
                 }
 
-                // スキャン/切断ボタン
-                Button(
-                    onClick = {
-                        if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = !isBusy // Changed this line to ensure it is not busy for any operation
-                ) {
-                    Text(connectionButtonText)
+
+                if (showDetails) {
+                    DetailedInfoCard(deviceInfo = deviceInfo)
                 }
 
-                // 自動更新トグルスイッチ
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Text("自動更新", style = MaterialTheme.typography.labelMedium)
-                    Switch(
-                        checked = isAutoRefreshEnabled,
-                        onCheckedChange = { viewModel.setAutoRefresh(it) },
-                        enabled = !isBusy && connectionState == "Connected"
-                    )
+                FileDownloadSection(
+                    fileList = fileList,
+                    fileTransferState = fileTransferState,
+                    downloadProgress = downloadProgress,
+                    totalFileSize = currentFileTotalSize,
+                    isBusy = currentOperation != BleViewModel.Operation.IDLE,
+                    transferKbps = transferKbps,
+                    onDownloadClick = { viewModel.downloadFile(it) }
+                )
+
+                Button(onClick = { showLogs = !showLogs }) {
+                    Text(if (showLogs) "ログ非表示" else "ログ表示")
                 }
-            }
 
-            if (showDetails) {
-                DetailedInfoCard(deviceInfo = deviceInfo)
-            }
-
-            FileDownloadSection(
-                fileList = fileList,
-                fileTransferState = fileTransferState,
-                downloadProgress = downloadProgress,
-                totalFileSize = currentFileTotalSize,
-                isInfoLoading = isInfoLoading,
-                transferKbps = transferKbps,
-                onDownloadClick = { viewModel.downloadFile(it) }
-            )
-
-            Button(onClick = { showLogs = !showLogs }) {
-                Text(if (showLogs) "ログ非表示" else "ログ表示")
-            }
-
-            if (showLogs) {
-                Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                    LazyColumn(modifier = Modifier.padding(8.dp)) {
-                        items(logs) { log ->
-                            Text(text = log, style = MaterialTheme.typography.bodySmall)
+                if (showLogs) {
+                    Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                        LazyColumn(modifier = Modifier.padding(8.dp)) {
+                            items(logs) { log ->
+                                Text(text = log, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
-            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -248,19 +265,18 @@ fun FileDownloadSection(
     fileTransferState: String,
     downloadProgress: Int,
     totalFileSize: Long,
-    isInfoLoading: Boolean,
+    isBusy: Boolean,
     transferKbps: Float,
     onDownloadClick: (String) -> Unit
 ) {
     val wavFiles = fileList.filter { it.name.endsWith(".wav", ignoreCase = true) }
     val logFiles = fileList.filter { it.name.startsWith("log.", ignoreCase = true) }
-    val isBusy = isInfoLoading || fileTransferState != "Idle"
 
     Column {
         if (fileTransferState == "WaitingForStart" || fileTransferState == "Downloading") {
             val progress = if (totalFileSize > 0) downloadProgress.toFloat() / totalFileSize.toFloat() else 0f
             val percentage = (progress * 100).toInt()
-            val statusText = if (fileTransferState == "WaitingForStart") "ハンドシェイク中..." else "ダウンロード中... $downloadProgress / $totalFileSize bytes ($percentage%) - ${"%.2f".format(transferKbps)} kbps"
+            val statusText = if (fileTransferState == "WaitingForStart") "接続中..." else "$downloadProgress / $totalFileSize bytes ($percentage%) - ${"%.2f".format(transferKbps)} kbps"
 
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 if (fileTransferState == "Downloading") {
@@ -270,14 +286,14 @@ fun FileDownloadSection(
             }
         }
 
-        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState, isInfoLoading = isInfoLoading)
+        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy)
         Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, fileTransferState = fileTransferState, isInfoLoading = isInfoLoading)
+        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy)
     }
 }
 
 @Composable
-fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: (String) -> Unit, fileTransferState: String, isInfoLoading: Boolean) {
+fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: (String) -> Unit, isBusy: Boolean) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
@@ -297,7 +313,7 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
                             Text("${file.name} (${file.size})", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                             Button(
                                 onClick = { onDownloadClick(file.name) },
-                                enabled = !isInfoLoading && fileTransferState == "Idle"
+                                enabled = !isBusy
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = "Download")
                             }
