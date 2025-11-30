@@ -281,7 +281,7 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
-async def _get_file_from_device(file_extension_filter: str, verbose: bool = False):
+async def get_file_from_device(file_extension_filter: str, verbose: bool = False):
     global received_chunk_count, g_total_file_size_for_transfer
     received_chunk_count = 0 # Reset counter before each download
 
@@ -356,13 +356,6 @@ async def _get_file_from_device(file_extension_filter: str, verbose: bool = Fals
         print(f"{RED}{selected_filename} の取得に失敗しました。{RESET}")
 
 
-async def get_log_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='log.', verbose=verbose)
-
-async def get_wav_file(verbose: bool = False):
-    await _get_file_from_device(file_extension_filter='.wav', verbose=verbose)
-
-
 async def reset_all(verbose: bool = False):
     print(f"\n{RED}デバイスを完全にリセット。続行しますか？ (y/N){RESET}")
     sys.stdout.write("Enter your choice: ")
@@ -435,9 +428,9 @@ if __name__ == "__main__":
                 elif choice == '3':
                     await get_device_info(verbose)
                 elif choice == '4':
-                    await get_log_file(verbose)
+                    await get_file_from_device("log.", False)
                 elif choice == '5':
-                    await get_wav_file(verbose)
+                    await get_file_from_device(".wav", False)
                 elif choice == '6':
                     await reset_all(verbose)
                 elif choice == '0':
