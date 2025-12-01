@@ -189,9 +189,13 @@ class BleRepository(private val context: Context) {
             return false
         }
         Log.d(TAG, "Sending command: $command")
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ({
-            bluetoothGatt?.writeCharacteristic(characteristic, command.toByteArray(Charsets.UTF_8), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) ?: false
-        }) as Boolean else {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            bluetoothGatt?.writeCharacteristic(
+                characteristic,
+                command.toByteArray(Charsets.UTF_8),
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ) == BluetoothGatt.GATT_SUCCESS
+        } else {
             characteristic.value = command.toByteArray(Charsets.UTF_8)
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             bluetoothGatt?.writeCharacteristic(characteristic) ?: false
@@ -205,9 +209,13 @@ class BleRepository(private val context: Context) {
             return false
         }
         // Log.d(TAG, "Sending ACK: ${ackValue.toString(Charsets.UTF_8)}") // ACK is very frequent, so logging is disabled.
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ({
-            bluetoothGatt?.writeCharacteristic(characteristic, ackValue, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ?: false
-        }) as Boolean else {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            bluetoothGatt?.writeCharacteristic(
+                characteristic,
+                ackValue,
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            ) == BluetoothGatt.GATT_SUCCESS
+        } else {
             characteristic.value = ackValue
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             bluetoothGatt?.writeCharacteristic(characteristic) ?: false
