@@ -102,6 +102,13 @@ class BleViewModel(
             initialValue = 100 // Default to 100 files
         )
 
+    val audioDirName: StateFlow<String> = appSettingsRepository.audioDirNameFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = "FastRecRecordings" // Default directory name
+        )
+
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .stateIn(
             scope = viewModelScope,
@@ -624,10 +631,13 @@ class BleViewModel(
     private fun saveFile(data: ByteArray): String? {
         val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.wav"
         return try {
-            val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(path, fileName)
+            val audioDir = context.getExternalFilesDir(audioDirName.value)
+            if (audioDir != null && !audioDir.exists()) {
+                audioDir.mkdirs()
+            }
+            val file = File(audioDir, fileName)
             FileOutputStream(file).use { it.write(data) }
-            addLog("File saved successfully: ${file.absolutePath}")
+            addLog("File saved successfully to app-specific directory: ${file.absolutePath}")
             file.absolutePath
         } catch (e: Exception) {
             addLog("Error saving file: ${e.message}")
@@ -640,15 +650,20 @@ class BleViewModel(
         try {
             addLog("Running audio file cleanup...")
             val limit = audioCacheLimit.value
-            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val audioDir = context.getExternalFilesDir(audioDirName.value)
+
+            if (audioDir == null) {
+                addLog("Could not access app-specific audio directory.")
+                return@withContext
+            }
             
             // Filter for files managed by this app
-            val audioFiles = downloadDir.listFiles { _, name ->
+            val audioFiles = audioDir.listFiles { _, name ->
                 name.startsWith("R") && name.endsWith(".wav")
             }
 
             if (audioFiles == null) {
-                addLog("Could not list files in download directory.")
+                addLog("Could not list files in app-specific audio directory.")
                 return@withContext
             }
 
@@ -913,8 +928,7 @@ class BleViewModel(
 
             // Lock is released. Now handle post-download tasks.
             if (downloadSuccess) {
-                val path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val file = File(path, fileName)
+                val file = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, fileName)
                 if (file.exists()) {
                     transcriptionQueue.add(file.absolutePath)
                     addLog("Added ${file.name} to transcription queue.")
@@ -1038,6 +1052,14 @@ class BleViewModel(
             val cacheLimit = if (limit < 1) 1 else limit // Ensure at least 1
             appSettingsRepository.saveAudioCacheLimit(cacheLimit)
             addLog("Audio cache limit saved: $cacheLimit files.")
+        }
+    }
+
+    fun saveAudioDirName(name: String) {
+        viewModelScope.launch {
+            val dirName = name.ifBlank { "FastRecRecordings" } // Fallback to default if blank
+            appSettingsRepository.saveAudioDirName(dirName)
+            addLog("Audio directory name saved: $dirName")
         }
     }
 
