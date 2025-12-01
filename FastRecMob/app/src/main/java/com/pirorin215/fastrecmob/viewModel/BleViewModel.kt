@@ -587,10 +587,7 @@ class BleViewModel(
         addLog("Disconnecting from device")
         resetOperationStates()
         bluetoothGatt?.disconnect()
-        // Signal BleScanService to restart scanning
-        viewModelScope.launch {
-            com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-        }
+        // The restart scan signal will be handled by gattCallback.onConnectionStateChange
     }
 
     private fun startTranscription(filePath: String) {
