@@ -121,9 +121,13 @@ class BleScanService : Service() {
             Log.d(TAG, "ScanResult: Device found - ${result.device.name} (${result.device.address}), RSSI: ${result.rssi}")
             if (result.device.name == BleViewModel.DEVICE_NAME) {
                 Log.d(TAG, "Target device '${BleViewModel.DEVICE_NAME}' found! Signaling BleViewModel to connect.")
-                // Do NOT stop scan here; continue scanning for automatic re-detection
+                // Stop scanning temporarily to avoid multiple connection attempts
+                // and give BleViewModel time to connect.
+                stopBleScan()
                 CoroutineScope(Dispatchers.IO).launch {
                     BleScanServiceManager.emitDeviceFound(result.device)
+                    delay(5000) // Pause scanning for 5 seconds after device found
+                    startBleScan() // Restart scan after pause
                 }
             }
         }
