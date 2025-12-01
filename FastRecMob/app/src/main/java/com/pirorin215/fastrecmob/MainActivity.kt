@@ -157,13 +157,9 @@ fun BleControl() {
         }
     }
 
-    if (transcriptionState == "Transcribing") { // 処理中のみ表示
-        TranscriptionStatusDialog(
-            transcriptionState = transcriptionState,
-            transcriptionResult = transcriptionResult,
-            onDismiss = { viewModel.resetTranscriptionState() }
-        )
-    }
+    // TranscriptionStatusDialog removed for background operation
+    // For background operation, dialogs are generally not desired.
+    // The ViewModel still tracks transcriptionState and transcriptionResult for internal logging.
 
     when {
         showSettings -> {
