@@ -368,6 +368,10 @@ class BleViewModel(
                     addLog("Error $status encountered for $deviceAddress! Disconnecting...")
                     resetOperationStates()
                     gatt.close()
+                    // Signal BleScanService to restart scanning after an error
+                    viewModelScope.launch {
+                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+                    }
                 }
             }
         }
@@ -698,6 +702,13 @@ class BleViewModel(
         addLog("Manual scan button pressed. Waiting for service to find device.")
         // サービスがデバイスを見つけたら、BleScanServiceManager経由でここにイベントが来る
         // Note: The actual scan is handled by BleScanService
+    }
+
+    fun restartScan() {
+        addLog("Explicitly requesting a scan restart.")
+        viewModelScope.launch {
+            com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+        }
     }
     
 
