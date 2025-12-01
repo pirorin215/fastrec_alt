@@ -88,12 +88,20 @@ class BleViewModel(
             initialValue = 30 // Provide a default
         )
 
+    val keepConnectionAlive: StateFlow<Boolean> = appSettingsRepository.keepConnectionAliveFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = true // Default to keeping connection alive
+        )
+
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
 
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -288,17 +296,27 @@ class BleViewModel(
             }
 
             if (filesToProcess.isNotEmpty()) {
-                // Process only one file at a time; rely on next auto-refresh to pick up others
+                // Process only one file at a time; rely on next auto-refresh to pick up others.
+                // The mutex inside downloadFile handles the IDLE check.
                 val fileEntry = filesToProcess.first()
-                if (_currentOperation.value == Operation.IDLE && _fileTransferState.value == "Idle") {
-                    addLog("Found untranscribed WAV file: ${fileEntry.name}. Starting automatic download.")
-                    downloadFile(fileEntry.name)
-                } else {
-                    addLog("Currently busy with another operation, skipping download of ${fileEntry.name} for now. Will retry on next auto-refresh.")
-                }
+                addLog("Found untranscribed WAV file: ${fileEntry.name}. Starting automatic download.")
+                downloadFile(fileEntry.name)
             } else {
-                addLog("No new untranscribed WAV files found on microcontroller. Checking transcription queue.")
-                startBatchTranscription()
+                // No WAV files to download from device. Now, check the local transcription queue.
+                if (transcriptionQueue.isEmpty()) {
+                    // Device is clean AND local queue is empty. We are fully idle.
+                    addLog("No files to process on device or locally. Checking if disconnection is needed.")
+                    if (!keepConnectionAlive.value) {
+                        addLog("Idle and 'Disconnect when Idle' is enabled. Disconnecting.")
+                        disconnect()
+                    } else {
+                        addLog("Idle but 'Keep Connected' is enabled. Staying connected.")
+                    }
+                } else {
+                    // There are still files being transcribed locally.
+                    addLog("No new untranscribed WAV files found on microcontroller. Checking transcription queue.")
+                    startBatchTranscription()
+                }
             }
         }
     }
@@ -928,6 +946,13 @@ class BleViewModel(
             val interval = if (seconds < 5) 5 else seconds
             appSettingsRepository.saveRefreshIntervalSeconds(interval)
             addLog("Refresh interval saved: $interval seconds.")
+        }
+    }
+
+    fun saveKeepConnectionAlive(enabled: Boolean) {
+        viewModelScope.launch {
+            appSettingsRepository.saveKeepConnectionAlive(enabled)
+            addLog("Keep connection alive setting saved: $enabled.")
         }
     }
 

@@ -3,6 +3,7 @@ package com.pirorin215.fastrecmob.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -19,6 +20,7 @@ class AppSettingsRepository(private val context: Context) {
     private object PreferencesKeys {
         val API_KEY = stringPreferencesKey("google_cloud_api_key")
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
+        val KEEP_CONNECTION_ALIVE = booleanPreferencesKey("keep_connection_alive")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -34,6 +36,13 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.REFRESH_INTERVAL_SECONDS] ?: 30
         }
 
+    // BLE接続維持設定の変更を監視するためのFlow
+    val keepConnectionAliveFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            // デフォルトはfalse（接続を維持しない）
+            preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] ?: false
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -45,6 +54,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveRefreshIntervalSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.REFRESH_INTERVAL_SECONDS] = seconds
+        }
+    }
+
+    // BLE接続維持設定を保存するsuspend関数
+    suspend fun saveKeepConnectionAlive(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] = enabled
         }
     }
 }
