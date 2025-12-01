@@ -190,42 +190,55 @@ fun BleControl() {
 
                     SummaryInfoCard(deviceInfo = deviceInfo)
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        val isBusy = currentOperation != BleViewModel.Operation.IDLE
-                        val connectionButtonText = if (connectionState == "Connected") "切断" else "スキャン"
+                    // 接続維持スイッチと自動更新トグルスイッチ
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround, // 均等配置
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val isBusy = currentOperation != BleViewModel.Operation.IDLE // Moved here for local usage
 
-                        // スキャン/切断ボタン
-                        Button(
-                            onClick = {
-                                if (connectionState == "Connected") viewModel.disconnect() else viewModel.startScan()
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = !isBusy
+                        // 接続維持スイッチ
+                        val keepAlive by viewModel.keepConnectionAlive.collectAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp), // 少し間隔を空ける
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(connectionButtonText)
+                            Text("接続維持", style = MaterialTheme.typography.labelLarge)
+                            Switch(
+                                checked = keepAlive,
+                                onCheckedChange = { isChecked ->
+                                    viewModel.saveKeepConnectionAlive(isChecked)
+                                },
+                                enabled = true // 常に操作可能
+                            )
                         }
 
-                        // 詳細表示ボタン
+                        // 自動更新トグルスイッチ
+                        val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp), // 少し間隔を空ける
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("自動更新", style = MaterialTheme.typography.labelLarge)
+                            Switch(
+                                checked = isAutoRefreshEnabled,
+                                onCheckedChange = { viewModel.setAutoRefresh(it) },
+                                enabled = connectionState == "Connected" // 接続時に操作可能
+                            )
+                        }
+                    }
+
+                    // 詳細表示ボタン (元の位置を維持)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = { showDetails = !showDetails },
                             modifier = Modifier.weight(1f),
                             enabled = currentOperation == BleViewModel.Operation.IDLE
                         ) {
                             Text(if (showDetails) "詳細非表示" else "詳細表示")
-                        }
-
-                        // 自動更新トグルスイッチ
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            Text("自動更新", style = MaterialTheme.typography.labelMedium)
-                            Switch(
-                                checked = isAutoRefreshEnabled,
-                                onCheckedChange = { viewModel.setAutoRefresh(it) },
-                                enabled = currentOperation == BleViewModel.Operation.IDLE && connectionState == "Connected"
-                            )
                         }
                     }
 

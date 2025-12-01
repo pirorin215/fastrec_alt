@@ -30,13 +30,13 @@ import com.pirorin215.fastrecmob.viewModel.BleViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
-    // DataStoreから現在の設定値を取得
+    // DataStoreから現在のAPIキーと更新周期を取得
     val currentApiKey by viewModel.apiKey.collectAsState()
-    val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()
+    val currentInterval by viewModel.refreshIntervalSeconds.collectAsState() // Restore currentInterval
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
-    var intervalText by remember(currentInterval) { mutableStateOf(currentInterval.toString()) }
+    var intervalText by remember(currentInterval) { mutableStateOf(currentInterval.toString()) } // Restore intervalText
 
     Scaffold(
         topBar = {
