@@ -124,6 +124,10 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
 
     // 全文表示ダイアログ
     if (showFullTextDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val audioFile = remember(fullTextFileName) { FileUtil.getAudioFile(fullTextFileName) }
+        val audioFileExists = remember(audioFile) { audioFile.exists() }
+
         AlertDialog(
             onDismissRequest = { showFullTextDialog = false },
             title = { Text(FileUtil.extractRecordingDateTime(fullTextFileName)) },
@@ -134,8 +138,31 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
                 }
             },
             confirmButton = {
-                Button(onClick = { showFullTextDialog = false }) {
-                    Text("閉じる")
+                Row {
+                    if (audioFileExists) {
+                        TextButton(onClick = {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    "com.pirorin215.fastrecmob.provider",
+                                    audioFile
+                                )
+                                setDataAndType(uri, "audio/wav")
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Handle case where no app can play WAV files
+                                e.printStackTrace()
+                            }
+                        }) {
+                            Text("再生")
+                        }
+                    }
+                    Button(onClick = { showFullTextDialog = false }) {
+                        Text("閉じる")
+                    }
                 }
             }
         )
@@ -207,7 +234,7 @@ fun TranscriptionResultItem(
                 color = contentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis, // エリプシスで省略
-                modifier = Modifier.width(130.dp) // 日時表示の幅を固定
+                modifier = Modifier.width(160.dp) // 日時表示の幅を固定
             )
             Spacer(modifier = Modifier.width(8.dp)) // 日時と文章の間のスペース
             // 文字起こし冒頭の文章 (残り幅を占有し、見切れる)

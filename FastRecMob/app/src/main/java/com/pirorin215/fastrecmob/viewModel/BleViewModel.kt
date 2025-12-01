@@ -95,6 +95,13 @@ class BleViewModel(
             initialValue = true // Default to keeping connection alive
         )
 
+    val audioCacheLimit: StateFlow<Int> = appSettingsRepository.audioCacheLimitFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 100 // Default to 100 files
+        )
+
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .stateIn(
             scope = viewModelScope,
@@ -361,18 +368,27 @@ class BleViewModel(
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 addLog("MTU changed to $mtu")
-                // It's often good practice to add a small delay after MTU change
-                // before starting service discovery.
                 viewModelScope.launch {
                     delay(600)
                     addLog("Discovering services after delay")
-                    bluetoothGatt?.discoverServices()
+                    val initiated = bluetoothGatt?.discoverServices()
+                    if (initiated != true) {
+                        addLog("Failed to initiate service discovery. Disconnecting.")
+                        disconnect()
+                    } else {
+                        addLog("Service discovery initiated successfully.")
+                    }
                 }
             } else {
                 addLog("MTU change failed, status: $status")
-                // Even if MTU change fails, we should still try to discover services.
-                addLog("Discovering services")
-                bluetoothGatt?.discoverServices()
+                addLog("Discovering services anyway...")
+                val initiated = bluetoothGatt?.discoverServices()
+                if (initiated != true) {
+                    addLog("Failed to initiate service discovery on fallback. Disconnecting.")
+                    disconnect()
+                } else {
+                    addLog("Service discovery initiated successfully on fallback.")
+                }
             }
         }
 
@@ -619,6 +635,46 @@ class BleViewModel(
             null
         }
     }
+
+    private suspend fun cleanupOldAudioFiles() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            addLog("Running audio file cleanup...")
+            val limit = audioCacheLimit.value
+            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            
+            // Filter for files managed by this app
+            val audioFiles = downloadDir.listFiles { _, name ->
+                name.startsWith("R") && name.endsWith(".wav")
+            }
+
+            if (audioFiles == null) {
+                addLog("Could not list files in download directory.")
+                return@withContext
+            }
+
+            if (audioFiles.size > limit) {
+                addLog("Audio cache limit ($limit) exceeded. Found ${audioFiles.size} files. Deleting oldest...")
+                
+                // Sort files by name, which corresponds to date (oldest first)
+                val sortedFiles = audioFiles.sortedBy { it.name }
+                
+                val filesToDelete = sortedFiles.take(audioFiles.size - limit)
+                
+                filesToDelete.forEach { file ->
+                    if (file.delete()) {
+                        addLog("Deleted old audio file: ${file.name}")
+                    } else {
+                        addLog("Failed to delete old audio file: ${file.name}")
+                    }
+                }
+                addLog("Cleanup finished. Deleted ${filesToDelete.size} file(s).")
+            } else {
+                addLog("Audio cache is within limit ($limit). No files deleted.")
+            }
+        } catch (e: Exception) {
+            addLog("Error during audio file cleanup: ${e.message}")
+        }
+    }
     
 
     
@@ -862,6 +918,10 @@ class BleViewModel(
                 if (file.exists()) {
                     transcriptionQueue.add(file.absolutePath)
                     addLog("Added ${file.name} to transcription queue.")
+
+                    // Run cleanup after a successful download
+                    cleanupOldAudioFiles()
+
                     // Now, trigger the deletion. This will acquire its own lock.
                     deleteFileOnMicrocontroller(fileName)
                 } else {
@@ -953,6 +1013,31 @@ class BleViewModel(
         viewModelScope.launch {
             appSettingsRepository.saveKeepConnectionAlive(enabled)
             addLog("Keep connection alive setting saved: $enabled.")
+
+            // If the setting is turned OFF, check if we should disconnect now.
+            if (!enabled) {
+                addLog("'Keep Connection Alive' turned off. Checking if device is idle.")
+                
+                // Check 1: Any WAV files on the microcontroller?
+                val hasWavFilesOnDevice = _fileList.value.any { it.name.endsWith(".wav", ignoreCase = true) }
+                // Check 2: Any files pending local transcription?
+                val isQueueEmpty = transcriptionQueue.isEmpty()
+
+                if (!hasWavFilesOnDevice && isQueueEmpty && connectionState.value == "Connected") {
+                    addLog("Device is idle. Disconnecting immediately.")
+                    disconnect()
+                } else {
+                    addLog("Device is not idle (Has WAV files: $hasWavFilesOnDevice, Queue not empty: ${!isQueueEmpty}) or not connected. No immediate action taken.")
+                }
+            }
+        }
+    }
+
+    fun saveAudioCacheLimit(limit: Int) {
+        viewModelScope.launch {
+            val cacheLimit = if (limit < 1) 1 else limit // Ensure at least 1
+            appSettingsRepository.saveAudioCacheLimit(cacheLimit)
+            addLog("Audio cache limit saved: $cacheLimit files.")
         }
     }
 
