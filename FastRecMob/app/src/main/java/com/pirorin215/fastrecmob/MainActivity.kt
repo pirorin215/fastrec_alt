@@ -46,6 +46,11 @@ import android.util.Log // Add this import
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import androidx.compose.foundation.shape.CircleShape
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -160,6 +165,32 @@ fun BleControl() {
     // TranscriptionStatusDialog removed for background operation
     // For background operation, dialogs are generally not desired.
     // The ViewModel still tracks transcriptionState and transcriptionResult for internal logging.
+
+    // Lifecycle observer to turn off "Keep connection alive" when app goes to background
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    // App is coming to foreground, turn on keepConnectionAlive and ensure scanning is active
+                    viewModel.saveKeepConnectionAlive(true)
+                    viewModel.restartScan() // Explicitly restart scan on foreground
+                    Log.d(TAG, "App came to foreground, 'Keep Connection Alive' set to true and scan restarted.")
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    // App is going to background, turn off keepConnectionAlive
+                    viewModel.saveKeepConnectionAlive(false)
+                    Log.d(TAG, "App went to background, 'Keep Connection Alive' set to false.")
+                }
+                else -> { /* Do nothing for other events */ }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     when {
         showSettings -> {
