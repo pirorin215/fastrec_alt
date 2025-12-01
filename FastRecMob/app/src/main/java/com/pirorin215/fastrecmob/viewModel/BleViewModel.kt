@@ -59,12 +59,12 @@ class BleViewModel(
 ) : ViewModel() {
 
     companion object {
-        private const val TAG = "BleViewModel"
-        private const val DEVICE_NAME = "fastrec"
-        private const val COMMAND_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26aa"
-        private const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
-        private const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
-        private const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
+        const val TAG = "BleViewModel"
+        const val DEVICE_NAME = "fastrec"
+        const val COMMAND_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+        const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+        const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
     }
 
     val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
@@ -153,7 +153,6 @@ class BleViewModel(
 
     private var responseBuffer = mutableListOf<Byte>()
     private var autoRefreshJob: Job? = null
-    private var scanTimeoutJob: Job? = null
     private var _transferStartTime = 0L
     private var connectionRetries = 0
     private val maxConnectionRetries = 3
@@ -183,6 +182,18 @@ class BleViewModel(
                 addLog("SpeechToTextService cleared (API Key not set).")
             }
         }.launchIn(viewModelScope)
+
+        // BleScanServiceManagerからのデバイス発見イベントを購読
+        viewModelScope.launch {
+            com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
+                addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
+                if (_connectionState.value == "Disconnected") {
+                    connectToDevice(device)
+                } else {
+                    addLog("Already connected or connecting. Skipping new connection attempt.")
+                }
+            }.launchIn(this)
+        }
     }
 
     private fun startAutoRefresh() {
@@ -241,12 +252,15 @@ class BleViewModel(
                     connectionRetries = 0
                     addLog("Requesting MTU of 517")
                     gatt.requestMtu(517)
-                    stopScan()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     _connectionState.value = "Disconnected"
                     addLog("Successfully disconnected from $deviceAddress")
                     resetOperationStates()
                     gatt.close()
+                    // Signal BleScanService to restart scanning
+                    viewModelScope.launch {
+                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+                    }
                 }
             } else {
                 if (status == 133 && connectionRetries < maxConnectionRetries) {
@@ -425,7 +439,6 @@ class BleViewModel(
                 addLog("Descriptor written successfully. Ready to communicate.")
                 viewModelScope.launch {
                     fetchFileList()
-                    startAutoRefresh()
                 }
             } else {
                 addLog("Descriptor write failed with status $status")
@@ -466,39 +479,16 @@ class BleViewModel(
         }
     }
     
-    private val scanCallback = object : ScanCallback() {
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            super.onScanResult(callbackType, result)
-            if (result.device.name == BleViewModel.DEVICE_NAME) {
-                addLog("Found fastrec device, stopping scan and connecting")
-                stopScan()
-                connectToDevice(result.device)
-            }
-        }
-        override fun onScanFailed(errorCode: Int) {
-            super.onScanFailed(errorCode)
-            addLog("Scan failed with error code $errorCode")
-        }
-    }
+
     
     fun startScan() {
         _logs.value = emptyList()
-        addLog("Starting BLE scan")
-        val scanSettings = ScanSettings.Builder().build()
-        bluetoothAdapter?.bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
-
-        scanTimeoutJob = viewModelScope.launch {
-            delay(10000) // 10秒待機
-            stopScan() // タイムアウトでスキャン停止
-        }
+        addLog("Manual scan button pressed. Waiting for service to find device.")
+        // サービスがデバイスを見つけたら、BleScanServiceManager経由でここにイベントが来る
+        // Note: The actual scan is handled by BleScanService
     }
     
-    private fun stopScan() {
-        addLog("Stopping BLE scan")
-        bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
-        scanTimeoutJob?.cancel()
-        scanTimeoutJob = null
-    }
+
     
     private fun connectToDevice(device: BluetoothDevice) {
         addLog("Connecting to device ${device.address}")
@@ -597,6 +587,10 @@ class BleViewModel(
         addLog("Disconnecting from device")
         resetOperationStates()
         bluetoothGatt?.disconnect()
+        // Signal BleScanService to restart scanning
+        viewModelScope.launch {
+            com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+        }
     }
 
     private fun startTranscription(filePath: String) {

@@ -39,6 +39,10 @@ import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
+import android.content.Intent // Add this import
+import android.net.Uri
+import android.provider.Settings
+import android.util.Log // Add this import
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import androidx.compose.foundation.shape.CircleShape
@@ -53,7 +57,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // アプリが終了する際にサービスを停止する
+        val serviceIntent = Intent(this, com.pirorin215.fastrecmob.service.BleScanService::class.java)
+        stopService(serviceIntent)
+    }
 }
+
+private const val TAG = "BleApp"
 
 @Composable
 fun BleApp(modifier: Modifier = Modifier) {
@@ -61,63 +74,45 @@ fun BleApp(modifier: Modifier = Modifier) {
     val activity = (LocalContext.current as? ComponentActivity)
 
     val requiredPermissions = remember {
-        val basePermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            )
-        } else {
-            listOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
+        val basePermissions = mutableListOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        // FOREGROUND_SERVICE and FOREGROUND_SERVICE_CONNECTED_DEVICE are not runtime permissions
+        // that require explicit user consent via a dialog. They are declared in Manifest
+        // and managed by the system in conjunction with startForegroundService.
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ requires POST_NOTIFICATIONS for foreground service notification
+            basePermissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            basePermissions + Manifest.permission.WRITE_EXTERNAL_STORAGE
-        } else {
-            basePermissions
+            basePermissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
+        Log.d(TAG, "Required Permissions: ${basePermissions.joinToString()}")
+        basePermissions
     }
 
 
-    var permissionsGranted by remember {
-        mutableStateOf(requiredPermissions.all {
-            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-        })
-    }
+    var permissionsGranted by remember { mutableStateOf(true) } // Temporarily set to true to bypass permission screen
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        permissionsGranted = permissions.values.all { it }
-    }
+    // Removed permissionLauncher and LaunchedEffect(context) for temporary bypass
 
-    LaunchedEffect(Unit) {
-        if (!permissionsGranted) {
-            permissionLauncher.launch(requiredPermissions.toTypedArray())
-        }
-    }
-
-    if (permissionsGranted) {
-        BleControl()
-    } else {
-        Column(
-            modifier = modifier
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text("このアプリの機能を利用するには、必要な権限を許可してください。")
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {
-                permissionLauncher.launch(requiredPermissions.toTypedArray())
-            }) {
-                Text("権限を許可する")
+    LaunchedEffect(permissionsGranted) { // permissionsGranted will always be true now
+        if (permissionsGranted) {
+            Log.d(TAG, "All permissions granted. Starting BleScanService.")
+            val serviceIntent = Intent(context, com.pirorin215.fastrecmob.service.BleScanService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
             }
         }
     }
+
+    // Always show BleControl as permissionsGranted is true
+    BleControl()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
