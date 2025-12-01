@@ -1,5 +1,7 @@
 package com.pirorin215.fastrecmob.data
 
+import android.os.Environment
+import java.io.File
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -29,5 +31,11 @@ object FileUtil {
         } else {
             "不明な日時"
         }
+    }
+
+    // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する
+    fun getAudioFile(fileName: String): File {
+        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        return File(downloadDir, fileName)
     }
 }

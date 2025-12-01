@@ -335,14 +335,14 @@ fun FileDownloadSection(
             }
         }
 
-        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy)
+        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
         Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy)
+        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = true) // Keep download button for logs
     }
 }
 
 @Composable
-fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: (String) -> Unit, isBusy: Boolean) {
+fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileEntry>, onDownloadClick: (String) -> Unit, isBusy: Boolean, showDownloadButton: Boolean = true) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
@@ -360,11 +360,13 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("${file.name} (${file.size})", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Button(
-                                onClick = { onDownloadClick(file.name) },
-                                enabled = !isBusy
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = "Download")
+                            if (showDownloadButton) { // Conditionally show the button
+                                Button(
+                                    onClick = { onDownloadClick(file.name) },
+                                    enabled = !isBusy
+                                ) {
+                                    Icon(Icons.Default.Download, contentDescription = "Download")
+                                }
                             }
                         }
                     }
@@ -387,23 +389,29 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
 @Composable
 fun ConnectionStatusIndicator(connectionState: String) {
     val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
+    val localizedConnectionState = when (connectionState) {
+        "Connected" -> "接続"
+        "Disconnected" -> "切断"
+        else -> connectionState // Other states remain as is
+    }
+
+    val textColor = if (statusColor == Color.Green) Color.Black else Color.White // Dynamic text color
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = statusColor) // Apply color to the entire card
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .background(color = statusColor, shape = CircleShape)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+            // Remove the Box composable for the circular indicator
+            // Spacer(modifier = Modifier.width(8.dp)) // No need for this spacer if circle is removed
             Text(
-                text = "FastRec Manager ($connectionState)",
-                style = MaterialTheme.typography.titleLarge
+                text = "FastRecアプリ ($localizedConnectionState)", // Change title and localize state
+                style = MaterialTheme.typography.titleLarge,
+                color = textColor // Ensure text is visible on colored background
             )
         }
     }

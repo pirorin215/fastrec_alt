@@ -21,6 +21,7 @@ class AppSettingsRepository(private val context: Context) {
         val API_KEY = stringPreferencesKey("google_cloud_api_key")
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
         val KEEP_CONNECTION_ALIVE = booleanPreferencesKey("keep_connection_alive")
+        val AUDIO_CACHE_LIMIT = intPreferencesKey("audio_cache_limit")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -43,6 +44,13 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] ?: false
         }
 
+    // 音声ファイル保持数の変更を監視するためのFlow
+    val audioCacheLimitFlow: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            // デフォルト値を100件に設定
+            preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] ?: 100
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -61,6 +69,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveKeepConnectionAlive(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] = enabled
+        }
+    }
+
+    // 音声ファイル保持数を保存するsuspend関数
+    suspend fun saveAudioCacheLimit(limit: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] = limit
         }
     }
 }
