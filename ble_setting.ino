@@ -27,7 +27,7 @@ void transferFileChunked() {
   pResponseCharacteristic->setValue("START");
   pResponseCharacteristic->notify();
   applog("Sent START signal. Waiting for ACK...");
-  if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(5000)) != pdTRUE) {
+  if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(10000)) != pdTRUE) { // Increased timeout to 10 seconds
     applog("START ACK timeout. Aborting file transfer.");
     pResponseCharacteristic->setValue("ERROR: START ACK timeout");
     pResponseCharacteristic->notify();
@@ -112,6 +112,17 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
 
     if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       applog("BLE Command Received: %s", value.c_str());
+
+      // Guard all command processing when not in IDLE state
+      if (g_currentAppState != IDLE) {
+        std::string busyMessage = "ERROR: Device is busy (State: ";
+        busyMessage += appStateStrings[g_currentAppState];
+        busyMessage += "). Command rejected.";
+        pResponseCharacteristic->setValue(busyMessage.c_str());
+        pResponseCharacteristic->notify();
+        applog(busyMessage.c_str());
+        return; // Reject command if not in IDLE state
+      }
 
       if (value.rfind("GET:file:", 0) == 0) {
         g_file_to_transfer_name = "/";
@@ -235,6 +246,30 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
           ESP.restart();
         } else {
           responseData = "ERROR: Failed to open setting.ini for writing";
+        }
+      } else if (value.rfind("DEL:file:", 0) == 0) {
+        std::string fileNameToDelete = value.substr(std::string("DEL:file:").length());
+        // Ensure leading '/' for absolute path if not already present
+        if (fileNameToDelete.length() > 0 && fileNameToDelete[0] != '/') {
+            fileNameToDelete = "/" + fileNameToDelete;
+        }
+
+        if (LittleFS.exists(fileNameToDelete.c_str())) {
+            if (LittleFS.remove(fileNameToDelete.c_str())) {
+                responseData = "OK: File ";
+                responseData += fileNameToDelete;
+                responseData += " deleted.";
+                applog("Deleted file: %s", fileNameToDelete.c_str());
+            } else {
+                responseData = "ERROR: Failed to delete file ";
+                responseData += fileNameToDelete;
+                applog("ERROR: Failed to delete file: %s", fileNameToDelete.c_str());
+            }
+        } else {
+            responseData = "ERROR: File ";
+            responseData += fileNameToDelete;
+            responseData += " not found.";
+            applog("ERROR: File not found: %s", fileNameToDelete.c_str());
         }
       } else if (value.rfind("CMD:reset_all", 0) == 0) {
         if (!LittleFS.begin(true)) {

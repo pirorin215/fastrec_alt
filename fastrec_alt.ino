@@ -302,7 +302,7 @@ void wakeupLogic() {
           setAppState(UPLOAD, false);
         } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
           applog("USB connected on wake-up");
-          setAppState(UPLOAD, false);
+          //setAppState(UPLOAD, false);
         }
       }
       break;
