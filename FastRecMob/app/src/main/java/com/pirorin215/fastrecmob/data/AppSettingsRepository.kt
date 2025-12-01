@@ -22,6 +22,7 @@ class AppSettingsRepository(private val context: Context) {
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
         val KEEP_CONNECTION_ALIVE = booleanPreferencesKey("keep_connection_alive")
         val AUDIO_CACHE_LIMIT = intPreferencesKey("audio_cache_limit")
+        val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -51,6 +52,13 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] ?: 100
         }
 
+    // 音声保存ディレクトリ名の変更を監視するためのFlow
+    val audioDirNameFlow: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            // デフォルト値を "FastRecRecordings" に設定
+            preferences[PreferencesKeys.AUDIO_DIR_NAME] ?: "FastRecRecordings"
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -76,6 +84,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveAudioCacheLimit(limit: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] = limit
+        }
+    }
+
+    // 音声保存ディレクトリ名を保存するsuspend関数
+    suspend fun saveAudioDirName(name: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.AUDIO_DIR_NAME] = name
         }
     }
 }

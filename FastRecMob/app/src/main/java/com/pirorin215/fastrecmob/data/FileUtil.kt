@@ -34,8 +34,12 @@ object FileUtil {
     }
 
     // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する
-    fun getAudioFile(fileName: String): File {
-        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        return File(downloadDir, fileName)
+    fun getAudioFile(context: android.content.Context, dirName: String, fileName: String): File {
+        val audioDir = context.getExternalFilesDir(dirName)
+        // audioDirが存在しない場合は作成する
+        if (audioDir != null && !audioDir.exists()) {
+            audioDir.mkdirs()
+        }
+        return File(audioDir, fileName)
     }
 }

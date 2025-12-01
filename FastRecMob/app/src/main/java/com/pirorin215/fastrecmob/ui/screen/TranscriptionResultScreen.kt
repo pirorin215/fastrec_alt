@@ -125,7 +125,8 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     // 全文表示ダイアログ
     if (showFullTextDialog) {
         val context = androidx.compose.ui.platform.LocalContext.current
-        val audioFile = remember(fullTextFileName) { FileUtil.getAudioFile(fullTextFileName) }
+        val audioDirName by viewModel.audioDirName.collectAsState() // Collect audioDirName
+        val audioFile = remember(fullTextFileName, audioDirName) { FileUtil.getAudioFile(context, audioDirName, fullTextFileName) }
         val audioFileExists = remember(audioFile) { audioFile.exists() }
 
         AlertDialog(
