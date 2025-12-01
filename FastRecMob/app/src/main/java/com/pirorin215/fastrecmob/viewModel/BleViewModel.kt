@@ -173,9 +173,8 @@ class BleViewModel(
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
-    private var bluetoothGatt: BluetoothGatt? = null
-    private var commandCharacteristic: BluetoothGattCharacteristic? = null
-    private var ackCharacteristic: BluetoothGattCharacteristic? = null
+    // --- Refactored Properties ---
+    private val repository: com.pirorin215.fastrecmob.data.BleRepository = com.pirorin215.fastrecmob.data.BleRepository(context)
     private var currentDownloadingFileName: String? = null
     private var currentCommandCompletion: CompletableDeferred<Boolean>? = null // Declare this here
     private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null // Add this
@@ -196,24 +195,69 @@ class BleViewModel(
     private val transcriptionQueue = mutableListOf<String>()
     private var autoRefreshJob: Job? = null
     private var _transferStartTime = 0L
-    private var connectionRetries = 0
-    private val maxConnectionRetries = 3
 
     init {
-        connectionState.onEach { state ->
-            if (state != "Connected") {
-                stopAutoRefresh()
+        // Collect connection state from the repository
+        repository.connectionState.onEach { state ->
+            when(state) {
+                is com.pirorin215.fastrecmob.data.ConnectionState.Connected -> {
+                    _connectionState.value = "Connected"
+                    addLog("Successfully connected to ${state.device.address}")
+                    // Request MTU after connection
+                    repository.requestMtu(517)
+                }
+                is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
+                    _connectionState.value = "Disconnected"
+                    addLog("Disconnected.")
+                    resetOperationStates()
+                    // Signal BleScanService to restart scanning
+                    viewModelScope.launch {
+                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+                    }
+                }
+                is com.pirorin215.fastrecmob.data.ConnectionState.Error -> {
+                    _connectionState.value = "Disconnected"
+                    addLog("Connection Error: ${state.message}")
+                    resetOperationStates()
+                    // Signal BleScanService to restart scanning
+                    viewModelScope.launch {
+                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+                    }
+                }
             }
         }.launchIn(viewModelScope)
+
+        // Collect events from the repository
+        repository.events.onEach { event ->
+            when(event) {
+                is com.pirorin215.fastrecmob.data.BleEvent.MtuChanged -> {
+                    addLog("MTU changed to ${event.mtu}")
+                }
+                is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
+                    addLog("Device is ready for communication.")
+                    viewModelScope.launch {
+                        fetchFileList()
+                        if (_isAutoRefreshEnabled.value) {
+                            startAutoRefresh()
+                        }
+                    }
+                }
+                is com.pirorin215.fastrecmob.data.BleEvent.CharacteristicChanged -> {
+                    handleCharacteristicChanged(event.characteristic, event.value)
+                }
+                else -> {
+                    // Other events can be handled here if needed
+                }
+            }
+        }.launchIn(viewModelScope)
+
 
         deviceInfo.onEach { info ->
             info?.ls?.let { fileString ->
                 _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
-                // checkForNewWavFilesAndProcess() will now be called after _currentOperation is IDLE in FETCHING_INFO block
             }
         }.launchIn(viewModelScope)
 
-        // APIキーの変更を監視してSpeechToTextServiceを初期化
         appSettingsRepository.apiKeyFlow.onEach { apiKey ->
             if (apiKey.isNotEmpty()) {
                 speechToTextService?.close()
@@ -226,7 +270,6 @@ class BleViewModel(
             }
         }.launchIn(viewModelScope)
 
-        // BleScanServiceManagerからのデバイス発見イベントを購読
         viewModelScope.launch {
             com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
                 addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
@@ -238,6 +281,7 @@ class BleViewModel(
             }.launchIn(this)
         }
     }
+
 
     private fun startAutoRefresh() {
         stopAutoRefresh()
@@ -335,303 +379,123 @@ class BleViewModel(
         }
     }
 
-    private val gattCallback: BluetoothGattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            val deviceAddress = gatt.device.address
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    _connectionState.value = "Connected"
-                    addLog("Successfully connected to $deviceAddress")
-                    connectionRetries = 0
-                    addLog("Requesting MTU of 517")
-                    gatt.requestMtu(517)
-                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    _connectionState.value = "Disconnected"
-                    addLog("Successfully disconnected from $deviceAddress")
-                    resetOperationStates()
-                    gatt.close()
-                    // Signal BleScanService to restart scanning
-                    viewModelScope.launch {
-                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-                    }
-                }
-            } else {
-                if (status == 133 && connectionRetries < maxConnectionRetries) {
-                    connectionRetries++
-                    addLog("GATT error 133. Retrying connection... (Attempt ${connectionRetries})")
-                    viewModelScope.launch {
-                        delay(500)
-                        gatt.device.connectGatt(context, false, gattCallback)
-                    }
-                } else {
-                    _connectionState.value = "Disconnected"
-                    addLog("Error $status encountered for $deviceAddress! Disconnecting...")
-                    resetOperationStates()
-                    gatt.close()
-                    // Signal BleScanService to restart scanning after an error
-                    viewModelScope.launch {
-                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-                    }
-                }
-            }
-        }
+    private fun handleCharacteristicChanged(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+        if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                addLog("MTU changed to $mtu")
-                viewModelScope.launch {
-                    delay(600)
-                    addLog("Discovering services after delay")
-                    val initiated = bluetoothGatt?.discoverServices()
-                    if (initiated != true) {
-                        addLog("Failed to initiate service discovery. Disconnecting.")
-                        disconnect()
-                    } else {
-                        addLog("Service discovery initiated successfully.")
-                    }
-                }
-            } else {
-                addLog("MTU change failed, status: $status")
-                addLog("Discovering services anyway...")
-                val initiated = bluetoothGatt?.discoverServices()
-                if (initiated != true) {
-                    addLog("Failed to initiate service discovery on fallback. Disconnecting.")
-                    disconnect()
-                } else {
-                    addLog("Service discovery initiated successfully on fallback.")
-                }
-            }
-        }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                addLog("Services discovered successfully")
-                var foundResponseChar = false
-                var foundCommandChar = false
-                var foundAckChar = false
-
-                gatt.services?.forEach { service ->
-                    addLog("Inspecting service: ${service.getUuid()}")
-                    // Check if this is our custom service
-                    if (service.getUuid().toString().equals(BleViewModel.SERVICE_UUID, true)) {
-                        val responseCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.RESPONSE_UUID_STRING))
-                        if (responseCharacteristic != null) {
-                            addLog("Found response characteristic: ${responseCharacteristic.getUuid()}")
-                            foundResponseChar = true
-                            gatt.setCharacteristicNotification(responseCharacteristic, true)
-                            val descriptor = responseCharacteristic.getDescriptor(UUID.fromString(BleViewModel.CCCD_UUID_STRING))
-                            if (descriptor == null) {
-                                addLog("Error: CCCD descriptor not found for response characteristic. Disconnecting.")
-                                bluetoothGatt?.disconnect() // Disconnect if critical descriptor is missing
-                                return@forEach // Skip if no CCCD
-                            }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                bluetoothGatt?.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                            } else {
-                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                bluetoothGatt?.writeDescriptor(descriptor)
-                            }
-                            addLog("Writing descriptor to enable notifications for ${responseCharacteristic.getUuid()}")
-                        } else {
-                            addLog("Response characteristic ${BleViewModel.RESPONSE_UUID_STRING} not found in service ${service.getUuid()}.")
-                        }
-
-                        val localCommandChar = service.getCharacteristic(UUID.fromString(BleViewModel.COMMAND_UUID_STRING))
-                        if (localCommandChar != null) {
-                            commandCharacteristic = localCommandChar
-                            addLog("Found command characteristic: ${localCommandChar.getUuid()}")
-                            foundCommandChar = true
-                        } else {
-                            addLog("Command characteristic ${BleViewModel.COMMAND_UUID_STRING} not found in service ${service.getUuid()}.")
-                        }
-
-                        val localAckChar = service.getCharacteristic(UUID.fromString(BleViewModel.ACK_UUID_STRING))
-                        if (localAckChar != null) {
-                            ackCharacteristic = localAckChar
-                            addLog("Found ACK characteristic: ${localAckChar.getUuid()}")
-                            foundAckChar = true
-                        } else {
-                            addLog("ACK characteristic ${BleViewModel.ACK_UUID_STRING} not found in service ${service.getUuid()}.")
-                        }
-                    } else {
-                        addLog("Skipping unknown service: ${service.getUuid()}")
-                    }
-                }
-                if (!foundResponseChar || !foundCommandChar || !foundAckChar) {
-                    addLog("Error: Not all required characteristics found. Disconnecting.")
-                    bluetoothGatt?.disconnect() // Disconnect if setup is incomplete
-                }
-            } else {
-                addLog("Service discovery failed with status $status")
-            }
-        }
-
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            super.onCharacteristicChanged(gatt, characteristic, value)
-            if (characteristic.uuid != UUID.fromString(BleViewModel.RESPONSE_UUID_STRING)) return
-
-            when (_currentOperation.value) {
-                Operation.FETCHING_INFO -> {
-                    responseBuffer.addAll(value.toList())
-                    val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                    if (currentBufferAsString.trim().endsWith("}")) {
-                        addLog("Assembled data for DeviceInfo: $currentBufferAsString")
-                        try {
-                            val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
-                            _deviceInfo.value = parsedResponse
-                            addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                            currentCommandCompletion?.complete(true) // Signal success
-                        } catch (e: Exception) {
-                            addLog("Error parsing DeviceInfo JSON: ${e.message}")
-                            currentCommandCompletion?.complete(false) // Signal failure
-                        }
-                    } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
-                        addLog("Received error response for GET:info: $currentBufferAsString")
-                        currentCommandCompletion?.complete(false) // Signal completion (with error)
-                    }
-                }
-                Operation.FETCHING_SETTINGS -> {
-                    responseBuffer.addAll(value.toList())
-                    viewModelScope.launch {
-                        delay(200)
-                        if (_currentOperation.value == Operation.FETCHING_SETTINGS) {
-                            val settingsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                            addLog("Assembled remote settings: $settingsString")
-                            val remoteSettings = com.pirorin215.fastrecmob.data.DeviceSettings.fromIniString(settingsString)
-                            _remoteDeviceSettings.value = remoteSettings
-                            
-                            val diff = remoteSettings.diff(_deviceSettings.value)
-                            
-                            if (diff.isNotBlank()) {
-                                _settingsDiff.value = diff
-                                addLog("Settings have differences.")
-                            } else {
-                                _settingsDiff.value = "差分はありません。"
-                                addLog("Settings are identical.")
-                            }
-
-                            _currentOperation.value = Operation.IDLE
-                            responseBuffer.clear()
-                        }
-                    }
-                }
-                Operation.DOWNLOADING_FILE -> {
-                    handleFileDownloadData(value)
-                }
-                Operation.DELETING_FILE -> { // Handle response for file deletion
-                    val response = value.toString(Charsets.UTF_8).trim()
-                    addLog("Received response for file deletion: $response")
-                    if (response.startsWith("OK: File")) {
-                        currentDeleteCompletion?.complete(true)
-                        responseBuffer.clear()
-                    } else if (response.startsWith("ERROR:")) {
-                        currentDeleteCompletion?.complete(false)
-                        responseBuffer.clear()
-                    } else {
-                        addLog("Unexpected response during file deletion: $response")
-                        currentDeleteCompletion?.complete(false) // Treat unexpected as failure
-                        responseBuffer.clear()
-                    }
-                    // _currentOperation.value is now managed by the deleteFileOnMicrocontroller function
-                    // fetchFileList() is also handled by deleteFileOnMicrocontroller after successful deletion
-                }
-                else -> {
-                    addLog("Received data in unexpected state (${_currentOperation.value}): ${value.toString(Charsets.UTF_8)}")
-                }
-            }
-        }
-        
-        private fun handleFileDownloadData(value: ByteArray) {
-            when (_fileTransferState.value) {
-                "WaitingForStart" -> {
-                    if (value.contentEquals("START".toByteArray())) {
-                        addLog("Received START signal. Sending START_ACK.")
-                        sendAck("START_ACK".toByteArray(Charsets.UTF_8))
-                        _fileTransferState.value = "Downloading"
-                        _transferStartTime = System.currentTimeMillis()
-                        responseBuffer.clear()
-                        _downloadProgress.value = 0
-                    } else {
-                        addLog("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
+        when (_currentOperation.value) {
+            Operation.FETCHING_INFO -> {
+                responseBuffer.addAll(value.toList())
+                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                if (currentBufferAsString.trim().endsWith("}")) {
+                    addLog("Assembled data for DeviceInfo: $currentBufferAsString")
+                    try {
+                        val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
+                        _deviceInfo.value = parsedResponse
+                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                        currentCommandCompletion?.complete(true) // Signal success
+                    } catch (e: Exception) {
+                        addLog("Error parsing DeviceInfo JSON: ${e.message}")
                         currentCommandCompletion?.complete(false) // Signal failure
                     }
-                }
-                "Downloading" -> {
-                    if (value.contentEquals("EOF".toByteArray())) {
-                        addLog("End of file transfer signal received.")
-                        val filePath = saveFile(responseBuffer.toByteArray())
-                        if (filePath != null) {
-                            // The file is saved, the calling function knows the filename.
-                            // Signal success. The caller will handle queueing and deletion.
-                            currentCommandCompletion?.complete(true)
-                        } else {
-                            // saveFile would have logged the error.
-                            currentCommandCompletion?.complete(false)
-                        }
-                    } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
-                        val errorMessage = value.toString(Charsets.UTF_8)
-                        addLog("Received error during transfer: $errorMessage")
-                        currentCommandCompletion?.complete(false)
-                    } else { // Handle normal data transfer (not EOF or ERROR)
-                        responseBuffer.addAll(value.toList())
-                        _downloadProgress.value = responseBuffer.size
-                        val elapsedTime = (System.currentTimeMillis() - _transferStartTime) / 1000.0f
-                        if (elapsedTime > 0) {
-                            _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
-                        }
-                        sendAck("ACK".toByteArray(Charsets.UTF_8))
-                    }
+                } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
+                    addLog("Received error response for GET:info: $currentBufferAsString")
+                    currentCommandCompletion?.complete(false) // Signal completion (with error)
                 }
             }
-        }
-    
-        private fun sendAck(ackValue: ByteArray) {
-            val characteristic = ackCharacteristic
-            if (characteristic != null) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    bluetoothGatt?.writeCharacteristic(characteristic, ackValue, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-                } else {
-                    characteristic.value = ackValue
-                    characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    bluetoothGatt?.writeCharacteristic(characteristic)
-                }
-            }
-        }
-    
-        override fun onDescriptorWrite(gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor?, status: Int) {
-            super.onDescriptorWrite(gatt, descriptor, status)
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                addLog("Descriptor written successfully. Ready to communicate.")
+            Operation.FETCHING_SETTINGS -> {
+                responseBuffer.addAll(value.toList())
                 viewModelScope.launch {
-                    fetchFileList()
-                    if (_isAutoRefreshEnabled.value) { // Start auto-refresh if enabled
-                        startAutoRefresh()
+                    delay(200)
+                    if (_currentOperation.value == Operation.FETCHING_SETTINGS) {
+                        val settingsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                        addLog("Assembled remote settings: $settingsString")
+                        val remoteSettings = com.pirorin215.fastrecmob.data.DeviceSettings.fromIniString(settingsString)
+                        _remoteDeviceSettings.value = remoteSettings
+
+                        val diff = remoteSettings.diff(_deviceSettings.value)
+
+                        if (diff.isNotBlank()) {
+                            _settingsDiff.value = diff
+                            addLog("Settings have differences.")
+                        } else {
+                            _settingsDiff.value = "差分はありません。"
+                            addLog("Settings are identical.")
+                        }
+
+                        _currentOperation.value = Operation.IDLE
+                        responseBuffer.clear()
                     }
                 }
-            } else {
-                addLog("Descriptor write failed with status $status")
             }
-        }
-    
-        override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
-            super.onCharacteristicWrite(gatt, characteristic, status)
-            if(characteristic?.uuid == commandCharacteristic?.uuid) {
-                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    addLog("Command written successfully.")
-                    if (_currentOperation.value == Operation.SENDING_SETTINGS) {
-                         addLog("Settings sent. Device will likely reboot.")
-                         _currentOperation.value = Operation.IDLE
-                    }
-                 } else {
-                     addLog("Command write failed with status $status.")
-                     if(_currentOperation.value != Operation.IDLE) {
-                         _currentOperation.value = Operation.IDLE
-                     }
-                 }
+            Operation.DOWNLOADING_FILE -> {
+                handleFileDownloadData(value)
+            }
+            Operation.DELETING_FILE -> { // Handle response for file deletion
+                val response = value.toString(Charsets.UTF_8).trim()
+                addLog("Received response for file deletion: $response")
+                if (response.startsWith("OK: File")) {
+                    currentDeleteCompletion?.complete(true)
+                    responseBuffer.clear()
+                } else if (response.startsWith("ERROR:")) {
+                    currentDeleteCompletion?.complete(false)
+                    responseBuffer.clear()
+                } else {
+                    addLog("Unexpected response during file deletion: $response")
+                    currentDeleteCompletion?.complete(false) // Treat unexpected as failure
+                    responseBuffer.clear()
+                }
+            }
+            else -> {
+                addLog("Received data in unexpected state (${_currentOperation.value}): ${value.toString(Charsets.UTF_8)}")
             }
         }
     }
-    
+
+    private fun handleFileDownloadData(value: ByteArray) {
+        when (_fileTransferState.value) {
+            "WaitingForStart" -> {
+                if (value.contentEquals("START".toByteArray())) {
+                    addLog("Received START signal. Sending START_ACK.")
+                    sendAck("START_ACK".toByteArray(Charsets.UTF_8))
+                    _fileTransferState.value = "Downloading"
+                    _transferStartTime = System.currentTimeMillis()
+                    responseBuffer.clear()
+                    _downloadProgress.value = 0
+                } else {
+                    addLog("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
+                    currentCommandCompletion?.complete(false) // Signal failure
+                }
+            }
+            "Downloading" -> {
+                if (value.contentEquals("EOF".toByteArray())) {
+                    addLog("End of file transfer signal received.")
+                    val filePath = saveFile(responseBuffer.toByteArray())
+                    if (filePath != null) {
+                        currentCommandCompletion?.complete(true)
+                    } else {
+                        currentCommandCompletion?.complete(false)
+                    }
+                } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
+                    val errorMessage = value.toString(Charsets.UTF_8)
+                    addLog("Received error during transfer: $errorMessage")
+                    currentCommandCompletion?.complete(false)
+                } else { // Handle normal data transfer (not EOF or ERROR)
+                    responseBuffer.addAll(value.toList())
+                    _downloadProgress.value = responseBuffer.size
+                    val elapsedTime = (System.currentTimeMillis() - _transferStartTime) / 1000.0f
+                    if (elapsedTime > 0) {
+                        _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
+                    }
+                    sendAck("ACK".toByteArray(Charsets.UTF_8))
+                }
+            }
+        }
+    }
+
+    private fun sendAck(ackValue: ByteArray) {
+        repository.sendAck(ackValue)
+    }
+
     private fun saveFile(data: ByteArray): String? {
         val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.wav"
         return try {
@@ -710,29 +574,15 @@ class BleViewModel(
             com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
         }
     }
-    
 
-    
     private fun connectToDevice(device: BluetoothDevice) {
         addLog("Connecting to device ${device.address}")
-        connectionRetries = 0
-        bluetoothGatt = device.connectGatt(context, false, gattCallback)
+        repository.connect(device)
     }
-    
+
     fun sendCommand(command: String) {
-        val characteristic = commandCharacteristic
-        if (characteristic == null) {
-            addLog("Command characteristic not found")
-            return
-        }
         addLog("Sending command: $command")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            bluetoothGatt?.writeCharacteristic(characteristic, command.toByteArray(Charsets.UTF_8), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-        } else {
-            characteristic.value = command.toByteArray(Charsets.UTF_8)
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            bluetoothGatt?.writeCharacteristic(characteristic)
-        }
+        repository.sendCommand(command)
     }
     
     fun deleteFileOnMicrocontroller(fileName: String) {
@@ -959,8 +809,7 @@ class BleViewModel(
     fun disconnect() {
         addLog("Disconnecting from device")
         resetOperationStates()
-        bluetoothGatt?.disconnect()
-        // The restart scan signal will be handled by gattCallback.onConnectionStateChange
+        repository.disconnect()
     }
 
     private suspend fun doTranscription(filePath: String) {
@@ -1020,8 +869,8 @@ class BleViewModel(
     override fun onCleared() {
         super.onCleared()
         speechToTextService?.close()
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
+        repository.disconnect()
+        repository.close()
         addLog("ViewModel cleared, resources released.")
     }
 
