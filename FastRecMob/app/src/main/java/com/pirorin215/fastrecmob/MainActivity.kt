@@ -340,7 +340,9 @@ fun FileDownloadSection(
             }
         }
 
-        FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
+        if (wavFiles.isNotEmpty()) {
+            FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
+        }
 
     }
 }
@@ -379,7 +381,7 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 16.dp),
+                        .padding(vertical = 4.dp), // Reduced padding
                     contentAlignment = Alignment.Center
                 ) {
                     Text("該当するファイルはありません。", style = MaterialTheme.typography.bodySmall)
