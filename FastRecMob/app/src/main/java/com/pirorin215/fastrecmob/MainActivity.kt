@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.*
 import com.pirorin215.fastrecmob.data.countWavFiles
 import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
+import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -150,6 +151,7 @@ fun BleControl() {
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var showTranscriptionResults by remember { mutableStateOf(false) }
+    var showLogDownloadScreen by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -208,10 +210,69 @@ fun BleControl() {
         showTranscriptionResults -> {
             com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen(viewModel = viewModel, onBack = { showTranscriptionResults = false })
         }
+        showLogDownloadScreen -> {
+            LogDownloadScreen(viewModel = viewModel, onBack = { showLogDownloadScreen = false })
+        }
         else -> {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
-                snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("FastRec")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(color = statusColor, shape = CircleShape)
+                                )
+                            }
+                        },
+                        actions = {
+                            var expanded by remember { mutableStateOf(false) }
+                            IconButton(onClick = { expanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("マイコン設定") },
+                                    onClick = {
+                                        showSettings = true
+                                        expanded = false
+                                    },
+                                    enabled = connectionState == "Connected"
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("アプリ設定") },
+                                    onClick = {
+                                        showAppSettings = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("文字起こし履歴") },
+                                    onClick = {
+                                        showTranscriptionResults = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("ログファイルダウンロード") },
+                                    onClick = {
+                                        showLogDownloadScreen = true
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
             ) { innerPadding ->
                 Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
                     Column(
@@ -222,39 +283,9 @@ fun BleControl() {
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        ConnectionStatusIndicator(connectionState)
+
 
                         SummaryInfoCard(deviceInfo = deviceInfo)
-
-                        // 2行目: マイコン設定 | アプリ設定
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            // マイコン設定ボタン
-                            Button(
-                                onClick = { showSettings = true },
-                                modifier = Modifier.weight(1f),
-                                enabled = connectionState == "Connected"
-                            ) {
-                                Text("マイコン設定")
-                            }
-
-                            // アプリ設定ボタン
-                            Button(
-                                onClick = { showAppSettings = true },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text("アプリ設定")
-                            }
-                        }
-
-                        // 新しい行: 文字起こし履歴ボタン
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(
-                                onClick = { showTranscriptionResults = true },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text("文字起こし履歴")
-                            }
-                        }
 
                         FileDownloadSection(
                             fileList = fileList,
@@ -309,8 +340,7 @@ fun FileDownloadSection(
         }
 
         FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
-        Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "デバイス側ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = true) // Keep download button for logs
+
     }
 }
 
@@ -359,34 +389,7 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
 }
 
 
-@Composable
-fun ConnectionStatusIndicator(connectionState: String) {
-    val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
-    val localizedConnectionState = when (connectionState) {
-        "Connected" -> "接続"
-        "Disconnected" -> "切断"
-        else -> connectionState // Other states remain as is
-    }
 
-    val textColor = if (statusColor == Color.Green) Color.Black else Color.White // Dynamic text color
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = statusColor) // Apply color to the entire card
-    ) {
-        Row(
-            modifier = Modifier.padding(vertical = 0.dp, horizontal = 12.dp), // Reduced vertical padding
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "FastRecアプリ ($localizedConnectionState)",
-                style = MaterialTheme.typography.titleLarge,
-                color = textColor // Ensure text is visible on colored background
-            )
-        }
-    }
-}
 
 @Composable
 fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
