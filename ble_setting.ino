@@ -23,20 +23,46 @@ void transferFileChunked() {
     return;
   }
 
+  // Abort if recording button is pressed before starting
+  if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+    applog("Recording button pressed. Aborting file transfer before start.");
+    g_start_file_transfer = false;
+    return;
+  }
+
   // --- START 信号送信とACK待機 ---
   pResponseCharacteristic->setValue("START");
   pResponseCharacteristic->notify();
   applog("Sent START signal. Waiting for ACK...");
-  if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(10000)) != pdTRUE) { // Increased timeout to 10 seconds
+  
+  unsigned long startAckWaitTime = millis();
+  bool startAckReceived = false;
+  while(millis() - startAckWaitTime < 10000) { // 10-second total timeout
+    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+      applog("Recording button pressed. Aborting file transfer while waiting for START_ACK.");
+      pResponseCharacteristic->setValue("ERROR: Transfer aborted by device");
+      pResponseCharacteristic->notify();
+      g_start_file_transfer = false;
+      return;
+    }
+    if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+      startAckReceived = true;
+      break;
+    }
+  }
+
+  if (!startAckReceived) {
     applog("START ACK timeout. Aborting file transfer.");
     pResponseCharacteristic->setValue("ERROR: START ACK timeout");
     pResponseCharacteristic->notify();
     g_start_file_transfer = false;
     return;
   }
+  
   applog("Received START ACK. Starting file transfer.");
   // --- END START 信号送信とACK待機 ---
 
+  bool transferAborted = false;
 
   if (LittleFS.exists(g_file_to_transfer_name.c_str())) {
     File file = LittleFS.open(g_file_to_transfer_name.c_str(), "r");
@@ -46,36 +72,59 @@ void transferFileChunked() {
       uint8_t buffer[chunkSize];
       size_t bytesRead;
       int chunkIndex = 0;
-      bool transferAborted = false;
 
       while (true) {
-        //applog("Reading chunk %d at position %u", chunkIndex, file.position());
+        if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+          applog("Recording button pressed during transfer. Aborting.");
+          transferAborted = true;
+          break;
+        }
+
         bytesRead = file.read(buffer, chunkSize);
         if (bytesRead <= 0) {
-            break;
+            break; // End of file
         }
-        //applog("Read %u bytes. New position %u", bytesRead, file.position());
         
         pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
-          applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
-          transferAborted = true; // フラグを立ててループを抜ける
-          break; // ★ ACKタイムアウトでループを抜ける
+        unsigned long ackWaitStartTime = millis();
+        bool ackReceived = false;
+        while (millis() - ackWaitStartTime < 2000) { // 2-second total timeout for chunk ACK
+          if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+            applog("Recording button pressed during ACK wait. Aborting.");
+            transferAborted = true;
+            break;
+          }
+          if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+            ackReceived = true;
+            break;
+          }
         }
+        
+        if (transferAborted) {
+          break; // Exit main transfer loop
+        }
+
+        if (!ackReceived) {
+          applog("ACK timeout for chunk %d. Aborting file transfer.", chunkIndex);
+          transferAborted = true; // Mark as aborted due to timeout
+          break;
+        }
+
         chunkIndex++;
       }
       file.close();
 
-      if (!transferAborted) { // 正常終了の場合のみEOF送信
+      if (!transferAborted) {
         pResponseCharacteristic->setValue("EOF");
         pResponseCharacteristic->notify();
         applog("File sent: %s", g_file_to_transfer_name.c_str());
-      } else { // タイムアウトで中断した場合
-        pResponseCharacteristic->setValue("ERROR: Transfer aborted due to ACK timeout");
+      } else {
+        // For both timeout and manual abort, notify client
+        pResponseCharacteristic->setValue("ERROR: Transfer aborted by device");
         pResponseCharacteristic->notify();
-        applog("ERROR: Transfer aborted for %s due to ACK timeout.", g_file_to_transfer_name.c_str());
+        applog("ERROR: Transfer aborted for %s.", g_file_to_transfer_name.c_str());
       }
 
     } else {
