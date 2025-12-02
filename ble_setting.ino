@@ -387,6 +387,12 @@ void start_ble_server() {
   // startTransferSemaphore = xSemaphoreCreateBinary(); // 新しく追加するセマフォ
 
   NimBLEDevice::init(DEVICE_NAME);
+
+  // --- Add BLE Security ---
+  NimBLEDevice::setSecurityAuth(true, true, true);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+  // --- End BLE Security ---
+
   NimBLEDevice::setDefaultPhy(2, 2);
   pBLEServer = NimBLEDevice::createServer(); // Assign to global pointer
   NimBLEDevice::setMTU(517); // Set maximum MTU size
@@ -404,6 +410,14 @@ void start_ble_server() {
     void onPhyUpdate(NimBLEConnInfo& connInfo, uint8_t txPhy, uint8_t rxPhy) override {
         applog("PHY updated for connection %u | TX: %d, RX: %d (1=1M, 2=2M, 3=Coded)",
                connInfo.getConnHandle(), txPhy, rxPhy);
+    }
+
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override { // Add this callback
+        if(connInfo.isAuthenticated()) {
+            applog("Authentication successful! Device is bonded.");
+        } else {
+            applog("Authentication failed."); // Removed getFailReason()
+        }
     }
   };
 

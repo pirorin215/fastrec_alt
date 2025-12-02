@@ -8,7 +8,10 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
@@ -25,6 +28,8 @@ import java.util.UUID
 
 sealed class ConnectionState {
     object Disconnected : ConnectionState()
+    object Pairing : ConnectionState()
+    data class Paired(val device: BluetoothDevice) : ConnectionState()
     data class Connected(val device: BluetoothDevice) : ConnectionState()
     data class Error(val message: String) : ConnectionState()
 }
@@ -161,18 +166,92 @@ class BleRepository(private val context: Context) {
         }
     }
 
+    private val bondStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BluetoothDevice.ACTION_BOND_STATE_CHANGED) {
+                val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+                val previousBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR)
+
+                Log.d(TAG, "Bond state changed for device ${device?.address}: ${previousBondState} -> ${bondState}")
+
+                when (bondState) {
+                    BluetoothDevice.BOND_BONDED -> {
+                        Log.d(TAG, "Device bonded: ${device?.address}")
+                        _connectionState.value = ConnectionState.Paired(device!!)
+                        connectGatt(device)
+                        context.unregisterReceiver(this)
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        Log.e(TAG, "Bonding failed or was cancelled for device ${device?.address}")
+                        _connectionState.value = ConnectionState.Error("Bonding failed")
+                        context.unregisterReceiver(this)
+                    }
+                    BluetoothDevice.BOND_BONDING -> {
+                        Log.d(TAG, "Bonding with device ${device?.address}...")
+                        _connectionState.value = ConnectionState.Pairing
+                    }
+                }
+            }
+        }
+    }
+
     fun connect(device: BluetoothDevice) {
-        Log.d(TAG, "Connecting to device ${device.address}")
+        Log.d(TAG, "Connecting to device ${device.address}, bond state: ${device.bondState}")
+        when (device.bondState) {
+            BluetoothDevice.BOND_BONDED -> {
+                _connectionState.value = ConnectionState.Paired(device)
+                connectGatt(device)
+            }
+            BluetoothDevice.BOND_NONE -> {
+                Log.d(TAG, "Device not bonded. Starting bonding process.")
+                _connectionState.value = ConnectionState.Pairing
+                val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(bondStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    context.registerReceiver(bondStateReceiver, filter)
+                }
+
+                if (!device.createBond()) {
+                    Log.e(TAG, "Failed to start bonding.")
+                    _connectionState.value = ConnectionState.Error("Failed to start bonding")
+                    context.unregisterReceiver(bondStateReceiver)
+                }
+            }
+            BluetoothDevice.BOND_BONDING -> {
+                Log.d(TAG, "Device is already bonding.")
+                _connectionState.value = ConnectionState.Pairing
+            }
+        }
+    }
+
+    private fun connectGatt(device: BluetoothDevice) {
+        Log.d(TAG, "Proceeding with GATT connection to ${device.address}")
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
     }
 
     fun disconnect() {
         Log.d(TAG, "Disconnecting from device")
+        try {
+            context.unregisterReceiver(bondStateReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered, which is fine.
+        }
         bluetoothGatt?.disconnect()
     }
-    
+
     fun close() {
         Log.d(TAG, "Closing GATT connection")
+        try {
+            context.unregisterReceiver(bondStateReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered, which is fine.
+        }
         bluetoothGatt?.close()
         bluetoothGatt = null
     }

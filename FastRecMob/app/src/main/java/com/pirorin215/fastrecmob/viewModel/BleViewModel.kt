@@ -88,12 +88,7 @@ class BleViewModel(
             initialValue = 30 // Provide a default
         )
 
-    val keepConnectionAlive: StateFlow<Boolean> = appSettingsRepository.keepConnectionAliveFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = true // Default to keeping connection alive
-        )
+
 
     val audioCacheLimit: StateFlow<Int> = appSettingsRepository.audioCacheLimitFlow
         .stateIn(
@@ -170,6 +165,34 @@ class BleViewModel(
     private val _isAutoRefreshEnabled = MutableStateFlow(true)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
 
+    var isAppInForeground: Boolean = true // Track app foreground state
+        private set // Ensure only ViewModel can directly set this
+
+    fun setAppInForeground(isForeground: Boolean) {
+        isAppInForeground = isForeground
+        addLog("App foreground state changed: $isAppInForeground")
+
+        if (isAppInForeground) {
+            // App is in the foreground, cancel any background jobs
+            backgroundReconnectJob?.cancel()
+            backgroundReconnectJob = null
+            addLog("Cancelled background reconnect job.")
+            // And immediately try to connect
+            restartScan()
+        } else {
+            // App is in the background, start the periodic reconnect job
+            backgroundReconnectJob?.cancel() // Cancel any existing job first
+            backgroundReconnectJob = viewModelScope.launch {
+                while (true) {
+                    delay(30000) // Wait for 30 seconds
+                    addLog("Background job: attempting to reconnect...")
+                    restartScan()
+                }
+            }
+            addLog("Started background reconnect job.")
+        }
+    }
+
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
@@ -194,12 +217,21 @@ class BleViewModel(
     private var responseBuffer = mutableListOf<Byte>()
     private val transcriptionQueue = mutableListOf<String>()
     private var autoRefreshJob: Job? = null
+    private var backgroundReconnectJob: Job? = null
     private var _transferStartTime = 0L
 
     init {
         // Collect connection state from the repository
         repository.connectionState.onEach { state ->
             when(state) {
+                is com.pirorin215.fastrecmob.data.ConnectionState.Pairing -> {
+                    _connectionState.value = "Pairing..."
+                    addLog("Pairing with device...")
+                }
+                is com.pirorin215.fastrecmob.data.ConnectionState.Paired -> {
+                    _connectionState.value = "Paired"
+                    addLog("Device paired. Connecting...")
+                }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Connected -> {
                     _connectionState.value = "Connected"
                     addLog("Successfully connected to ${state.device.address}")
@@ -208,21 +240,14 @@ class BleViewModel(
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
                     _connectionState.value = "Disconnected"
-                    addLog("Disconnected.")
+                    addLog("Disconnected. Reconnection will be handled by foreground/background state.")
                     resetOperationStates()
-                    // Signal BleScanService to restart scanning
-                    viewModelScope.launch {
-                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-                    }
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Error -> {
                     _connectionState.value = "Disconnected"
-                    addLog("Connection Error: ${state.message}")
+                    addLog("Connection Error: ${state.message}. Attempting to recover.")
                     resetOperationStates()
-                    // Signal BleScanService to restart scanning
-                    viewModelScope.launch {
-                        com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-                    }
+                    restartScan()
                 }
             }
         }.launchIn(viewModelScope)
@@ -374,11 +399,11 @@ class BleViewModel(
                 if (transcriptionQueue.isEmpty()) {
                     // Device is clean AND local queue is empty. We are fully idle.
                     addLog("No files to process on device or locally. Checking if disconnection is needed.")
-                    if (!keepConnectionAlive.value) {
-                        addLog("Idle and 'Disconnect when Idle' is enabled. Disconnecting.")
+                    if (!isAppInForeground) {
+                        addLog("Idle and in background. Disconnecting.")
                         disconnect()
                     } else {
-                        addLog("Idle but 'Keep Connected' is enabled. Staying connected.")
+                        addLog("Idle and in foreground. Staying connected.")
                     }
                 } else {
                     // There are still files being transcribed locally.
@@ -579,9 +604,25 @@ class BleViewModel(
     }
 
     fun restartScan() {
-        addLog("Explicitly requesting a scan restart.")
-        viewModelScope.launch {
-            com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+        if (_connectionState.value != "Disconnected") {
+            addLog("Not restarting scan, already connected or connecting.")
+            return
+        }
+
+        addLog("Attempting to reconnect or scan...")
+        // 1. Try to connect to a bonded device first
+        val bondedDevices = bluetoothAdapter?.bondedDevices
+        val bondedFastRecDevice = bondedDevices?.find { it.name.equals(DEVICE_NAME, ignoreCase = true) }
+
+        if (bondedFastRecDevice != null) {
+            addLog("Found bonded device '${bondedFastRecDevice.name}'. Attempting direct connection.")
+            connectToDevice(bondedFastRecDevice)
+        } else {
+            // 2. If no bonded device is found, start a new scan
+            addLog("No bonded device found. Requesting a new scan from the service.")
+            viewModelScope.launch {
+                com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
+            }
         }
     }
 
@@ -893,29 +934,7 @@ class BleViewModel(
         }
     }
 
-    fun saveKeepConnectionAlive(enabled: Boolean) {
-        viewModelScope.launch {
-            appSettingsRepository.saveKeepConnectionAlive(enabled)
-            addLog("Keep connection alive setting saved: $enabled.")
 
-            // If the setting is turned OFF, check if we should disconnect now.
-            if (!enabled) {
-                addLog("'Keep Connection Alive' turned off. Checking if device is idle.")
-                
-                // Check 1: Any WAV files on the microcontroller?
-                val hasWavFilesOnDevice = _fileList.value.any { it.name.endsWith(".wav", ignoreCase = true) }
-                // Check 2: Any files pending local transcription?
-                val isQueueEmpty = transcriptionQueue.isEmpty()
-
-                if (!hasWavFilesOnDevice && isQueueEmpty && connectionState.value == "Connected") {
-                    addLog("Device is idle. Disconnecting immediately.")
-                    disconnect()
-                } else {
-                    addLog("Device is not idle (Has WAV files: $hasWavFilesOnDevice, Queue not empty: ${!isQueueEmpty}) or not connected. No immediate action taken.")
-                }
-            }
-        }
-    }
 
     fun saveAudioCacheLimit(limit: Int) {
         viewModelScope.launch {
