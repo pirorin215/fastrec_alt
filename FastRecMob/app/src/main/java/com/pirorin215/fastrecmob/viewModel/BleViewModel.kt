@@ -15,6 +15,10 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Environment
+import android.provider.MediaStore
+import android.content.ContentValues
+import android.net.Uri
+import java.io.OutputStream
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -237,7 +241,7 @@ class BleViewModel(
     // --- Refactored Properties ---
     private val repository: com.pirorin215.fastrecmob.data.BleRepository = com.pirorin215.fastrecmob.data.BleRepository(context)
     private var currentDownloadingFileName: String? = null
-    private var currentCommandCompletion: CompletableDeferred<Boolean>? = null // Declare this here
+    private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null // Declare this here
     private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null // Add this
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -309,7 +313,7 @@ class BleViewModel(
                     bleMutex.withLock { // Acquire lock before sending SET:time
                         _currentOperation.value = Operation.SENDING_TIME // New operation state
                         responseBuffer.clear() // Clear buffer for SET:time response
-                        val timeCompletion = CompletableDeferred<Boolean>()
+                        val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                         currentCommandCompletion = timeCompletion // Use common completion for SET:time
 
                         val currentTimestampSec = System.currentTimeMillis() / 1000
@@ -317,9 +321,9 @@ class BleViewModel(
                         addLog("Sending initial time synchronization command: $timeCommand")
                         sendCommand(timeCommand)
 
-                        timeSyncSuccess = withTimeoutOrNull(5000L) { // 5 second timeout for time sync
+                        val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) { // 5 second timeout for time sync
                             timeCompletion.await()
-                        } ?: false
+                        } ?: Pair(false, null)
 
                         if (timeSyncSuccess) {
                             addLog("Initial time synchronization successful.")
@@ -505,14 +509,14 @@ class BleViewModel(
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
                         _deviceInfo.value = parsedResponse
                         addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                        currentCommandCompletion?.complete(true) // Signal success
+                        currentCommandCompletion?.complete(Pair(true, null)) // Signal success
                     } catch (e: Exception) {
                         addLog("Error parsing DeviceInfo JSON: ${e.message}")
-                        currentCommandCompletion?.complete(false) // Signal failure
+                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
                     addLog("Received error response for GET:info: $currentBufferAsString")
-                    currentCommandCompletion?.complete(false) // Signal completion (with error)
+                    currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
                 }
             }
             Operation.FETCHING_SETTINGS -> {
@@ -541,7 +545,10 @@ class BleViewModel(
                 }
             }
             Operation.DOWNLOADING_FILE -> {
-                handleFileDownloadData(value)
+                val filePath = handleFileDownloadData(value)
+                if (filePath != null) {
+                    currentCommandCompletion?.complete(Pair(true, filePath))
+                }
             }
             Operation.DELETING_FILE -> { // Handle response for file deletion
                 val response = value.toString(Charsets.UTF_8).trim()
@@ -562,14 +569,14 @@ class BleViewModel(
                 val response = value.toString(Charsets.UTF_8).trim()
                 addLog("Received response for SET:time: $response")
                 if (response.startsWith("OK: Time")) {
-                    currentCommandCompletion?.complete(true)
+                    currentCommandCompletion?.complete(Pair(true, null))
                     responseBuffer.clear()
                 } else if (response.startsWith("ERROR:")) {
-                    currentCommandCompletion?.complete(false)
+                    currentCommandCompletion?.complete(Pair(false, null))
                     responseBuffer.clear()
                 } else {
                     addLog("Unexpected response during SET:time: $response")
-                    currentCommandCompletion?.complete(false) // Treat unexpected as failure
+                    currentCommandCompletion?.complete(Pair(false, null)) // Treat unexpected as failure
                     responseBuffer.clear()
                 }
             }
@@ -579,7 +586,7 @@ class BleViewModel(
         }
     }
 
-    private fun handleFileDownloadData(value: ByteArray) {
+    private fun handleFileDownloadData(value: ByteArray): String? { // Modified to return String?
         when (_fileTransferState.value) {
             "WaitingForStart" -> {
                 if (value.contentEquals("START".toByteArray())) {
@@ -589,9 +596,11 @@ class BleViewModel(
                     _transferStartTime = System.currentTimeMillis()
                     responseBuffer.clear()
                     _downloadProgress.value = 0
+                    return null // Not finished yet
                 } else {
                     addLog("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
-                    currentCommandCompletion?.complete(false) // Signal failure
+                    currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                    return null
                 }
             }
             "Downloading" -> {
@@ -599,14 +608,17 @@ class BleViewModel(
                     addLog("End of file transfer signal received.")
                     val filePath = saveFile(responseBuffer.toByteArray())
                     if (filePath != null) {
-                        currentCommandCompletion?.complete(true)
+                        // currentCommandCompletion is completed in handleCharacteristicChanged now
+                        return filePath // Return the saved file path/URI
                     } else {
-                        currentCommandCompletion?.complete(false)
+                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                        return null
                     }
                 } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
                     val errorMessage = value.toString(Charsets.UTF_8)
                     addLog("Received error during transfer: $errorMessage")
-                    currentCommandCompletion?.complete(false)
+                    currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                    return null
                 } else { // Handle normal data transfer (not EOF or ERROR)
                     responseBuffer.addAll(value.toList())
                     _downloadProgress.value = responseBuffer.size
@@ -615,9 +627,11 @@ class BleViewModel(
                         _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
                     }
                     sendAck("ACK".toByteArray(Charsets.UTF_8))
+                    return null // Not finished yet
                 }
             }
         }
+        return null // Should not be reached
     }
 
     private fun sendAck(ackValue: ByteArray) {
@@ -625,16 +639,52 @@ class BleViewModel(
     }
 
     private fun saveFile(data: ByteArray): String? {
-        val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.wav"
+        val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.bin" // Default to .bin for unknown type
         return try {
-            val audioDir = context.getExternalFilesDir(audioDirName.value)
-            if (audioDir != null && !audioDir.exists()) {
-                audioDir.mkdirs()
+            if (fileName.startsWith("log.", ignoreCase = true)) {
+                // Save log files to the Downloads directory using MediaStore
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain") // Or appropriate mime type for logs
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    }
+                }
+
+                val resolver = context.contentResolver
+                val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+
+                uri?.let {
+                    var outputStream: OutputStream? = null
+                    try {
+                        outputStream = resolver.openOutputStream(it)
+                        outputStream?.use { stream ->
+                            stream.write(data)
+                        }
+                        addLog("Log file saved successfully to Downloads: $fileName")
+                        return it.toString()
+                    } catch (e: Exception) {
+                        addLog("Error saving log file to MediaStore: ${e.message}")
+                        // If something went wrong, delete the URI from MediaStore
+                        uri.let { u -> resolver.delete(u, null, null) }
+                        throw e // Re-throw to be caught by outer catch block
+                    } finally {
+                        outputStream?.close()
+                    }
+                } ?: run {
+                    throw Exception("Failed to create new MediaStore entry for log file.")
+                }
+            } else {
+                // Save WAV files to the app-specific directory (existing logic)
+                val audioDir = context.getExternalFilesDir(audioDirName.value)
+                if (audioDir != null && !audioDir.exists()) {
+                    audioDir.mkdirs()
+                }
+                val file = File(audioDir, fileName)
+                FileOutputStream(file).use { it.write(data) }
+                addLog("File saved successfully to app-specific directory: ${file.absolutePath}")
+                return file.absolutePath
             }
-            val file = File(audioDir, fileName)
-            FileOutputStream(file).use { it.write(data) }
-            addLog("File saved successfully to app-specific directory: ${file.absolutePath}")
-            file.absolutePath
         } catch (e: Exception) {
             addLog("Error saving file: ${e.message}")
             _fileTransferState.value = "Error: ${e.message}"
@@ -795,14 +845,15 @@ class BleViewModel(
                     responseBuffer.clear()
                     addLog("Requesting file list from device...")
 
-                    val commandCompletion = CompletableDeferred<Boolean>()
+                    val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                     currentCommandCompletion = commandCompletion
 
                     sendCommand("GET:info")
 
-                    infoSuccess = withTimeoutOrNull(15000L) { // 15 seconds timeout
+                    val (success, _) = withTimeoutOrNull(15000L) { // 15 seconds timeout
                         commandCompletion.await()
-                    } ?: false
+                    } ?: Pair(false, null)
+                    infoSuccess = success
 
                     if(infoSuccess) {
                         addLog("GET:info command completed successfully.")
@@ -878,14 +929,14 @@ class BleViewModel(
                 return@launch
             }
     
-            var downloadSuccess = false
+            var downloadResult: Pair<Boolean, String?> = Pair(false, null)
             bleMutex.withLock {
                 if (_currentOperation.value != Operation.IDLE) {
                     addLog("Cannot download file '$fileName', another operation is in progress: ${_currentOperation.value}")
                     return@withLock
                 }
     
-                val operationCompletion = CompletableDeferred<Boolean>()
+                val operationCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                 currentCommandCompletion = operationCompletion
     
                 try {
@@ -902,11 +953,11 @@ class BleViewModel(
                     
                     // Generous timeout: 20s base + 1s per 8KB
                     val timeout = 20000L + (fileSize / 8192L) * 1000L
-                    downloadSuccess = withTimeoutOrNull(timeout) {
+                    downloadResult = withTimeoutOrNull(timeout) {
                         operationCompletion.await()
-                    } ?: false
+                    } ?: Pair(false, null)
     
-                    if (downloadSuccess) {
+                    if (downloadResult.first) {
                         addLog("File download operation reported success for: $fileName.")
                     } else {
                          addLog("File download failed for: $fileName (or timed out)")
@@ -926,25 +977,27 @@ class BleViewModel(
             }
 
             // Lock is released. Now handle post-download tasks.
-            if (downloadSuccess) {
-                val file = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, fileName)
-                if (file.exists()) {
-                    transcriptionQueue.add(file.absolutePath)
-                    addLog("Added ${file.name} to transcription queue.")
+            val (downloadSuccess, savedFilePath) = downloadResult
+            if (downloadSuccess && savedFilePath != null) {
+                if (fileName.startsWith("log.", ignoreCase = true)) {
+                    addLog("Log file '$fileName' downloaded and saved to: $savedFilePath")
+                    // No further processing for log files (no transcription, cleanup, or deletion from microcontroller)
+                } else if (fileName.endsWith(".wav", ignoreCase = true)) {
+                    val file = File(savedFilePath) // Use the directly saved path
+                    if (file.exists()) {
+                        transcriptionQueue.add(file.absolutePath)
+                        addLog("Added ${file.name} to transcription queue.")
 
-                    // Run cleanup after a successful download
-                    cleanupTranscriptionResultsAndAudioFiles() // Changed from cleanupOldAudioFiles()
-                    updateLocalAudioFileCount() // Update count after saving and potential cleanup
+                        cleanupTranscriptionResultsAndAudioFiles()
+                        updateLocalAudioFileCount()
 
-                    // Now, trigger the deletion if it's a WAV file. This will acquire its own lock.
-                    if (fileName.endsWith(".wav", ignoreCase = true)) {
                         deleteFileOnMicrocontroller(fileName)
                     } else {
-                        addLog("Downloaded log file: $fileName. Not deleting from microcontroller.")
+                        addLog("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
                     }
-                } else {
-                    addLog("Error: Downloaded file not found at ${file.absolutePath}. Cannot queue or delete.")
                 }
+            } else {
+                addLog("Error: File '$fileName' download failed or saved path is null.")
             }
         }
     }
