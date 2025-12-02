@@ -54,6 +54,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -265,17 +267,28 @@ fun BleControl() {
                         )
 
                         Button(onClick = { showLogs = !showLogs }) {
-                            Text(if (showLogs) "ログ非表示" else "ログ表示")
+                            Text(if (showLogs) "アプリログ非表示" else "アプリログ表示")
                         }
 
 
 
                         if (showLogs) {
-                            Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                                LazyColumn(modifier = Modifier.padding(8.dp)) {
-                                    items(logs) { log ->
-                                        Text(text = log, style = MaterialTheme.typography.bodySmall)
+                            val lazyListState = rememberLazyListState()
+                            SelectionContainer {
+                                Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                                    LazyColumn(
+                                        modifier = Modifier.padding(8.dp),
+                                        state = lazyListState
+                                    ) {
+                                        items(logs) { log ->
+                                            Text(text = log, style = MaterialTheme.typography.bodySmall)
+                                        }
                                     }
+                                }
+                            }
+                            LaunchedEffect(logs.size) {
+                                if (logs.isNotEmpty()) {
+                                    lazyListState.animateScrollToItem(logs.size - 1)
                                 }
                             }
                         }
@@ -322,7 +335,7 @@ fun FileDownloadSection(
 
         FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
         Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = true) // Keep download button for logs
+        FileListCard(title = "デバイス側ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = true) // Keep download button for logs
     }
 }
 
