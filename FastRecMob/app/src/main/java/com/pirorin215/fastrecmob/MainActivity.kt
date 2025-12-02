@@ -266,32 +266,7 @@ fun BleControl() {
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
 
-                        Button(onClick = { showLogs = !showLogs }) {
-                            Text(if (showLogs) "アプリログ非表示" else "アプリログ表示")
-                        }
-
-
-
-                        if (showLogs) {
-                            val lazyListState = rememberLazyListState()
-                            SelectionContainer {
-                                Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                                    LazyColumn(
-                                        modifier = Modifier.padding(8.dp),
-                                        state = lazyListState
-                                    ) {
-                                        items(logs) { log ->
-                                            Text(text = log, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                    }
-                                }
-                            }
-                            LaunchedEffect(logs.size) {
-                                if (logs.isNotEmpty()) {
-                                    lazyListState.animateScrollToItem(logs.size - 1)
-                                }
-                            }
-                        }
+                        AppLogCard(logs = logs)
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     PullRefreshIndicator(
@@ -477,6 +452,53 @@ fun InfoRow(label: String, value: String) {
     }
     Divider()
 }
+
+@Composable
+fun AppLogCard(logs: List<String>) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("アプリログ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand"
+                    )
+                }
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.size(8.dp))
+                val lazyListState = rememberLazyListState()
+                SelectionContainer {
+                    Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                        LazyColumn(
+                            modifier = Modifier.padding(8.dp),
+                            state = lazyListState
+                        ) {
+                            items(logs) { log ->
+                                Text(text = log, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                LaunchedEffect(logs.size) {
+                    if (logs.isNotEmpty()) {
+                        lazyListState.animateScrollToItem(logs.size - 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 
 class BleViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
