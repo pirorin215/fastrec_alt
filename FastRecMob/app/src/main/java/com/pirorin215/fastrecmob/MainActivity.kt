@@ -38,6 +38,7 @@ import com.pirorin215.fastrecmob.data.countWavFiles
 import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
+import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -150,7 +151,7 @@ fun BleControl() {
     var showLogs by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
-    var showTranscriptionResults by remember { mutableStateOf(false) }
+
     var showLogDownloadScreen by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -207,9 +208,7 @@ fun BleControl() {
             // AppSettingsScreenのインポートが必要になる可能性
             com.pirorin215.fastrecmob.ui.screen.AppSettingsScreen(viewModel = viewModel, onBack = { showAppSettings = false })
         }
-        showTranscriptionResults -> {
-            com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen(viewModel = viewModel, onBack = { showTranscriptionResults = false })
-        }
+
         showLogDownloadScreen -> {
             LogDownloadScreen(viewModel = viewModel, onBack = { showLogDownloadScreen = false })
         }
@@ -228,6 +227,11 @@ fun BleControl() {
                                     modifier = Modifier
                                         .size(20.dp)
                                         .background(color = statusColor, shape = CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (connectionState == "Connected") "（接続中）" else "（未接続）",
+                                    style = MaterialTheme.typography.titleMedium
                                 )
                             }
                         },
@@ -255,13 +259,7 @@ fun BleControl() {
                                         expanded = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("文字起こし履歴") },
-                                    onClick = {
-                                        showTranscriptionResults = true
-                                        expanded = false
-                                    }
-                                )
+
                                 DropdownMenuItem(
                                     text = { Text("ログファイルダウンロード") },
                                     onClick = {
@@ -286,6 +284,9 @@ fun BleControl() {
 
 
                         SummaryInfoCard(deviceInfo = deviceInfo)
+
+                        TranscriptionResultPanel(viewModel = viewModel)
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         FileDownloadSection(
                             fileList = fileList,
