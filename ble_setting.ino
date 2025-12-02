@@ -23,20 +23,46 @@ void transferFileChunked() {
     return;
   }
 
+  // Abort if recording button is pressed before starting
+  if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+    applog("Recording button pressed. Aborting file transfer before start.");
+    g_start_file_transfer = false;
+    return;
+  }
+
   // --- START 信号送信とACK待機 ---
   pResponseCharacteristic->setValue("START");
   pResponseCharacteristic->notify();
   applog("Sent START signal. Waiting for ACK...");
-  if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(10000)) != pdTRUE) { // Increased timeout to 10 seconds
+  
+  unsigned long startAckWaitTime = millis();
+  bool startAckReceived = false;
+  while(millis() - startAckWaitTime < 10000) { // 10-second total timeout
+    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+      applog("Recording button pressed. Aborting file transfer while waiting for START_ACK.");
+      pResponseCharacteristic->setValue("ERROR: Transfer aborted by device");
+      pResponseCharacteristic->notify();
+      g_start_file_transfer = false;
+      return;
+    }
+    if (xSemaphoreTake(startTransferSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+      startAckReceived = true;
+      break;
+    }
+  }
+
+  if (!startAckReceived) {
     applog("START ACK timeout. Aborting file transfer.");
     pResponseCharacteristic->setValue("ERROR: START ACK timeout");
     pResponseCharacteristic->notify();
     g_start_file_transfer = false;
     return;
   }
+  
   applog("Received START ACK. Starting file transfer.");
   // --- END START 信号送信とACK待機 ---
 
+  bool transferAborted = false;
 
   if (LittleFS.exists(g_file_to_transfer_name.c_str())) {
     File file = LittleFS.open(g_file_to_transfer_name.c_str(), "r");
@@ -46,36 +72,59 @@ void transferFileChunked() {
       uint8_t buffer[chunkSize];
       size_t bytesRead;
       int chunkIndex = 0;
-      bool transferAborted = false;
 
       while (true) {
-        //applog("Reading chunk %d at position %u", chunkIndex, file.position());
+        if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+          applog("Recording button pressed during transfer. Aborting.");
+          transferAborted = true;
+          break;
+        }
+
         bytesRead = file.read(buffer, chunkSize);
         if (bytesRead <= 0) {
-            break;
+            break; // End of file
         }
-        //applog("Read %u bytes. New position %u", bytesRead, file.position());
         
         pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
 
-        if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(2000)) != pdTRUE) {
-          applog("ACK timeout for chunk %d. Aborting file transfer: %s.", chunkIndex, g_file_to_transfer_name.c_str());
-          transferAborted = true; // フラグを立ててループを抜ける
-          break; // ★ ACKタイムアウトでループを抜ける
+        unsigned long ackWaitStartTime = millis();
+        bool ackReceived = false;
+        while (millis() - ackWaitStartTime < 2000) { // 2-second total timeout for chunk ACK
+          if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
+            applog("Recording button pressed during ACK wait. Aborting.");
+            transferAborted = true;
+            break;
+          }
+          if (xSemaphoreTake(ackSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+            ackReceived = true;
+            break;
+          }
         }
+        
+        if (transferAborted) {
+          break; // Exit main transfer loop
+        }
+
+        if (!ackReceived) {
+          applog("ACK timeout for chunk %d. Aborting file transfer.", chunkIndex);
+          transferAborted = true; // Mark as aborted due to timeout
+          break;
+        }
+
         chunkIndex++;
       }
       file.close();
 
-      if (!transferAborted) { // 正常終了の場合のみEOF送信
+      if (!transferAborted) {
         pResponseCharacteristic->setValue("EOF");
         pResponseCharacteristic->notify();
         applog("File sent: %s", g_file_to_transfer_name.c_str());
-      } else { // タイムアウトで中断した場合
-        pResponseCharacteristic->setValue("ERROR: Transfer aborted due to ACK timeout");
+      } else {
+        // For both timeout and manual abort, notify client
+        pResponseCharacteristic->setValue("ERROR: Transfer aborted by device");
         pResponseCharacteristic->notify();
-        applog("ERROR: Transfer aborted for %s due to ACK timeout.", g_file_to_transfer_name.c_str());
+        applog("ERROR: Transfer aborted for %s.", g_file_to_transfer_name.c_str());
       }
 
     } else {
@@ -95,6 +144,238 @@ void transferFileChunked() {
   g_start_file_transfer = false;
 }
 
+// --- Command Handlers ---
+
+static void handle_get_file(const std::string& value) {
+  g_file_to_transfer_name = "/";
+  g_file_to_transfer_name += value.substr(std::string("GET:file:").length());
+  g_start_file_transfer = true;
+}
+
+static std::string handle_get_setting_ini() {
+  if (LittleFS.exists("/setting.ini")) {
+    File file = LittleFS.open("/setting.ini", "r");
+    if (file) {
+      size_t fileSize = file.size();
+      if (fileSize > 0) {
+        char* buffer = new char[fileSize + 1];
+        if (buffer) {
+          file.readBytes(buffer, fileSize);
+          buffer[fileSize] = '\0';
+          std::string responseData = buffer;
+          delete[] buffer;
+          size_t pos = 0;
+          while ((pos = responseData.find("\n", pos)) != std::string::npos) {
+            responseData.replace(pos, 1, "\r\n");
+            pos += 2;
+          }
+          return responseData;
+        } else {
+          return "ERROR: Memory allocation failed";
+        }
+      } else {
+        return ""; // Empty file
+      }
+      file.close();
+    } else {
+      return "ERROR: Failed to open setting.ini";
+    }
+  } else {
+    return "ERROR: setting.ini not found";
+  }
+  return "ERROR: Unknown error in handle_get_setting_ini"; // Should not be reached
+}
+
+static std::string handle_get_ls() {
+  File root = LittleFS.open("/", "r");
+  if (root) {
+    std::string responseData = "";
+    File file = root.openNextFile();
+    while (file) {
+      responseData += file.name();
+      if (file.isDirectory()) {
+        responseData += "/";
+      }
+      responseData += "\n";
+      file = root.openNextFile();
+    }
+    root.close();
+    return responseData;
+  } else {
+    return "ERROR: Failed to open root directory";
+  }
+}
+
+static std::string handle_get_info() {
+  StaticJsonDocument<1024> doc;
+  std::string littlefs_ls_std = "";
+  File root = LittleFS.open("/", "r");
+  if (root) {
+    File file = root.openNextFile();
+    while (file) {
+      littlefs_ls_std += file.name();
+      if (file.isDirectory()) {
+        littlefs_ls_std += "/";
+      } else {
+        littlefs_ls_std += " (";
+        char fileSizeStr[20];
+        snprintf(fileSizeStr, sizeof(fileSizeStr), "%lu", file.size());
+        littlefs_ls_std += fileSizeStr;
+        littlefs_ls_std += " bytes)";
+      }
+      littlefs_ls_std += "\n";
+      file = root.openNextFile();
+    }
+    root.close();
+  } else {
+    littlefs_ls_std = "ERROR: Failed to open root directory";
+  }
+  doc["ls"] = littlefs_ls_std;
+  float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
+  if (batteryLevel < 0.0f) batteryLevel = 0.0f;
+  if (batteryLevel > 100.0f) batteryLevel = 100.0f;
+  doc["battery_level"] = batteryLevel;
+  doc["battery_voltage"] = g_currentBatteryVoltage;
+  doc["app_state"] = appStateStrings[g_currentAppState];
+  doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
+  if (isWiFiConnected()) {
+    if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
+      doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
+    } else {
+      doc["connected_ssid"] = "N/A";
+    }
+    doc["wifi_rssi"] = WiFi.RSSI();
+  } else {
+    doc["connected_ssid"] = "N/A";
+    doc["wifi_rssi"] = 0;
+  }
+  unsigned long totalBytes = LittleFS.totalBytes();
+  unsigned long usedBytes = LittleFS.usedBytes();
+  doc["littlefs_total_bytes"] = totalBytes;
+  doc["littlefs_used_bytes"] = usedBytes;
+  doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
+  std::string jsonResponseStd;
+  serializeJson(doc, jsonResponseStd);
+  return jsonResponseStd;
+}
+
+static void handle_set_setting_ini(const std::string& value) {
+  std::string settingContent = value.substr(std::string("SET:setting_ini:").length());
+  std::string responseData;
+  File file = LittleFS.open("/setting.ini", "w");
+  if (file) {
+    file.print(settingContent.c_str());
+    file.close();
+    responseData = "OK: setting.ini saved. Restarting...";
+    pResponseCharacteristic->setValue(responseData.c_str());
+    pResponseCharacteristic->notify();
+    delay(100);
+    ESP.restart();
+  } else {
+    responseData = "ERROR: Failed to open setting.ini for writing";
+    pResponseCharacteristic->setValue(responseData.c_str());
+    pResponseCharacteristic->notify();
+    applog(responseData.c_str());
+  }
+}
+
+static std::string handle_del_file(const std::string& value) {
+  std::string fileNameToDelete = value.substr(std::string("DEL:file:").length());
+  if (fileNameToDelete.length() > 0 && fileNameToDelete[0] != '/') {
+    fileNameToDelete = "/" + fileNameToDelete;
+  }
+
+  if (LittleFS.exists(fileNameToDelete.c_str())) {
+    if (LittleFS.remove(fileNameToDelete.c_str())) {
+      applog("Deleted file: %s", fileNameToDelete.c_str());
+      return "OK: File " + fileNameToDelete + " deleted.";
+    } else {
+      applog("ERROR: Failed to delete file: %s", fileNameToDelete.c_str());
+      return "ERROR: Failed to delete file " + fileNameToDelete;
+    }
+  } else {
+    applog("ERROR: File not found: %s", fileNameToDelete.c_str());
+    return "ERROR: File " + fileNameToDelete + " not found.";
+  }
+}
+
+static std::string handle_set_time(const std::string& value) {
+  std::string timestamp_str = value.substr(std::string("SET:time:").length());
+  if (!timestamp_str.empty()) {
+    long long timestamp_sec = atoll(timestamp_str.c_str());
+    if (timestamp_sec > 1704067200) { // Basic validation (after 2024-01-01)
+      struct timeval tv;
+      tv.tv_sec = timestamp_sec;
+      tv.tv_usec = 0;
+      settimeofday(&tv, NULL);
+      
+      time_t now;
+      struct tm timeinfo;
+      char time_buf[64];
+      time(&now);
+      localtime_r(&now, &timeinfo);
+      strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+      applog("Time set via BLE to: %s", time_buf);
+      return "OK: Time set to " + std::string(time_buf);
+    } else {
+      return "ERROR: Invalid timestamp provided.";
+    }
+  } else {
+    return "ERROR: No timestamp provided.";
+  }
+}
+
+static void handle_cmd_reset_all() {
+  if (!LittleFS.begin(true)) {
+    pResponseCharacteristic->setValue("LittleFS Mount Failed");
+    pResponseCharacteristic->notify();
+    return;
+  }
+
+  File root = LittleFS.open("/");
+  if (!root) {
+    pResponseCharacteristic->setValue("Failed to open root directory");
+    pResponseCharacteristic->notify();
+    return;
+  }
+
+  int deleted_count = 0;
+  while (true) {
+    File file = root.openNextFile();
+    if (!file) break;
+    if (file.isDirectory()) {
+      file.close();
+      continue;
+    }
+    char filePathBuffer[256];
+    const char* fileName = file.name();
+    file.close(); 
+    if (fileName[0] != '/') {
+      snprintf(filePathBuffer, sizeof(filePathBuffer), "/%s", fileName);
+    } else {
+      strncpy(filePathBuffer, fileName, sizeof(filePathBuffer) - 1);
+      filePathBuffer[sizeof(filePathBuffer) - 1] = '\0';
+    }
+    if (LittleFS.remove(filePathBuffer)) {
+      applog("Deleted file: %s", filePathBuffer);
+      deleted_count++;
+    } else {
+      applog("Failed to delete file: %s", filePathBuffer);
+    }
+  }
+  root.close();
+  
+  char response[50];
+  sprintf(response, "Deleted %d files.", deleted_count);
+  pResponseCharacteristic->setValue(response);
+  pResponseCharacteristic->notify();
+  delay(100);
+  ESP.restart();
+}
+
+
+// --- BLE Callbacks ---
 class MyCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo& connInfo) override { // check_unused:ignore
     std::string value = pCharacteristic->getValue().c_str();
@@ -102,7 +383,7 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
     if (pCharacteristic->getUUID().toString() == ACK_UUID) {
       if (value == "ACK") {
         xSemaphoreGive(ackSemaphore);
-      } else if (value == "START_ACK") { // 新しいハンドシェイク用のACK
+      } else if (value == "START_ACK") {
         xSemaphoreGive(startTransferSemaphore);
       }
       return;
@@ -113,256 +394,38 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
     if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       applog("BLE Command Received: %s", value.c_str());
 
-      // Guard all command processing when not in IDLE state
       if (g_currentAppState != IDLE) {
-        std::string busyMessage = "ERROR: Device is busy (State: ";
-        busyMessage += appStateStrings[g_currentAppState];
-        busyMessage += "). Command rejected.";
+        std::string busyMessage = "ERROR: Device is busy (State: " + std::string(appStateStrings[g_currentAppState]) + "). Command rejected.";
         pResponseCharacteristic->setValue(busyMessage.c_str());
         pResponseCharacteristic->notify();
         applog(busyMessage.c_str());
-        return; // Reject command if not in IDLE state
-      }
-
-      if (value.rfind("GET:file:", 0) == 0) {
-        g_file_to_transfer_name = "/";
-        g_file_to_transfer_name += value.substr(std::string("GET:file:").length());
-        g_start_file_transfer = true;
         return;
       }
 
+      // --- Command Dispatcher ---
+      if (value.rfind("GET:file:", 0) == 0) {
+        handle_get_file(value);
+        return; 
+      }
+      
       std::string responseData = "ERROR: Invalid Command";
 
-      if (value.rfind("GET:", 0) == 0) {
-        if (value == "GET:setting_ini") {
-          if (LittleFS.exists("/setting.ini")) {
-            File file = LittleFS.open("/setting.ini", "r");
-            if (file) {
-              size_t fileSize = file.size();
-              if (fileSize > 0) {
-                char* buffer = new char[fileSize + 1];
-                if (buffer) {
-                  file.readBytes(buffer, fileSize);
-                  buffer[fileSize] = '\0';
-                  responseData = buffer;
-                  delete[] buffer;
-                  size_t pos = 0;
-                  while ((pos = responseData.find("\n", pos)) != std::string::npos) {
-                    responseData.replace(pos, 1, "\r\n");
-                    pos += 2;
-                  }
-                } else {
-                  responseData = "ERROR: Memory allocation failed";
-                }
-              } else {
-                responseData = ""; // Empty file
-              }
-              file.close();
-            } else {
-              responseData = "ERROR: Failed to open setting.ini";
-            }
-          } else {
-            responseData = "ERROR: setting.ini not found";
-          }
-        } else if (value == "GET:ls") {
-          File root = LittleFS.open("/", "r");
-          if (root) {
-            responseData = "";
-            File file = root.openNextFile();
-            while (file) {
-              responseData += file.name();
-              if (file.isDirectory()) {
-                responseData += "/";
-              }
-              responseData += "\n";
-              file = root.openNextFile();
-            }
-            root.close();
-          } else {
-            responseData = "ERROR: Failed to open root directory";
-          }
-        } else if (value == "GET:info") {
-          StaticJsonDocument<1024> doc;
-          std::string littlefs_ls_std = "";
-          File root = LittleFS.open("/", "r");
-          if (root) {
-            File file = root.openNextFile();
-            while (file) {
-              littlefs_ls_std += file.name();
-              if (file.isDirectory()) {
-                littlefs_ls_std += "/";
-              } else {
-                littlefs_ls_std += " (";
-                char fileSizeStr[20]; // Buffer to hold the file size string
-                snprintf(fileSizeStr, sizeof(fileSizeStr), "%lu", file.size());
-                littlefs_ls_std += fileSizeStr;
-                littlefs_ls_std += " bytes)";
-              }
-              littlefs_ls_std += "\n";
-              file = root.openNextFile();
-            }
-            root.close();
-          } else {
-            littlefs_ls_std = "ERROR: Failed to open root directory";
-          }
-          doc["ls"] = littlefs_ls_std;
-          float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
-          if (batteryLevel < 0.0f) batteryLevel = 0.0f;
-          if (batteryLevel > 100.0f) batteryLevel = 100.0f;
-          doc["battery_level"] = batteryLevel;
-          doc["battery_voltage"] = g_currentBatteryVoltage;
-          doc["app_state"] = appStateStrings[g_currentAppState];
-          doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
-          if (isWiFiConnected()) {
-            if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
-              doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
-            } else {
-              doc["connected_ssid"] = "N/A";
-            }
-            doc["wifi_rssi"] = WiFi.RSSI();
-          } else {
-            doc["connected_ssid"] = "N/A";
-            doc["wifi_rssi"] = 0;
-          }
-          unsigned long totalBytes = LittleFS.totalBytes();
-          unsigned long usedBytes = LittleFS.usedBytes();
-          doc["littlefs_total_bytes"] = totalBytes;
-          doc["littlefs_used_bytes"] = usedBytes;
-          doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
-          std::string jsonResponseStd;
-          serializeJson(doc, jsonResponseStd);
-          responseData = jsonResponseStd;
-        }
+      if (value == "GET:setting_ini") {
+        responseData = handle_get_setting_ini();
+      } else if (value == "GET:ls") {
+        responseData = handle_get_ls();
+      } else if (value == "GET:info") {
+        responseData = handle_get_info();
       } else if (value.rfind("SET:setting_ini:", 0) == 0) {
-        std::string settingContent = value.substr(std::string("SET:setting_ini:").length());
-        File file = LittleFS.open("/setting.ini", "w");
-        if (file) {
-          file.print(settingContent.c_str());
-          file.close();
-          responseData = "OK: setting.ini saved. Restarting...";
-          pResponseCharacteristic->setValue(responseData.c_str());
-          pResponseCharacteristic->notify();
-          delay(100);
-          ESP.restart();
-        } else {
-          responseData = "ERROR: Failed to open setting.ini for writing";
-        }
+        handle_set_setting_ini(value);
+        return; // Function handles response and restart
       } else if (value.rfind("DEL:file:", 0) == 0) {
-        std::string fileNameToDelete = value.substr(std::string("DEL:file:").length());
-        // Ensure leading '/' for absolute path if not already present
-        if (fileNameToDelete.length() > 0 && fileNameToDelete[0] != '/') {
-            fileNameToDelete = "/" + fileNameToDelete;
-        }
-
-        if (LittleFS.exists(fileNameToDelete.c_str())) {
-            if (LittleFS.remove(fileNameToDelete.c_str())) {
-                responseData = "OK: File ";
-                responseData += fileNameToDelete;
-                responseData += " deleted.";
-                applog("Deleted file: %s", fileNameToDelete.c_str());
-            } else {
-                responseData = "ERROR: Failed to delete file ";
-                responseData += fileNameToDelete;
-                applog("ERROR: Failed to delete file: %s", fileNameToDelete.c_str());
-            }
-        } else {
-            responseData = "ERROR: File ";
-            responseData += fileNameToDelete;
-            responseData += " not found.";
-            applog("ERROR: File not found: %s", fileNameToDelete.c_str());
-        }
+        responseData = handle_del_file(value);
       } else if (value.rfind("SET:time:", 0) == 0) {
-        std::string timestamp_str = value.substr(std::string("SET:time:").length());
-        if (!timestamp_str.empty()) {
-            long long timestamp_sec = atoll(timestamp_str.c_str());
-            
-            // Basic validation for the timestamp (e.g., it's a reasonable future/past date)
-            // Let's say after 2024-01-01 (1704067200)
-            if (timestamp_sec > 1704067200) { 
-                struct timeval tv;
-                tv.tv_sec = timestamp_sec;
-                tv.tv_usec = 0;
-                settimeofday(&tv, NULL);
-                
-                // --- Immediate verification of time setting ---
-                time_t verify_now;
-                struct tm verify_timeinfo;
-                char verify_time_buf[64];
-                time(&verify_now);
-                localtime_r(&verify_now, &verify_timeinfo);
-                strftime(verify_time_buf, sizeof(verify_time_buf), "%Y-%m-%d %H:%M:%S", &verify_timeinfo);
-                applog("Time verified immediately after settimeofday: %s (epoch: %lld)", verify_time_buf, (long long)verify_now);
-                // --- End verification ---
-                
-                // Confirm the time has been set
-                time_t now;
-                struct tm timeinfo;
-                char time_buf[64];
-                time(&now);
-                localtime_r(&now, &timeinfo);
-                strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
-
-                responseData = "OK: Time set to ";
-                responseData += time_buf;
-                applog("Time set via BLE to: %s", time_buf);
-            } else {
-                responseData = "ERROR: Invalid timestamp provided.";
-            }
-        } else {
-            responseData = "ERROR: No timestamp provided.";
-        }
-      } else if (value.rfind("CMD:reset_all", 0) == 0) {
-        if (!LittleFS.begin(true)) {
-          pResponseCharacteristic->setValue("LittleFS Mount Failed");
-          pResponseCharacteristic->notify();
-          return;
-        }
-
-        File root = LittleFS.open("/");
-        if (!root) {
-          pResponseCharacteristic->setValue("Failed to open root directory");
-          pResponseCharacteristic->notify();
-          return;
-        }
-
-        int deleted_count = 0;
-        while (true) {
-          File file = root.openNextFile();
-          if (!file) {
-            break; // No more files
-          }
-
-          if (file.isDirectory()) {
-            file.close();
-            continue;
-          }
-
-          char filePathBuffer[256]; // Use a char array instead of String
-          const char* fileName = file.name();
-          file.close(); // Close file before deleting
-
-          if (fileName[0] != '/') {
-            // Prepend "/" if not already present
-            snprintf(filePathBuffer, sizeof(filePathBuffer), "/%s", fileName);
-          } else {
-            strncpy(filePathBuffer, fileName, sizeof(filePathBuffer) - 1);
-            filePathBuffer[sizeof(filePathBuffer) - 1] = '\0';
-          }
-
-          if (LittleFS.remove(filePathBuffer)) {
-            applog("Deleted file: %s", filePathBuffer);
-            deleted_count++;
-          } else {
-            applog("Failed to delete file: %s", filePathBuffer);
-          }
-        }
-        root.close();
-        
-        char response[50];
-        sprintf(response, "Deleted %d files.", deleted_count);
-        responseData = response;
-        delay(100);
-        ESP.restart();
+        responseData = handle_set_time(value);
+      } else if (value == "CMD:reset_all") {
+        handle_cmd_reset_all();
+        return; // Function handles response and restart
       }
 
       pResponseCharacteristic->setValue(responseData.c_str());
@@ -413,8 +476,14 @@ void start_ble_server() {
     };
 
     void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
-      applog("Client Disconnected - Restarting Advertising");
-      NimBLEDevice::startAdvertising();
+      applog("Client Disconnected");
+      // Only restart advertising if in a valid state
+      if (g_currentAppState == IDLE || g_currentAppState == SETUP) {
+        applog("Restarting advertising because state is appropriate.");
+        start_ble_advertising();
+      } else {
+        applog("Not restarting advertising due to current app state: %s", appStateStrings[g_currentAppState]);
+      }
     }
 
     void onPhyUpdate(NimBLEConnInfo& connInfo, uint8_t txPhy, uint8_t rxPhy) override {
@@ -457,12 +526,39 @@ void start_ble_server() {
 
   pService->start();
 
-  // BLEアドバタイズ（広告）の開始
+  // BLEアドバタイズ（広告）の準備
   NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
   pAdvertising->setName(DEVICE_NAME); // Explicitly set advertising name
   pAdvertising->addServiceUUID(SERVICE_UUID); // Re-add service UUID
   pAdvertising->enableScanResponse(true); // Enable scan response
-  pAdvertising->start();
+}
+
+void stop_ble_advertising() {
+  if (NimBLEDevice::getAdvertising()->isAdvertising()) {
+    applog("Stopping BLE advertising.");
+    NimBLEDevice::getAdvertising()->stop();
+  }
+}
+
+void start_ble_advertising() {
+  if (!NimBLEDevice::getAdvertising()->isAdvertising() && isBLEConnected() == false) {
+    applog("Starting BLE advertising.");
+    NimBLEDevice::getAdvertising()->start();
+  }
+}
+
+void disconnect_ble_clients() {
+  if (pBLEServer != nullptr) {
+    uint32_t connectedCount = pBLEServer->getConnectedCount();
+    if (connectedCount > 0) {
+      applog("Disconnecting %d BLE client(s) due to state change.", connectedCount);
+      // disconnect all clients
+      auto connections = NimBLEDevice::getServer()->getPeerDevices();
+      for(auto& conn : connections) {
+          NimBLEDevice::getServer()->disconnect(conn);
+      }
+    }
+  }
 }
 
 bool isBLEConnected() {
