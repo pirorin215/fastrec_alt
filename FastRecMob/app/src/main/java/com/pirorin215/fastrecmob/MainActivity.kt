@@ -145,7 +145,6 @@ fun BleControl() {
     val transcriptionResult by viewModel.transcriptionResult.collectAsState()
 
     var showLogs by remember { mutableStateOf(false) }
-    var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var showTranscriptionResults by remember { mutableStateOf(false) }
@@ -225,19 +224,6 @@ fun BleControl() {
 
                         SummaryInfoCard(deviceInfo = deviceInfo)
 
-
-
-                        // 詳細表示ボタン (元の位置を維持)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(
-                                onClick = { showDetails = !showDetails },
-                                modifier = Modifier.weight(1f),
-                                enabled = currentOperation == BleViewModel.Operation.IDLE
-                            ) {
-                                Text(if (showDetails) "詳細非表示" else "詳細表示")
-                            }
-                        }
-
                         // 2行目: マイコン設定 | アプリ設定
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             // マイコン設定ボタン
@@ -266,11 +252,6 @@ fun BleControl() {
                             ) {
                                 Text("文字起こし履歴")
                             }
-                        }
-
-
-                        if (showDetails) {
-                            DetailedInfoCard(deviceInfo = deviceInfo)
                         }
 
                         FileDownloadSection(
@@ -423,22 +404,35 @@ fun ConnectionStatusIndicator(connectionState: String) {
 
 @Composable
 fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
+    var expanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround // 均等配置
-        ) {
-            InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString())
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceAround // 均等配置
+            ) {
+                InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString(), modifier = Modifier.weight(1f))
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand"
+                    )
+                }
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.size(8.dp))
+                InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
+                InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
+                InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
+                InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
+            }
         }
     }
 }
@@ -455,24 +449,6 @@ fun InfoItem(icon: ImageVector, label: String, value: String, modifier: Modifier
     }
 }
 
-
-@Composable
-fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "詳細情報", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
-            InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
-            InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
-            InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
-            InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
-
-        }
-    }
-}
 
 @Composable
 fun InfoRow(label: String, value: String) {
