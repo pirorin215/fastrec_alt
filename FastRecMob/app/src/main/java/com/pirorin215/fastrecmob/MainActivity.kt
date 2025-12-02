@@ -51,6 +51,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,7 +123,7 @@ fun BleApp(modifier: Modifier = Modifier) {
     BleControl()
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun BleControl() {
@@ -149,6 +152,12 @@ fun BleControl() {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_INFO
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { viewModel.fetchFileList() }
+    )
 
     LaunchedEffect(fileTransferState) {
         if (fileTransferState.startsWith("Success")) {
@@ -203,91 +212,99 @@ fun BleControl() {
                 modifier = Modifier.fillMaxSize(),
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
             ) { innerPadding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = 16.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ConnectionStatusIndicator(connectionState)
+                Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ConnectionStatusIndicator(connectionState)
 
-                    SummaryInfoCard(deviceInfo = deviceInfo)
+                        SummaryInfoCard(deviceInfo = deviceInfo)
 
 
 
-                    // 詳細表示ボタン (元の位置を維持)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = { showDetails = !showDetails },
-                            modifier = Modifier.weight(1f),
-                            enabled = currentOperation == BleViewModel.Operation.IDLE
-                        ) {
-                            Text(if (showDetails) "詳細非表示" else "詳細表示")
-                        }
-                    }
-
-                    // 2行目: マイコン設定 | アプリ設定
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        // マイコン設定ボタン
-                        Button(
-                            onClick = { showSettings = true },
-                            modifier = Modifier.weight(1f),
-                            enabled = connectionState == "Connected"
-                        ) {
-                            Text("マイコン設定")
+                        // 詳細表示ボタン (元の位置を維持)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { showDetails = !showDetails },
+                                modifier = Modifier.weight(1f),
+                                enabled = currentOperation == BleViewModel.Operation.IDLE
+                            ) {
+                                Text(if (showDetails) "詳細非表示" else "詳細表示")
+                            }
                         }
 
-                        // アプリ設定ボタン
-                        Button(
-                            onClick = { showAppSettings = true },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("アプリ設定")
+                        // 2行目: マイコン設定 | アプリ設定
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            // マイコン設定ボタン
+                            Button(
+                                onClick = { showSettings = true },
+                                modifier = Modifier.weight(1f),
+                                enabled = connectionState == "Connected"
+                            ) {
+                                Text("マイコン設定")
+                            }
+
+                            // アプリ設定ボタン
+                            Button(
+                                onClick = { showAppSettings = true },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("アプリ設定")
+                            }
                         }
-                    }
 
-                    // 新しい行: 文字起こし履歴ボタン
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = { showTranscriptionResults = true },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("文字起こし履歴")
+                        // 新しい行: 文字起こし履歴ボタン
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { showTranscriptionResults = true },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("文字起こし履歴")
+                            }
                         }
-                    }
 
 
-                    if (showDetails) {
-                        DetailedInfoCard(deviceInfo = deviceInfo)
-                    }
+                        if (showDetails) {
+                            DetailedInfoCard(deviceInfo = deviceInfo)
+                        }
 
-                    FileDownloadSection(
-                        fileList = fileList,
-                        fileTransferState = fileTransferState,
-                        downloadProgress = downloadProgress,
-                        totalFileSize = currentFileTotalSize,
-                        isBusy = currentOperation != BleViewModel.Operation.IDLE,
-                        transferKbps = transferKbps,
-                        onDownloadClick = { viewModel.downloadFile(it) }
-                    )
+                        FileDownloadSection(
+                            fileList = fileList,
+                            fileTransferState = fileTransferState,
+                            downloadProgress = downloadProgress,
+                            totalFileSize = currentFileTotalSize,
+                            isBusy = currentOperation != BleViewModel.Operation.IDLE,
+                            transferKbps = transferKbps,
+                            onDownloadClick = { viewModel.downloadFile(it) }
+                        )
 
-                    Button(onClick = { showLogs = !showLogs }) {
-                        Text(if (showLogs) "ログ非表示" else "ログ表示")
-                    }
+                        Button(onClick = { showLogs = !showLogs }) {
+                            Text(if (showLogs) "ログ非表示" else "ログ表示")
+                        }
 
-                    if (showLogs) {
-                        Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                            LazyColumn(modifier = Modifier.padding(8.dp)) {
-                                items(logs) { log ->
-                                    Text(text = log, style = MaterialTheme.typography.bodySmall)
+
+
+                        if (showLogs) {
+                            Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                                LazyColumn(modifier = Modifier.padding(8.dp)) {
+                                    items(logs) { log ->
+                                        Text(text = log, style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    PullRefreshIndicator(
+                        refreshing = isRefreshing,
+                        state = pullRefreshState,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
                 }
             }
         }
