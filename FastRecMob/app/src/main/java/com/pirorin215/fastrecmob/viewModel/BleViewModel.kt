@@ -236,6 +236,16 @@ class BleViewModel(
                 is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
                     addLog("Device is ready for communication.")
                     viewModelScope.launch {
+                        // Synchronize time first
+                        val currentTimestampSec = System.currentTimeMillis() / 1000
+                        val timeCommand = "SET:time:$currentTimestampSec"
+                        addLog("Sending time synchronization command: $timeCommand")
+                        sendCommand(timeCommand)
+                        
+                        // Wait a moment for the device to process the time set command
+                        delay(500)
+
+                        // Now proceed with other on-ready tasks
                         fetchFileList()
                         if (_isAutoRefreshEnabled.value) {
                             startAutoRefresh()
