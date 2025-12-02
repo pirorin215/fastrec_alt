@@ -407,22 +407,27 @@ void loop() {
 
   switch (g_currentAppState) {
     case IDLE:
+      start_ble_advertising();
       handleIdle();
       break;
 
     case REC:
+      stop_ble_advertising();
       handleRec();
       break;
 
     case UPLOAD:
+      stop_ble_advertising();
       handleUpload();
       break;
 
     case SETUP:
+      start_ble_advertising();
       handleSetup();
       break;
 
     case DSLEEP:
+      stop_ble_advertising();
       goDeepSleep();
       break;
   }

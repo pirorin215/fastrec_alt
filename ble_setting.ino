@@ -413,8 +413,14 @@ void start_ble_server() {
     };
 
     void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
-      applog("Client Disconnected - Restarting Advertising");
-      NimBLEDevice::startAdvertising();
+      applog("Client Disconnected");
+      // Only restart advertising if in a valid state
+      if (g_currentAppState == IDLE || g_currentAppState == SETUP) {
+        applog("Restarting advertising because state is appropriate.");
+        start_ble_advertising();
+      } else {
+        applog("Not restarting advertising due to current app state: %s", appStateStrings[g_currentAppState]);
+      }
     }
 
     void onPhyUpdate(NimBLEConnInfo& connInfo, uint8_t txPhy, uint8_t rxPhy) override {
@@ -457,12 +463,25 @@ void start_ble_server() {
 
   pService->start();
 
-  // BLEアドバタイズ（広告）の開始
+  // BLEアドバタイズ（広告）の準備
   NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
   pAdvertising->setName(DEVICE_NAME); // Explicitly set advertising name
   pAdvertising->addServiceUUID(SERVICE_UUID); // Re-add service UUID
   pAdvertising->enableScanResponse(true); // Enable scan response
-  pAdvertising->start();
+}
+
+void stop_ble_advertising() {
+  if (NimBLEDevice::getAdvertising()->isAdvertising()) {
+    applog("Stopping BLE advertising.");
+    NimBLEDevice::getAdvertising()->stop();
+  }
+}
+
+void start_ble_advertising() {
+  if (!NimBLEDevice::getAdvertising()->isAdvertising() && isBLEConnected() == false) {
+    applog("Starting BLE advertising.");
+    NimBLEDevice::getAdvertising()->start();
+  }
 }
 
 bool isBLEConnected() {
