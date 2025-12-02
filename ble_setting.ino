@@ -271,6 +271,36 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
             responseData += " not found.";
             applog("ERROR: File not found: %s", fileNameToDelete.c_str());
         }
+      } else if (value.rfind("SET:time:", 0) == 0) {
+        std::string timestamp_str = value.substr(std::string("SET:time:").length());
+        if (!timestamp_str.empty()) {
+            long long timestamp_sec = atoll(timestamp_str.c_str());
+            
+            // Basic validation for the timestamp (e.g., it's a reasonable future/past date)
+            // Let's say after 2024-01-01 (1704067200)
+            if (timestamp_sec > 1704067200) { 
+                struct timeval tv;
+                tv.tv_sec = timestamp_sec;
+                tv.tv_usec = 0;
+                settimeofday(&tv, NULL);
+                
+                // Confirm the time has been set
+                time_t now;
+                struct tm timeinfo;
+                char time_buf[64];
+                time(&now);
+                localtime_r(&now, &timeinfo);
+                strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+                responseData = "OK: Time set to ";
+                responseData += time_buf;
+                applog("Time set via BLE to: %s", time_buf);
+            } else {
+                responseData = "ERROR: Invalid timestamp provided.";
+            }
+        } else {
+            responseData = "ERROR: No timestamp provided.";
+        }
       } else if (value.rfind("CMD:reset_all", 0) == 0) {
         if (!LittleFS.begin(true)) {
           pResponseCharacteristic->setValue("LittleFS Mount Failed");
