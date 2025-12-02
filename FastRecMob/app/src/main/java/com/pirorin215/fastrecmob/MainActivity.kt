@@ -166,21 +166,16 @@ fun BleControl() {
     // For background operation, dialogs are generally not desired.
     // The ViewModel still tracks transcriptionState and transcriptionResult for internal logging.
 
-    // Lifecycle observer to turn off "Keep connection alive" when app goes to background
+    // Lifecycle observer to handle app foreground/background changes
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
-                    // App is coming to foreground, turn on keepConnectionAlive and ensure scanning is active
-                    viewModel.saveKeepConnectionAlive(true)
-                    viewModel.restartScan() // Explicitly restart scan on foreground
-                    Log.d(TAG, "App came to foreground, 'Keep Connection Alive' set to true and scan restarted.")
+                    viewModel.setAppInForeground(true)
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    // App is going to background, turn off keepConnectionAlive
-                    viewModel.saveKeepConnectionAlive(false)
-                    Log.d(TAG, "App went to background, 'Keep Connection Alive' set to false.")
+                    viewModel.setAppInForeground(false)
                 }
                 else -> { /* Do nothing for other events */ }
             }
@@ -227,25 +222,6 @@ fun BleControl() {
                         horizontalArrangement = Arrangement.SpaceAround, // 均等配置
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val isBusy = currentOperation != BleViewModel.Operation.IDLE // Moved here for local usage
-
-                        // 接続維持スイッチ
-                        val keepAlive by viewModel.keepConnectionAlive.collectAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp), // 少し間隔を空ける
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("接続維持", style = MaterialTheme.typography.labelLarge)
-                            Switch(
-                                checked = keepAlive,
-                                onCheckedChange = { isChecked ->
-                                    viewModel.saveKeepConnectionAlive(isChecked)
-                                },
-                                enabled = true // 常に操作可能
-                            )
-                        }
-
                         // 自動更新トグルスイッチ
                         val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
                         Row(

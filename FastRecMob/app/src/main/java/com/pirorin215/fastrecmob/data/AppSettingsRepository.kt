@@ -20,7 +20,6 @@ class AppSettingsRepository(private val context: Context) {
     private object PreferencesKeys {
         val API_KEY = stringPreferencesKey("google_cloud_api_key")
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
-        val KEEP_CONNECTION_ALIVE = booleanPreferencesKey("keep_connection_alive")
         val AUDIO_CACHE_LIMIT = intPreferencesKey("audio_cache_limit")
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
     }
@@ -36,13 +35,6 @@ class AppSettingsRepository(private val context: Context) {
         .map { preferences ->
             // デフォルト値を30秒に設定
             preferences[PreferencesKeys.REFRESH_INTERVAL_SECONDS] ?: 30
-        }
-
-    // BLE接続維持設定の変更を監視するためのFlow
-    val keepConnectionAliveFlow: Flow<Boolean> = context.dataStore.data
-        .map { preferences ->
-            // デフォルトはfalse（接続を維持しない）
-            preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] ?: false
         }
 
     // 音声ファイル保持数の変更を監視するためのFlow
@@ -70,13 +62,6 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveRefreshIntervalSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.REFRESH_INTERVAL_SECONDS] = seconds
-        }
-    }
-
-    // BLE接続維持設定を保存するsuspend関数
-    suspend fun saveKeepConnectionAlive(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.KEEP_CONNECTION_ALIVE] = enabled
         }
     }
 
