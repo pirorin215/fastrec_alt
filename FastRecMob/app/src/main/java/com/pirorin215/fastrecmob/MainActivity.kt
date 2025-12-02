@@ -216,27 +216,7 @@ fun BleControl() {
 
                     SummaryInfoCard(deviceInfo = deviceInfo)
 
-                    // 接続維持スイッチと自動更新トグルスイッチ
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround, // 均等配置
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 自動更新トグルスイッチ
-                        val isAutoRefreshEnabled by viewModel.isAutoRefreshEnabled.collectAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp), // 少し間隔を空ける
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("自動更新", style = MaterialTheme.typography.labelLarge)
-                            Switch(
-                                checked = isAutoRefreshEnabled,
-                                onCheckedChange = { viewModel.setAutoRefresh(it) },
-                                enabled = connectionState == "Connected" // 接続時に操作可能
-                            )
-                        }
-                    }
+
 
                     // 詳細表示ボタン (元の位置を維持)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
