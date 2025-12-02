@@ -929,8 +929,12 @@ class BleViewModel(
                     cleanupTranscriptionResultsAndAudioFiles() // Changed from cleanupOldAudioFiles()
                     updateLocalAudioFileCount() // Update count after saving and potential cleanup
 
-                    // Now, trigger the deletion. This will acquire its own lock.
-                    deleteFileOnMicrocontroller(fileName)
+                    // Now, trigger the deletion if it's a WAV file. This will acquire its own lock.
+                    if (fileName.endsWith(".wav", ignoreCase = true)) {
+                        deleteFileOnMicrocontroller(fileName)
+                    } else {
+                        addLog("Downloaded log file: $fileName. Not deleting from microcontroller.")
+                    }
                 } else {
                     addLog("Error: Downloaded file not found at ${file.absolutePath}. Cannot queue or delete.")
                 }

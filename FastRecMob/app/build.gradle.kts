@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.kotlinx.serialization.json)
+    implementation("androidx.compose.material:material:1.6.8")
 
     // Google Cloud
     val librariesBomVersion = "26.36.0"

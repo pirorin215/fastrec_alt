@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.*
 import com.pirorin215.fastrecmob.data.countWavFiles
 import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
+import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -51,6 +52,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,7 +126,7 @@ fun BleApp(modifier: Modifier = Modifier) {
     BleControl()
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun BleControl() {
@@ -142,13 +148,19 @@ fun BleControl() {
     val transcriptionResult by viewModel.transcriptionResult.collectAsState()
 
     var showLogs by remember { mutableStateOf(false) }
-    var showDetails by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var showTranscriptionResults by remember { mutableStateOf(false) }
+    var showLogDownloadScreen by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_INFO
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { viewModel.fetchFileList() }
+    )
 
     LaunchedEffect(fileTransferState) {
         if (fileTransferState.startsWith("Success")) {
@@ -198,96 +210,101 @@ fun BleControl() {
         showTranscriptionResults -> {
             com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen(viewModel = viewModel, onBack = { showTranscriptionResults = false })
         }
+        showLogDownloadScreen -> {
+            LogDownloadScreen(viewModel = viewModel, onBack = { showLogDownloadScreen = false })
+        }
         else -> {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
-                snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-            ) { innerPadding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = 16.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ConnectionStatusIndicator(connectionState)
-
-                    SummaryInfoCard(deviceInfo = deviceInfo)
-
-
-
-                    // 詳細表示ボタン (元の位置を維持)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = { showDetails = !showDetails },
-                            modifier = Modifier.weight(1f),
-                            enabled = currentOperation == BleViewModel.Operation.IDLE
-                        ) {
-                            Text(if (showDetails) "詳細非表示" else "詳細表示")
-                        }
-                    }
-
-                    // 2行目: マイコン設定 | アプリ設定
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        // マイコン設定ボタン
-                        Button(
-                            onClick = { showSettings = true },
-                            modifier = Modifier.weight(1f),
-                            enabled = connectionState == "Connected"
-                        ) {
-                            Text("マイコン設定")
-                        }
-
-                        // アプリ設定ボタン
-                        Button(
-                            onClick = { showAppSettings = true },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("アプリ設定")
-                        }
-                    }
-
-                    // 新しい行: 文字起こし履歴ボタン
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = { showTranscriptionResults = true },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("文字起こし履歴")
-                        }
-                    }
-
-
-                    if (showDetails) {
-                        DetailedInfoCard(deviceInfo = deviceInfo)
-                    }
-
-                    FileDownloadSection(
-                        fileList = fileList,
-                        fileTransferState = fileTransferState,
-                        downloadProgress = downloadProgress,
-                        totalFileSize = currentFileTotalSize,
-                        isBusy = currentOperation != BleViewModel.Operation.IDLE,
-                        transferKbps = transferKbps,
-                        onDownloadClick = { viewModel.downloadFile(it) }
-                    )
-
-                    Button(onClick = { showLogs = !showLogs }) {
-                        Text(if (showLogs) "ログ非表示" else "ログ表示")
-                    }
-
-                    if (showLogs) {
-                        Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                            LazyColumn(modifier = Modifier.padding(8.dp)) {
-                                items(logs) { log ->
-                                    Text(text = log, style = MaterialTheme.typography.bodySmall)
-                                }
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("FastRec")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .background(color = statusColor, shape = CircleShape)
+                                )
+                            }
+                        },
+                        actions = {
+                            var expanded by remember { mutableStateOf(false) }
+                            IconButton(onClick = { expanded = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("マイコン設定") },
+                                    onClick = {
+                                        showSettings = true
+                                        expanded = false
+                                    },
+                                    enabled = connectionState == "Connected"
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("アプリ設定") },
+                                    onClick = {
+                                        showAppSettings = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("文字起こし履歴") },
+                                    onClick = {
+                                        showTranscriptionResults = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("ログファイルダウンロード") },
+                                    onClick = {
+                                        showLogDownloadScreen = true
+                                        expanded = false
+                                    }
+                                )
                             }
                         }
+                    )
+                }
+            ) { innerPadding ->
+                Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(4.dp))
+
+
+                        SummaryInfoCard(deviceInfo = deviceInfo)
+
+                        FileDownloadSection(
+                            fileList = fileList,
+                            fileTransferState = fileTransferState,
+                            downloadProgress = downloadProgress,
+                            totalFileSize = currentFileTotalSize,
+                            isBusy = currentOperation != BleViewModel.Operation.IDLE,
+                            transferKbps = transferKbps,
+                            onDownloadClick = { viewModel.downloadFile(it) }
+                        )
+
+                        AppLogCard(logs = logs)
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    PullRefreshIndicator(
+                        refreshing = isRefreshing,
+                        state = pullRefreshState,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
                 }
             }
         }
@@ -323,8 +340,7 @@ fun FileDownloadSection(
         }
 
         FileListCard(title = "WAV ファイル", files = wavFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = false) // No download button for WAVs
-        Spacer(modifier = Modifier.height(8.dp))
-        FileListCard(title = "ログファイル", files = logFiles, onDownloadClick = onDownloadClick, isBusy = isBusy, showDownloadButton = true) // Keep download button for logs
+
     }
 }
 
@@ -373,55 +389,39 @@ fun FileListCard(title: String, files: List<com.pirorin215.fastrecmob.data.FileE
 }
 
 
-@Composable
-fun ConnectionStatusIndicator(connectionState: String) {
-    val statusColor = if (connectionState == "Connected") Color.Green else Color.Red
-    val localizedConnectionState = when (connectionState) {
-        "Connected" -> "接続"
-        "Disconnected" -> "切断"
-        else -> connectionState // Other states remain as is
-    }
 
-    val textColor = if (statusColor == Color.Green) Color.Black else Color.White // Dynamic text color
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = statusColor) // Apply color to the entire card
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Remove the Box composable for the circular indicator
-            // Spacer(modifier = Modifier.width(8.dp)) // No need for this spacer if circle is removed
-            Text(
-                text = "FastRecアプリ ($localizedConnectionState)", // Change title and localize state
-                style = MaterialTheme.typography.titleLarge,
-                color = textColor // Ensure text is visible on colored background
-            )
-        }
-    }
-}
 
 @Composable
 fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
+    var expanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround // 均等配置
-        ) {
-            InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%")
-            Spacer(Modifier.width(8.dp))
-            InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString())
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceAround // 均等配置
+            ) {
+                InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%", modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString(), modifier = Modifier.weight(1f))
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand"
+                    )
+                }
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.size(8.dp))
+                InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
+                InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
+                InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
+                InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
+            }
         }
     }
 }
@@ -440,24 +440,6 @@ fun InfoItem(icon: ImageVector, label: String, value: String, modifier: Modifier
 
 
 @Composable
-fun DetailedInfoCard(deviceInfo: DeviceInfoResponse?) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = "詳細情報", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
-            InfoRow(label = "バッテリー電圧", value = "${String.format("%.2f", deviceInfo?.batteryVoltage ?: 0.0f)} V")
-            InfoRow(label = "アプリ状態", value = deviceInfo?.appState ?: "-")
-            InfoRow(label = "ストレージ使用量", value = "${deviceInfo?.littlefsUsedBytes ?: 0} bytes")
-            InfoRow(label = "ストレージ総容量", value = "${(deviceInfo?.littlefsTotalBytes ?: 0) / 1024 / 1024} MB")
-
-        }
-    }
-}
-
-@Composable
 fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier
@@ -471,6 +453,53 @@ fun InfoRow(label: String, value: String) {
     }
     Divider()
 }
+
+@Composable
+fun AppLogCard(logs: List<String>) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("アプリログ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand"
+                    )
+                }
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.size(8.dp))
+                val lazyListState = rememberLazyListState()
+                SelectionContainer {
+                    Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                        LazyColumn(
+                            modifier = Modifier.padding(8.dp),
+                            state = lazyListState
+                        ) {
+                            items(logs) { log ->
+                                Text(text = log, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                LaunchedEffect(logs.size) {
+                    if (logs.isNotEmpty()) {
+                        lazyListState.animateScrollToItem(logs.size - 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 
 class BleViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
