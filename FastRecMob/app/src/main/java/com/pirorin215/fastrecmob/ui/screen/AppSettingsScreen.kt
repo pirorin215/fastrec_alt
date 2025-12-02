@@ -33,12 +33,12 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     // DataStoreから現在の設定値を取得
     val currentApiKey by viewModel.apiKey.collectAsState()
     val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()
-    val currentCacheLimit by viewModel.audioCacheLimit.collectAsState() // Add this
+    val currentTranscriptionCacheLimit by viewModel.transcriptionCacheLimit.collectAsState() // Renamed
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var intervalText by remember(currentInterval) { mutableStateOf(currentInterval.toString()) }
-    var cacheLimitText by remember(currentCacheLimit) { mutableStateOf(currentCacheLimit.toString()) } // Add this
+    var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
 
     Scaffold(
         topBar = {
@@ -73,9 +73,9 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
-                value = cacheLimitText,
-                onValueChange = { cacheLimitText = it },
-                label = { Text("音声ファイル保持数") },
+                value = transcriptionCacheLimitText, // Renamed
+                onValueChange = { transcriptionCacheLimitText = it },
+                label = { Text("文字起こし保持数") }, // Updated text
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -87,8 +87,8 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
                     val interval = intervalText.toIntOrNull() ?: 30
                     viewModel.saveRefreshInterval(interval)
                     // 入力が不正な場合はデフォルト値100を使う
-                    val cacheLimit = cacheLimitText.toIntOrNull() ?: 100
-                    viewModel.saveAudioCacheLimit(cacheLimit)
+                    val transcriptionCacheLimit = transcriptionCacheLimitText.toIntOrNull() ?: 100 // Renamed
+                    viewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
                     onBack() // 保存後に前の画面に戻る
                 },
                 modifier = Modifier.fillMaxWidth()

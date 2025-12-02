@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -72,7 +73,10 @@ class BleViewModel(
         const val SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b" // Add this
         const val MAX_DELETE_RETRIES = 3
         const val DELETE_RETRY_DELAY_MS = 1000L // 1 second
+        const val TIME_SYNC_INTERVAL_MS = 300000L // 5 minutes
     }
+
+    private var timeSyncJob: Job? = null
 
     val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
         .stateIn(
@@ -90,7 +94,7 @@ class BleViewModel(
 
 
 
-    val audioCacheLimit: StateFlow<Int> = appSettingsRepository.audioCacheLimitFlow
+    val transcriptionCacheLimit: StateFlow<Int> = appSettingsRepository.transcriptionCacheLimitFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -110,6 +114,33 @@ class BleViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val transcriptionCount: StateFlow<Int> = transcriptionResults
+        .map { it.size }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    private val _audioFileCount = MutableStateFlow(0)
+    val audioFileCount: StateFlow<Int> = _audioFileCount.asStateFlow()
+
+    private fun updateLocalAudioFileCount() {
+        viewModelScope.launch {
+            val audioDir = context.getExternalFilesDir(audioDirName.value)
+            if (audioDir != null && audioDir.exists()) {
+                val count = audioDir.listFiles { _, name ->
+                    name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
+                }?.size ?: 0
+                _audioFileCount.value = count
+                addLog("Updated local audio file count: $count")
+            } else {
+                _audioFileCount.value = 0
+                addLog("Audio directory not found, local audio file count is 0.")
+            }
+        }
+    }
 
 
 
@@ -204,6 +235,7 @@ class BleViewModel(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val bleMutex = Mutex()
+    private val transcriptionBatchMutex = Mutex()
 
     enum class Operation {
         IDLE,
@@ -211,7 +243,8 @@ class BleViewModel(
         FETCHING_SETTINGS,
         DOWNLOADING_FILE,
         SENDING_SETTINGS,
-        DELETING_FILE // Added new state
+        DELETING_FILE,
+        SENDING_TIME // Added new state
     }
 
     private var responseBuffer = mutableListOf<Byte>()
@@ -242,11 +275,15 @@ class BleViewModel(
                     _connectionState.value = "Disconnected"
                     addLog("Disconnected. Reconnection will be handled by foreground/background state.")
                     resetOperationStates()
+                    timeSyncJob?.cancel() // Cancel time sync job on disconnect
+                    timeSyncJob = null
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Error -> {
                     _connectionState.value = "Disconnected"
                     addLog("Connection Error: ${state.message}. Attempting to recover.")
                     resetOperationStates()
+                    timeSyncJob?.cancel() // Cancel time sync job on error
+                    timeSyncJob = null
                     restartScan()
                 }
             }
@@ -260,22 +297,55 @@ class BleViewModel(
                 }
                 is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
                     addLog("Device is ready for communication.")
-                    viewModelScope.launch {
-                        // Synchronize time first
+                viewModelScope.launch {
+                    var timeSyncSuccess = false
+                    bleMutex.withLock { // Acquire lock before sending SET:time
+                        _currentOperation.value = Operation.SENDING_TIME // New operation state
+                        responseBuffer.clear() // Clear buffer for SET:time response
+                        val timeCompletion = CompletableDeferred<Boolean>()
+                        currentCommandCompletion = timeCompletion // Use common completion for SET:time
+
                         val currentTimestampSec = System.currentTimeMillis() / 1000
                         val timeCommand = "SET:time:$currentTimestampSec"
-                        addLog("Sending time synchronization command: $timeCommand")
+                        addLog("Sending initial time synchronization command: $timeCommand")
                         sendCommand(timeCommand)
-                        
-                        // Wait a moment for the device to process the time set command
-                        delay(500)
 
-                        // Now proceed with other on-ready tasks
-                        fetchFileList()
-                        if (_isAutoRefreshEnabled.value) {
-                            startAutoRefresh()
+                        timeSyncSuccess = withTimeoutOrNull(5000L) { // 5 second timeout for time sync
+                            timeCompletion.await()
+                        } ?: false
+
+                        if (timeSyncSuccess) {
+                            addLog("Initial time synchronization successful.")
+                        } else {
+                            addLog("Initial time synchronization failed or timed out.")
+                        }
+                        _currentOperation.value = Operation.IDLE // RESET TO IDLE HERE!
+                    } // Release lock after SET:time completion/timeout
+
+                    // Start periodic time synchronization
+                    timeSyncJob?.cancel() // Cancel any existing job
+                    timeSyncJob = viewModelScope.launch {
+                        while (true) {
+                            delay(TIME_SYNC_INTERVAL_MS)
+                            if (connectionState.value == "Connected" && _currentOperation.value == Operation.IDLE) {
+                                bleMutex.withLock { // Acquire lock for periodic time sync
+                                    val periodicTimestampSec = System.currentTimeMillis() / 1000
+                                    val periodicTimeCommand = "SET:time:$periodicTimestampSec"
+                                    addLog("Sending periodic time synchronization command: $periodicTimeCommand")
+                                    sendCommand(periodicTimeCommand)
+                                } // Release lock
+                            } else {
+                                addLog("Skipping periodic time sync: not connected or operation in progress.")
+                            }
                         }
                     }
+
+                    // Now proceed with other on-ready tasks
+                    fetchFileList()
+                    if (_isAutoRefreshEnabled.value) {
+                        startAutoRefresh()
+                    }
+                }
                 }
                 is com.pirorin215.fastrecmob.data.BleEvent.CharacteristicChanged -> {
                     handleCharacteristicChanged(event.characteristic, event.value)
@@ -315,6 +385,7 @@ class BleViewModel(
                 }
             }.launchIn(this)
         }
+        updateLocalAudioFileCount() // Initial call to update count
     }
 
 
@@ -480,6 +551,21 @@ class BleViewModel(
                     responseBuffer.clear()
                 }
             }
+            Operation.SENDING_TIME -> { // Handle response for SET:time
+                val response = value.toString(Charsets.UTF_8).trim()
+                addLog("Received response for SET:time: $response")
+                if (response.startsWith("OK: Time")) {
+                    currentCommandCompletion?.complete(true)
+                    responseBuffer.clear()
+                } else if (response.startsWith("ERROR:")) {
+                    currentCommandCompletion?.complete(false)
+                    responseBuffer.clear()
+                } else {
+                    addLog("Unexpected response during SET:time: $response")
+                    currentCommandCompletion?.complete(false) // Treat unexpected as failure
+                    responseBuffer.clear()
+                }
+            }
             else -> {
                 addLog("Received data in unexpected state (${_currentOperation.value}): ${value.toString(Charsets.UTF_8)}")
             }
@@ -549,48 +635,41 @@ class BleViewModel(
         }
     }
 
-    private suspend fun cleanupOldAudioFiles() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    private suspend fun cleanupTranscriptionResultsAndAudioFiles() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            addLog("Running audio file cleanup...")
-            val limit = audioCacheLimit.value
-            val audioDir = context.getExternalFilesDir(audioDirName.value)
+            addLog("Running transcription results and audio file cleanup...")
+            val limit = transcriptionCacheLimit.value
+            val currentTranscriptionResults = transcriptionResults.value.sortedBy { it.timestamp } // Oldest first
 
-            if (audioDir == null) {
-                addLog("Could not access app-specific audio directory.")
-                return@withContext
-            }
-            
-            // Filter for files managed by this app
-            val audioFiles = audioDir.listFiles { _, name ->
-                name.startsWith("R") && name.endsWith(".wav")
-            }
+            if (currentTranscriptionResults.size > limit) {
+                val resultsToDelete = currentTranscriptionResults.take(currentTranscriptionResults.size - limit)
+                addLog("Transcription cache limit ($limit) exceeded. Found ${currentTranscriptionResults.size} results. Deleting oldest ${resultsToDelete.size} results and associated audio files...")
 
-            if (audioFiles == null) {
-                addLog("Could not list files in app-specific audio directory.")
-                return@withContext
-            }
+                resultsToDelete.forEach { result ->
+                    // Delete from DataStore
+                    transcriptionResultRepository.removeResult(result)
+                    addLog("Deleted transcription result: ${result.fileName}")
 
-            if (audioFiles.size > limit) {
-                addLog("Audio cache limit ($limit) exceeded. Found ${audioFiles.size} files. Deleting oldest...")
-                
-                // Sort files by name, which corresponds to date (oldest first)
-                val sortedFiles = audioFiles.sortedBy { it.name }
-                
-                val filesToDelete = sortedFiles.take(audioFiles.size - limit)
-                
-                filesToDelete.forEach { file ->
-                    if (file.delete()) {
-                        addLog("Deleted old audio file: ${file.name}")
+                    // Delete associated audio file
+                    val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+                    if (audioFile.exists()) {
+                        if (audioFile.delete()) {
+                            addLog("Deleted associated audio file: ${result.fileName}")
+                        } else {
+                            addLog("Failed to delete associated audio file: ${result.fileName}")
+                        }
                     } else {
-                        addLog("Failed to delete old audio file: ${file.name}")
+                        addLog("Associated audio file not found for: ${result.fileName}")
                     }
                 }
-                addLog("Cleanup finished. Deleted ${filesToDelete.size} file(s).")
+                addLog("Cleanup finished. Deleted ${resultsToDelete.size} transcription results and audio files.")
             } else {
-                addLog("Audio cache is within limit ($limit). No files deleted.")
+                addLog("Transcription cache is within limit ($limit). No results or files deleted.")
             }
         } catch (e: Exception) {
-            addLog("Error during audio file cleanup: ${e.message}")
+            addLog("Error during transcription results and audio file cleanup: ${e.message}")
+        } finally {
+            updateLocalAudioFileCount() // Ensure count is updated after cleanup
         }
     }
     
@@ -671,6 +750,7 @@ class BleViewModel(
                             // fetchFileList will acquire its own lock, so we must exit this one first.
                             // Launch a new coroutine to avoid blocking this finally block.
                             viewModelScope.launch { fetchFileList() }
+                            updateLocalAudioFileCount() // Update count after deletion
                             break // Exit retry loop on success
                         } else if (i < MAX_DELETE_RETRIES) {
                             addLog("Failed to delete file: $fileName. Retrying in ${DELETE_RETRY_DELAY_MS}ms...")
@@ -846,7 +926,8 @@ class BleViewModel(
                     addLog("Added ${file.name} to transcription queue.")
 
                     // Run cleanup after a successful download
-                    cleanupOldAudioFiles()
+                    cleanupTranscriptionResultsAndAudioFiles() // Changed from cleanupOldAudioFiles()
+                    updateLocalAudioFileCount() // Update count after saving and potential cleanup
 
                     // Now, trigger the deletion. This will acquire its own lock.
                     deleteFileOnMicrocontroller(fileName)
@@ -869,9 +950,16 @@ class BleViewModel(
         addLog("Starting transcription for $filePath")
 
         val currentService = speechToTextService
+        val actualFileName = File(filePath).name
+
         if (currentService == null) {
             _transcriptionState.value = "Error: API key is not set. Please set it in the settings."
             addLog("Transcription failed: API key is not set.")
+            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。", System.currentTimeMillis())
+            // Directly await these operations
+            transcriptionResultRepository.addResult(errorResult)
+            addLog("Transcription error result saved for $actualFileName.")
+            cleanupTranscriptionResultsAndAudioFiles()
             return
         }
 
@@ -880,16 +968,20 @@ class BleViewModel(
         result.onSuccess { transcription ->
             _transcriptionResult.value = transcription
             addLog("Transcription successful for $filePath.")
-            val actualFileName = File(filePath).name
-            val newResult = TranscriptionResult(actualFileName, transcription)
-            viewModelScope.launch {
-                transcriptionResultRepository.addResult(newResult)
-                addLog("Transcription result saved for $actualFileName.")
-            }
+            val newResult = TranscriptionResult(actualFileName, transcription, System.currentTimeMillis())
+            // Directly await these operations
+            transcriptionResultRepository.addResult(newResult)
+            addLog("Transcription result saved for $actualFileName.")
+            cleanupTranscriptionResultsAndAudioFiles()
         }.onFailure { error ->
             _transcriptionState.value = "Error: ${error.message}"
             _transcriptionResult.value = null
             addLog("Transcription failed for $filePath: ${error.message}")
+            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: ${error.message}", System.currentTimeMillis())
+            // Directly await these operations
+            transcriptionResultRepository.addResult(errorResult)
+            addLog("Transcription error result saved for $actualFileName.")
+            cleanupTranscriptionResultsAndAudioFiles()
         }
     }
 
@@ -899,16 +991,25 @@ class BleViewModel(
             return
         }
 
-        addLog("Found ${transcriptionQueue.size} file(s) in queue. Starting batch transcription.")
-        val filesToProcess = transcriptionQueue.toList()
-        transcriptionQueue.clear()
-
         viewModelScope.launch {
-            for (filePath in filesToProcess) {
-                doTranscription(filePath)
+            if (!transcriptionBatchMutex.tryLock()) {
+                addLog("Batch transcription already in progress. Skipping.")
+                return@launch
             }
-            addLog("Batch transcription finished.")
-            _transcriptionState.value = "Idle" // Reset state after batch is done
+            try {
+                addLog("Found ${transcriptionQueue.size} file(s) in queue. Starting batch transcription.")
+                val filesToProcess = transcriptionQueue.toList()
+                transcriptionQueue.clear()
+
+                for (filePath in filesToProcess) {
+                    doTranscription(filePath)
+                }
+                addLog("Batch transcription finished.")
+                _transcriptionState.value = "Idle" // Reset state after batch is done
+                cleanupTranscriptionResultsAndAudioFiles() // Call cleanup after batch transcription
+            } finally {
+                transcriptionBatchMutex.unlock()
+            }
         }
     }
 
@@ -936,11 +1037,11 @@ class BleViewModel(
 
 
 
-    fun saveAudioCacheLimit(limit: Int) {
+    fun saveTranscriptionCacheLimit(limit: Int) {
         viewModelScope.launch {
             val cacheLimit = if (limit < 1) 1 else limit // Ensure at least 1
-            appSettingsRepository.saveAudioCacheLimit(cacheLimit)
-            addLog("Audio cache limit saved: $cacheLimit files.")
+            appSettingsRepository.saveTranscriptionCacheLimit(cacheLimit)
+            addLog("Transcription cache limit saved: $cacheLimit files.")
         }
     }
 
@@ -961,16 +1062,50 @@ class BleViewModel(
 
     fun clearTranscriptionResults() {
         viewModelScope.launch {
+            // First, clear all results from the repository (DataStore)
             transcriptionResultRepository.clearResults()
-            addLog("All transcription results cleared.")
+            addLog("All transcription results cleared from DataStore.")
+
+            // Then, delete all associated audio files
+            val audioDir = context.getExternalFilesDir(audioDirName.value)
+            if (audioDir != null && audioDir.exists()) {
+                val audioFiles = audioDir.listFiles { _, name ->
+                    // Only delete files matching the expected naming convention
+                    name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
+                }
+                audioFiles?.forEach { file ->
+                    if (file.delete()) {
+                        addLog("Deleted audio file during clear all: ${file.name}")
+                    } else {
+                        addLog("Failed to delete audio file during clear all: ${file.name}")
+                    }
+                }
+                updateLocalAudioFileCount() // Update count after all deletions
+            } else {
+                addLog("Audio directory not found, no files to clear.")
+            }
         }
     }
 
     // 特定の文字起こし結果を削除する関数
     fun removeTranscriptionResult(result: TranscriptionResult) {
         viewModelScope.launch {
+            // First, delete from the repository (DataStore)
             transcriptionResultRepository.removeResult(result)
-            addLog("Transcription result removed: ${result.fileName}")
+            addLog("Transcription result removed from DataStore: ${result.fileName}")
+
+            // Then, delete the associated audio file
+            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+            if (audioFile.exists()) {
+                if (audioFile.delete()) {
+                    addLog("Associated audio file deleted: ${result.fileName}")
+                    updateLocalAudioFileCount() // Update count after deletion
+                } else {
+                    addLog("Failed to delete associated audio file: ${result.fileName}")
+                }
+            } else {
+                addLog("Associated audio file not found: ${result.fileName}")
+            }
         }
     }
 }

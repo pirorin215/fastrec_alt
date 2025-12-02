@@ -20,7 +20,7 @@ class AppSettingsRepository(private val context: Context) {
     private object PreferencesKeys {
         val API_KEY = stringPreferencesKey("google_cloud_api_key")
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
-        val AUDIO_CACHE_LIMIT = intPreferencesKey("audio_cache_limit")
+        val TRANSCRIPTION_CACHE_LIMIT = intPreferencesKey("transcription_cache_limit") // Renamed
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
     }
 
@@ -37,11 +37,11 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.REFRESH_INTERVAL_SECONDS] ?: 30
         }
 
-    // 音声ファイル保持数の変更を監視するためのFlow
-    val audioCacheLimitFlow: Flow<Int> = context.dataStore.data
+    // 文字起こし保持数の変更を監視するためのFlow
+    val transcriptionCacheLimitFlow: Flow<Int> = context.dataStore.data
         .map { preferences ->
             // デフォルト値を100件に設定
-            preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] ?: 100
+            preferences[PreferencesKeys.TRANSCRIPTION_CACHE_LIMIT] ?: 100
         }
 
     // 音声保存ディレクトリ名の変更を監視するためのFlow
@@ -65,10 +65,10 @@ class AppSettingsRepository(private val context: Context) {
         }
     }
 
-    // 音声ファイル保持数を保存するsuspend関数
-    suspend fun saveAudioCacheLimit(limit: Int) {
+    // 文字起こし保持数を保存するsuspend関数
+    suspend fun saveTranscriptionCacheLimit(limit: Int) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.AUDIO_CACHE_LIMIT] = limit
+            preferences[PreferencesKeys.TRANSCRIPTION_CACHE_LIMIT] = limit
         }
     }
 

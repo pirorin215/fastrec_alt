@@ -284,6 +284,16 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
                 tv.tv_usec = 0;
                 settimeofday(&tv, NULL);
                 
+                // --- Immediate verification of time setting ---
+                time_t verify_now;
+                struct tm verify_timeinfo;
+                char verify_time_buf[64];
+                time(&verify_now);
+                localtime_r(&verify_now, &verify_timeinfo);
+                strftime(verify_time_buf, sizeof(verify_time_buf), "%Y-%m-%d %H:%M:%S", &verify_timeinfo);
+                applog("Time verified immediately after settimeofday: %s (epoch: %lld)", verify_time_buf, (long long)verify_now);
+                // --- End verification ---
+                
                 // Confirm the time has been set
                 time_t now;
                 struct tm timeinfo;
@@ -454,6 +464,14 @@ void start_ble_server() {
   pAdvertising->enableScanResponse(true); // Enable scan response
   pAdvertising->start();
 }
+
+bool isBLEConnected() {
+  if (pBLEServer == nullptr) {
+    return false;
+  }
+  return pBLEServer->getConnectedCount() > 0;
+}
+
 
 bool loadSettingsFromLittleFS() {
   applog("Loading settings from /setting.ini...");

@@ -356,6 +356,12 @@ void setup() {
   setenv("TZ", "JST-9", 1);
   tzset();
   
+  // Configure internal RTC with timezone, even if not using NTP for initial sync.
+  // This ensures time functions behave correctly with the specified timezone.
+  const long  gmtOffset_sec = 9 * 3600; // JST is UTC+9
+  const int   daylightOffset_sec = 0;   // No daylight saving in JST
+  configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org", "time.nist.gov"); // Dummy NTP servers, not actively used for sync
+  
   initPins();
 
   initRTCtime();
