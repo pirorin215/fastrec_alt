@@ -217,11 +217,11 @@ fun BleControl() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp)
+                            .padding(horizontal = 4.dp)
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         ConnectionStatusIndicator(connectionState)
 
                         SummaryInfoCard(deviceInfo = deviceInfo)
@@ -376,13 +376,11 @@ fun ConnectionStatusIndicator(connectionState: String) {
         colors = CardDefaults.cardColors(containerColor = statusColor) // Apply color to the entire card
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(vertical = 0.dp, horizontal = 12.dp), // Reduced vertical padding
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Remove the Box composable for the circular indicator
-            // Spacer(modifier = Modifier.width(8.dp)) // No need for this spacer if circle is removed
             Text(
-                text = "FastRecアプリ ($localizedConnectionState)", // Change title and localize state
+                text = "FastRecアプリ ($localizedConnectionState)",
                 style = MaterialTheme.typography.titleLarge,
                 color = textColor // Ensure text is visible on colored background
             )
