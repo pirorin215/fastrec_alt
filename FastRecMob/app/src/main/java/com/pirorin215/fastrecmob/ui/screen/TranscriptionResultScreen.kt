@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow // 移動
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -152,23 +153,28 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
             confirmButton = {
                 Row {
                     if (audioFileExists) {
-                        TextButton(onClick = {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                val uri = androidx.core.content.FileProvider.getUriForFile(
-                                    context,
-                                    "com.pirorin215.fastrecmob.provider",
-                                    audioFile
-                                )
-                                setDataAndType(uri, "audio/wav")
-                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            try {
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // Handle case where no app can play WAV files
-                                e.printStackTrace()
-                            }
-                        }) {
+                        Button(
+                            onClick = {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                                        context,
+                                        "com.pirorin215.fastrecmob.provider",
+                                        audioFile
+                                    )
+                                    setDataAndType(uri, "audio/wav")
+                                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Handle case where no app can play WAV files
+                                    e.printStackTrace()
+                                }
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "再生")
+                            Spacer(Modifier.width(8.dp))
                             Text("再生")
                         }
                     }
@@ -246,9 +252,9 @@ fun TranscriptionResultItem(
                 color = contentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis, // エリプシスで省略
-                modifier = Modifier.width(160.dp) // 日時表示の幅を固定
+                modifier = Modifier.width(140.dp) // 日時表示の幅を固定
             )
-            Spacer(modifier = Modifier.width(8.dp)) // 日時と文章の間のスペース
+            Spacer(modifier = Modifier.width(1.dp)) // 日時と文章の間のスペース
             // 文字起こし冒頭の文章 (残り幅を占有し、見切れる)
             Text(
                 text = result.transcription, // 文字数制限を削除
