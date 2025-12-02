@@ -453,9 +453,9 @@ if __name__ == "__main__":
                 elif choice == '3':
                     await get_device_info(verbose)
                 elif choice == '4':
-                    await get_file_from_device("log.", False)
+                    await get_file_from_device("log.", verbose)
                 elif choice == '5':
-                    await get_file_from_device(".wav", False)
+                    await get_file_from_device(".wav", verbose)
                 elif choice == '6':
                     await reset_all(verbose)
                 elif choice == '0':
