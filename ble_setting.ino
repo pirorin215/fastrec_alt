@@ -186,26 +186,6 @@ static std::string handle_get_setting_ini() {
   return "ERROR: Unknown error in handle_get_setting_ini"; // Should not be reached
 }
 
-static std::string handle_get_ls() {
-  File root = LittleFS.open("/", "r");
-  if (root) {
-    std::string responseData = "";
-    File file = root.openNextFile();
-    while (file) {
-      responseData += file.name();
-      if (file.isDirectory()) {
-        responseData += "/";
-      }
-      responseData += "\n";
-      file = root.openNextFile();
-    }
-    root.close();
-    return responseData;
-  } else {
-    return "ERROR: Failed to open root directory";
-  }
-}
-
 static std::string handle_get_info() {
   StaticJsonDocument<1024> doc;
   std::string littlefs_ls_std = "";
@@ -412,8 +392,6 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
 
       if (value == "GET:setting_ini") {
         responseData = handle_get_setting_ini();
-      } else if (value == "GET:ls") {
-        responseData = handle_get_ls();
       } else if (value == "GET:info") {
         responseData = handle_get_info();
       } else if (value.rfind("SET:setting_ini:", 0) == 0) {
