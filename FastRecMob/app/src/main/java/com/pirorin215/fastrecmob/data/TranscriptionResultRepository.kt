@@ -50,7 +50,9 @@ class TranscriptionResultRepository(private val context: Context) {
     suspend fun addResult(result: TranscriptionResult) {
         context.transcriptionDataStore.edit { preferences ->
             val currentList = transcriptionResultsFlow.first() // 現在のリストを取得 (Flowをブロックするが、DataStoreは非同期なので問題ない)
-            val updatedList = currentList + result
+            // Filter out any existing result with the same fileName before adding the new one
+            val listWithoutExisting = currentList.filter { it.fileName != result.fileName }
+            val updatedList = listWithoutExisting + result
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
         }
     }
@@ -66,7 +68,7 @@ class TranscriptionResultRepository(private val context: Context) {
     suspend fun removeResult(result: TranscriptionResult) {
         context.transcriptionDataStore.edit { preferences ->
             val currentList = transcriptionResultsFlow.first()
-            val updatedList = currentList.filter { it != result } // resultと一致するものを除外
+            val updatedList = currentList.filter { it.fileName != result.fileName } // resultと一致するものを除外
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
         }
     }

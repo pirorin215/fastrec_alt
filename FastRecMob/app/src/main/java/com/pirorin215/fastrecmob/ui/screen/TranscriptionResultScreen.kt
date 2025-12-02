@@ -48,7 +48,18 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("文字起こし履歴") },
+                title = {
+                    Column {
+                        Text("文字起こし履歴")
+                        val transcriptionCount by viewModel.transcriptionCount.collectAsState()
+                        val audioFileCount by viewModel.audioFileCount.collectAsState()
+                        Text(
+                            "履歴: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 navigationIcon = {
                     if (isSelectionMode) {
                         IconButton(onClick = { // 選択解除ボタン

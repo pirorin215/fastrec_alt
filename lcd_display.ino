@@ -107,7 +107,14 @@ void displayStatus(const char* msg) {
   } else {
     snprintf(rssiStr, sizeof(rssiStr), "%2d", abs(WiFi.RSSI()));
   }
-  snprintf(line1, sizeof(line1), "% -6s    %2s", appStateStrings[g_currentAppState], rssiStr);
+
+  const char* appStateToDisplay;
+  if (isBLEConnected()) {
+    appStateToDisplay = "BLE";
+  } else {
+    appStateToDisplay = appStateStrings[g_currentAppState];
+  }
+  snprintf(line1, sizeof(line1), "% -6s    %2s", appStateToDisplay, rssiStr);
   displayLine(0, line1); 
  
   // 2行目: フラッシュメモリ空き容量と電池残量
