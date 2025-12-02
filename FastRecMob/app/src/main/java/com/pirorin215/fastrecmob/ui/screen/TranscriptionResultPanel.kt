@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.TranscriptionResult
@@ -37,6 +38,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
+    val fontSize by viewModel.transcriptionFontSize.collectAsState()
 
     // 全文表示用の状態
     var showFullTextDialog by remember { mutableStateOf(false) }
@@ -59,12 +61,11 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("文字起こし履歴", style = MaterialTheme.typography.titleMedium)
                     val transcriptionCount by viewModel.transcriptionCount.collectAsState()
                     val audioFileCount by viewModel.audioFileCount.collectAsState()
                     Text(
-                        "履歴: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
-                        style = MaterialTheme.typography.bodySmall,
+                        "メモ: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -88,17 +89,13 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            Divider()
-            Spacer(modifier = Modifier.height(8.dp))
-
             if (transcriptionResults.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
                     Text("文字起こし履歴はありません。")
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 250.dp) // Limit height
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp) // Limit height
                 ) {
                     items(items = transcriptionResults.sortedByDescending { it.timestamp }, key = { it.timestamp }) { result ->
                         val isSelected = selectedItems.contains(result)
@@ -106,6 +103,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                             result = result,
                             isSelectionMode = isSelectionMode,
                             isSelected = isSelected,
+                            fontSize = fontSize,
                             onItemClick = { clickedItem ->
                                 if (isSelectionMode) {
                                     if (selectedItems.contains(clickedItem)) {
@@ -152,7 +150,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
             text = {
                 val scrollState = rememberScrollState()
                 Column(modifier = Modifier.verticalScroll(scrollState).heightIn(max=400.dp)) {
-                    Text(fullTextToShow)
+                    Text(fullTextToShow, fontSize = fontSize.sp)
                 }
             },
             confirmButton = {
@@ -231,6 +229,7 @@ fun TranscriptionResultItem(
     result: TranscriptionResult,
     isSelectionMode: Boolean,
     isSelected: Boolean,
+    fontSize: Int,
     onItemClick: (TranscriptionResult) -> Unit,
     onItemLongClick: (TranscriptionResult) -> Unit
 ) {
@@ -264,7 +263,7 @@ fun TranscriptionResultItem(
             // 文字起こし冒頭の文章 (残り幅を占有し、見切れる)
             Text(
                 text = result.transcription, // 文字数制限を削除
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Clip, // 見切れるように
                 color = contentColor,

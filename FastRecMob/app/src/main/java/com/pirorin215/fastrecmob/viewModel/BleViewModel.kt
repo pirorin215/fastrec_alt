@@ -101,6 +101,13 @@ class BleViewModel(
             initialValue = 100 // Default to 100 files
         )
 
+    val transcriptionFontSize: StateFlow<Int> = appSettingsRepository.transcriptionFontSizeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 14 // Default to 14
+        )
+
     val audioDirName: StateFlow<String> = appSettingsRepository.audioDirNameFlow
         .stateIn(
             scope = viewModelScope,
@@ -1046,6 +1053,14 @@ class BleViewModel(
             val cacheLimit = if (limit < 1) 1 else limit // Ensure at least 1
             appSettingsRepository.saveTranscriptionCacheLimit(cacheLimit)
             addLog("Transcription cache limit saved: $cacheLimit files.")
+        }
+    }
+
+    fun saveTranscriptionFontSize(size: Int) {
+        viewModelScope.launch {
+            val fontSize = size.coerceIn(10, 24) // Ensure font size is within a reasonable range
+            appSettingsRepository.saveTranscriptionFontSize(fontSize)
+            addLog("Transcription font size saved: $fontSize sp.")
         }
     }
 
