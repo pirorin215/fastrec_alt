@@ -153,6 +153,7 @@ fun BleControl() {
     var showAppSettings by remember { mutableStateOf(false) }
 
     var showLogDownloadScreen by remember { mutableStateOf(false) }
+    var showAppLogPanel by remember { mutableStateOf(false) } // New state for AppLogCard visibility
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -267,6 +268,13 @@ fun BleControl() {
                                         expanded = false
                                     }
                                 )
+                                DropdownMenuItem( // New menu item for App Log
+                                    text = { Text("アプリログ") },
+                                    onClick = {
+                                        showAppLogPanel = !showAppLogPanel // Toggle visibility
+                                        expanded = false
+                                    }
+                                )
                             }
                         }
                     )
@@ -276,18 +284,14 @@ fun BleControl() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 4.dp)
-                            .verticalScroll(rememberScrollState()),
+                            .padding(horizontal = 4.dp), // Removed verticalScroll from here
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Spacer(modifier = Modifier.height(4.dp))
-
-
                         SummaryInfoCard(deviceInfo = deviceInfo)
-
-                        TranscriptionResultPanel(viewModel = viewModel)
+                        // TranscriptionResultPanel now takes flexible space
+                        TranscriptionResultPanel(viewModel = viewModel, modifier = Modifier.weight(1f))
                         Spacer(modifier = Modifier.height(8.dp))
-
                         FileDownloadSection(
                             fileList = fileList,
                             fileTransferState = fileTransferState,
@@ -297,15 +301,23 @@ fun BleControl() {
                             transferKbps = transferKbps,
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
-
-                        AppLogCard(logs = logs)
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                     PullRefreshIndicator(
                         refreshing = isRefreshing,
                         state = pullRefreshState,
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
+                    // AppLogCard as an overlay at the bottom
+                    if (showAppLogPanel) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .heightIn(max = 200.dp) // Limit height of the log panel
+                        ) {
+                            AppLogCard(logs = logs)
+                        }
+                    }
                 }
             }
         }
