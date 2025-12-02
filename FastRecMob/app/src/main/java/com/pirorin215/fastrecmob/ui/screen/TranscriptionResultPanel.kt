@@ -51,9 +51,9 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(0.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(0.dp)) {
             // Header for the panel
             Row(
                 modifier = Modifier.fillMaxWidth(),
