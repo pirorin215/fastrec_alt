@@ -22,6 +22,7 @@ class AppSettingsRepository(private val context: Context) {
         val REFRESH_INTERVAL_SECONDS = intPreferencesKey("refresh_interval_seconds")
         val TRANSCRIPTION_CACHE_LIMIT = intPreferencesKey("transcription_cache_limit") // Renamed
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
+        val TRANSCRIPTION_FONT_SIZE = intPreferencesKey("transcription_font_size")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -42,6 +43,13 @@ class AppSettingsRepository(private val context: Context) {
         .map { preferences ->
             // デフォルト値を100件に設定
             preferences[PreferencesKeys.TRANSCRIPTION_CACHE_LIMIT] ?: 100
+        }
+
+    // 文字起こし結果のフォントサイズの変更を監視するためのFlow
+    val transcriptionFontSizeFlow: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            // デフォルト値を14に設定
+            preferences[PreferencesKeys.TRANSCRIPTION_FONT_SIZE] ?: 14
         }
 
     // 音声保存ディレクトリ名の変更を監視するためのFlow
@@ -69,6 +77,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveTranscriptionCacheLimit(limit: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.TRANSCRIPTION_CACHE_LIMIT] = limit
+        }
+    }
+
+    // 文字起こし結果のフォントサイズを保存するsuspend関数
+    suspend fun saveTranscriptionFontSize(size: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.TRANSCRIPTION_FONT_SIZE] = size
         }
     }
 

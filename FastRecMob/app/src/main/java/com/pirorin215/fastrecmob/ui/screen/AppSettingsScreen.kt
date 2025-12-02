@@ -1,6 +1,8 @@
 package com.pirorin215.fastrecmob.ui.screen
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -22,10 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,11 +40,14 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     val currentApiKey by viewModel.apiKey.collectAsState()
     val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()
     val currentTranscriptionCacheLimit by viewModel.transcriptionCacheLimit.collectAsState() // Renamed
+    val currentFontSize by viewModel.transcriptionFontSize.collectAsState()
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var intervalText by remember(currentInterval) { mutableStateOf(currentInterval.toString()) }
     var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
+    var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
+
 
     Scaffold(
         topBar = {
@@ -80,6 +89,17 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
+            // Font size slider
+            Text("文字起こしフォントサイズ: ${fontSizeSliderValue.roundToInt()} sp")
+            Slider(
+                value = fontSizeSliderValue,
+                onValueChange = { fontSizeSliderValue = it },
+                valueRange = 10f..24f,
+                steps = 13, // (24 - 10) / 1 = 14 steps, so 13 intermediate points
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
                     viewModel.saveApiKey(apiKeyText)
@@ -89,6 +109,7 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
                     // 入力が不正な場合はデフォルト値100を使う
                     val transcriptionCacheLimit = transcriptionCacheLimitText.toIntOrNull() ?: 100 // Renamed
                     viewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
+                    viewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
                     onBack() // 保存後に前の画面に戻る
                 },
                 modifier = Modifier.fillMaxWidth()
