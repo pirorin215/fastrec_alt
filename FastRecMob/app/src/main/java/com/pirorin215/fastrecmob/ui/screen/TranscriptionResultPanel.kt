@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -94,7 +95,14 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     Text("文字起こし履歴はありません。")
                 }
             } else {
+                val lazyListState = rememberLazyListState() // Create LazyListState
+                LaunchedEffect(transcriptionResults.size) { // Observe changes in list size
+                    if (transcriptionResults.isNotEmpty()) {
+                        lazyListState.animateScrollToItem(0) // Scroll to the top
+                    }
+                }
                 LazyColumn(
+                    state = lazyListState, // Assign state
                     modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp) // Limit height
                 ) {
                     items(items = transcriptionResults.sortedByDescending { it.timestamp }, key = { it.timestamp }) { result ->
