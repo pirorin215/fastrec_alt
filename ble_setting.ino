@@ -484,6 +484,20 @@ void start_ble_advertising() {
   }
 }
 
+void disconnect_ble_clients() {
+  if (pBLEServer != nullptr) {
+    uint32_t connectedCount = pBLEServer->getConnectedCount();
+    if (connectedCount > 0) {
+      applog("Disconnecting %d BLE client(s) due to state change.", connectedCount);
+      // disconnect all clients
+      auto connections = NimBLEDevice::getServer()->getPeerDevices();
+      for(auto& conn : connections) {
+          NimBLEDevice::getServer()->disconnect(conn);
+      }
+    }
+  }
+}
+
 bool isBLEConnected() {
   if (pBLEServer == nullptr) {
     return false;

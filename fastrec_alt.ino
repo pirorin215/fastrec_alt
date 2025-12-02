@@ -60,6 +60,12 @@ void setAppState(AppState newState, bool applyDebounce = true) {
       return; // Ignore invalid transition
     }
 
+    // Disconnect any active BLE clients if moving to a non-IDLE state
+    if (newState != IDLE) {
+      stop_ble_advertising(); // Stop advertising immediately
+      disconnect_ble_clients(); // Then disconnect any connected clients
+    }
+
     applog("App State changed from %s to %s", appStateStrings[g_currentAppState], appStateStrings[newState]);
     g_currentAppState = newState;
     g_lastActivityTime = millis();  // Reset activity timer
