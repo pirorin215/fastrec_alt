@@ -259,6 +259,24 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                     text = if (connectionState == "Connected") "（接続中）" else "（未接続）",
                                     style = MaterialTheme.typography.titleMedium
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = {
+                                        showLastKnownLocationScreen = true
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = "Show Last Known Location")
+                                }
+                                Spacer(modifier = Modifier.width(8.dp)) // Add this line for spacing
+                                IconButton(
+                                    onClick = {
+                                        viewModel.forceReconnectBle()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Autorenew, contentDescription = "Force Reconnect BLE")
+                                }
                             }
                         },
                         actions = {
@@ -297,13 +315,6 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                     text = { Text("アプリログ") },
                                     onClick = {
                                         showAppLogPanel = !showAppLogPanel // Toggle visibility
-                                        expanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("最後にBLE通信した位置") },
-                                    onClick = {
-                                        showLastKnownLocationScreen = true
                                         expanded = false
                                     }
                                 )

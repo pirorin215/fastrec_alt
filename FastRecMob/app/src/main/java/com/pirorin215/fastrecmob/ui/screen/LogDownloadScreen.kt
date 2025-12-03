@@ -15,9 +15,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 
+import androidx.activity.compose.BackHandler
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogDownloadScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+
     val fileList by viewModel.fileList.collectAsState()
     val fileTransferState by viewModel.fileTransferState.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()

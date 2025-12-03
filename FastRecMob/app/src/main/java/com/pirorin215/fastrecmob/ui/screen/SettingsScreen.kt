@@ -21,9 +21,13 @@ import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import com.pirorin215.fastrecmob.viewModel.BleViewModel.Operation
 import com.pirorin215.fastrecmob.viewModel.NavigationEvent
 
+import androidx.activity.compose.BackHandler
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+
     val settings by viewModel.deviceSettings.collectAsState()
     val operation by viewModel.currentOperation.collectAsState()
     val settingsDiff by viewModel.settingsDiff.collectAsState()
