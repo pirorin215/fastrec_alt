@@ -69,6 +69,8 @@ dependencies {
 
     // Google Play Services Location
     implementation("com.google.android.gms:play-services-location:21.2.0")
+    // Add this for Task.await() extension function
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Google Cloud
     val librariesBomVersion = "26.36.0"

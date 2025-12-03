@@ -29,6 +29,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -296,17 +297,6 @@ class BleViewModel(
                     addLog("Successfully connected to ${state.device.address}")
                     // Request MTU after connection
                     repository.requestMtu(517)
-
-                    // Acquire and save location when connected
-                    viewModelScope.launch {
-                        addLog("Attempting to acquire current location...")
-                        locationTracker.getCurrentLocation().onSuccess { locationData ->
-                            lastKnownLocationRepository.saveLastKnownLocation(locationData)
-                            addLog("Saved last known location: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
-                        }.onFailure { e ->
-                            addLog("Failed to get or save location: ${e.message}")
-                        }
-                    }
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
                     _connectionState.value = "Disconnected"
@@ -316,12 +306,24 @@ class BleViewModel(
                     timeSyncJob = null
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Error -> {
-                    _connectionState.value = "Disconnected"
-                    addLog("Connection Error: ${state.message}. Attempting to recover.")
+                    addLog("Connection Error: ${state.message}. Forcibly disconnecting and cleaning up before recovery.")
+
+                    // 状態をリセットし、GATT接続を完全に閉じる
                     resetOperationStates()
-                    timeSyncJob?.cancel() // Cancel time sync job on error
+                    repository.disconnect() // Ensure disconnection
+                    repository.close()      // Close the GATT client to prevent inconsistent state
+
+                    _connectionState.value = "Disconnected" // 状態をUIに反映
+
+                    timeSyncJob?.cancel()
                     timeSyncJob = null
-                    restartScan(forceScan = true)
+
+                    // BLEスタックが安定するのを待ってから再接続を開始する
+                    viewModelScope.launch {
+                        delay(500L) // 500ms待機
+                        addLog("Attempting to recover after error...")
+                        restartScan(forceScan = true)
+                    }
                 }
             }
         }.launchIn(viewModelScope)
@@ -400,17 +402,27 @@ class BleViewModel(
             }
         }.launchIn(viewModelScope)
 
-        appSettingsRepository.apiKeyFlow.onEach { apiKey ->
-            if (apiKey.isNotEmpty()) {
-                
-                speechToTextService = SpeechToTextService(apiKey)
-                addLog("SpeechToTextService initialized with API Key.")
-            } else {
-                
-                speechToTextService = null
-                addLog("SpeechToTextService cleared (API Key not set).")
-            }
-        }.launchIn(viewModelScope)
+                appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
+
+                    if (apiKey.isNotEmpty()) {
+
+                        
+
+                        speechToTextService = SpeechToTextService(apiKey)
+
+                        addLog("SpeechToTextService initialized with API Key.")
+
+                    } else {
+
+                        
+
+                        speechToTextService = null
+
+                        addLog("SpeechToTextService cleared (API Key not set).")
+
+                    }
+
+                }.launchIn(viewModelScope)
 
         viewModelScope.launch {
             com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
@@ -892,7 +904,16 @@ class BleViewModel(
                     infoSuccess = success
 
                     if(infoSuccess) {
-                        addLog("GET:info command completed successfully.")
+                        addLog("GET:info command completed successfully. Saving location.")
+                        // Save location on successful GET:info
+                        viewModelScope.launch {
+                            locationTracker.getCurrentLocation().onSuccess { locationData ->
+                                lastKnownLocationRepository.saveLastKnownLocation(locationData)
+                                addLog("Saved last known location on GET:info success: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
+                            }.onFailure { e ->
+                                addLog("Failed to get or save location on GET:info success: ${e.message}")
+                            }
+                        }
                         checkForNewWavFilesAndProcess() // Moved inside the lock
                     } else {
                         addLog("GET:info command failed or timed out.")
