@@ -299,6 +299,7 @@ class BleViewModel(
 
                     // Acquire and save location when connected
                     viewModelScope.launch {
+                        addLog("Attempting to acquire current location...")
                         locationTracker.getCurrentLocation().onSuccess { locationData ->
                             lastKnownLocationRepository.saveLastKnownLocation(locationData)
                             addLog("Saved last known location: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
@@ -526,6 +527,15 @@ class BleViewModel(
 
         when (_currentOperation.value) {
                 Operation.FETCHING_INFO -> {
+                    // Check if responseBuffer is empty and current fragment is not starting with '{'
+                    // This is to prevent "OK: Time set to..." or other stray messages from polluting the JSON buffer
+                    val incomingString = value.toString(Charsets.UTF_8).trim()
+                    if (responseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
+                        addLog("FETCHING_INFO: Ignoring unexpected leading fragment: $incomingString")
+                        // Do not add to buffer if it's not a JSON start and buffer is empty
+                        return
+                    }
+
                     responseBuffer.addAll(value.toList())
                     val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
                     addLog("FETCHING_INFO: Received fragment. Current buffer length: ${currentBufferAsString.length}. Data: ${currentBufferAsString.take(100)}...") // Log current buffer state
