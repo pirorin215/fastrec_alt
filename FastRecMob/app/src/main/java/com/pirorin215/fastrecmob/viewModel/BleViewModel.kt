@@ -378,7 +378,6 @@ class BleViewModel(
                             }
                         }
                     }
-
                     // Now proceed with other on-ready tasks
                     fetchFileList()
                     if (_isAutoRefreshEnabled.value) {
@@ -395,35 +394,20 @@ class BleViewModel(
             }
         }.launchIn(viewModelScope)
 
-
         deviceInfo.onEach { info ->
             info?.ls?.let { fileString ->
                 _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
             }
         }.launchIn(viewModelScope)
-
                 appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
-
                     if (apiKey.isNotEmpty()) {
-
-                        
-
                         speechToTextService = SpeechToTextService(apiKey)
-
                         addLog("SpeechToTextService initialized with API Key.")
-
                     } else {
-
-                        
-
                         speechToTextService = null
-
                         addLog("SpeechToTextService cleared (API Key not set).")
-
                     }
-
                 }.launchIn(viewModelScope)
-
         viewModelScope.launch {
             com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
                 addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
@@ -436,7 +420,6 @@ class BleViewModel(
         }
         updateLocalAudioFileCount() // Initial call to update count
     }
-
 
     private fun startAutoRefresh() {
         stopAutoRefresh()

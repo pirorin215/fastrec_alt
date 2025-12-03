@@ -36,9 +36,13 @@ import com.pirorin215.fastrecmob.data.ThemeMode
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import kotlin.math.roundToInt
 
+import androidx.activity.compose.BackHandler
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+
     // DataStoreから現在の設定値を取得
     val currentApiKey by viewModel.apiKey.collectAsState()
     val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()

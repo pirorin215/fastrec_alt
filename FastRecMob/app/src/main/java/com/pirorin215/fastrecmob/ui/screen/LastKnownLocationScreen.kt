@@ -22,11 +22,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.activity.compose.BackHandler // このimportを追加
+
+// ... 既存のコード ...
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LastKnownLocationScreen(
     onBack: () -> Unit
 ) {
+    BackHandler(onBack = onBack) // ここを追加
+
     val context = LocalContext.current
     val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
     val viewModelFactory = LastKnownLocationViewModelFactory(lastKnownLocationRepository)
