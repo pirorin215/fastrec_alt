@@ -38,6 +38,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
+import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
+import com.pirorin215.fastrecmob.viewModel.ApiKeyStatus
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import com.pirorin215.fastrecmob.data.countWavFiles
@@ -72,12 +75,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
-            val viewModelFactory = BleViewModelFactory(context.applicationContext as Application)
+            val appSettingsRepository = AppSettingsRepository(context.applicationContext as Application)
+            val viewModelFactory = BleViewModelFactory(appSettingsRepository, context.applicationContext as Application)
             val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
+
+            val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
+            val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
             val themeMode by viewModel.themeMode.collectAsState()
 
             FastRecMobTheme(themeMode = themeMode) {
-                BleApp(modifier = Modifier.fillMaxSize())
+                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel)
             }
         }
     }
@@ -93,7 +100,7 @@ class MainActivity : ComponentActivity() {
 private const val TAG = "BleApp"
 
 @Composable
-fun BleApp(modifier: Modifier = Modifier) {
+fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel) {
     val context = LocalContext.current
     val activity = (LocalContext.current as? ComponentActivity)
 
@@ -136,16 +143,15 @@ fun BleApp(modifier: Modifier = Modifier) {
     }
 
     // Always show BleControl as permissionsGranted is true
-    BleControl()
+    BleControl(appSettingsViewModel = appSettingsViewModel)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
-fun BleControl() {
+fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     val context = LocalContext.current
     val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
-
     val connectionState by viewModel.connectionState.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
     val logs by viewModel.logs.collectAsState()
@@ -198,6 +204,7 @@ fun BleControl() {
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     viewModel.setAppInForeground(true)
+                    appSettingsViewModel.checkApiKeyStatus() // Check API key status on app foreground
                 }
                 Lifecycle.Event.ON_STOP -> {
                     viewModel.setAppInForeground(false)
@@ -291,6 +298,8 @@ fun BleControl() {
                     )
                 }
             ) { innerPadding ->
+                val apiKeyStatus by appSettingsViewModel.apiKeyStatus.collectAsState()
+
                 Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
                     Column(
                         modifier = Modifier
@@ -298,6 +307,10 @@ fun BleControl() {
                             .padding(horizontal = 4.dp), // Removed verticalScroll from here
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        ApiKeyWarningCard(
+                            apiKeyStatus = apiKeyStatus,
+                            onNavigateToSettings = { showAppSettings = true }
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         SummaryInfoCard(deviceInfo = deviceInfo)
                         // TranscriptionResultPanel now takes flexible space
@@ -557,13 +570,29 @@ fun AppLogCard(logs: List<String>, onDismiss: () -> Unit, onClearLogs: () -> Uni
 
 
 
-class BleViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
+class BleViewModelFactory(
+    private val appSettingsRepository: AppSettingsRepository,
+    private val application: Application
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
-            val appSettingsRepository = AppSettingsRepository(application)
             val transcriptionResultRepository = TranscriptionResultRepository(application)
             @Suppress("UNCHECKED_CAST")
             return BleViewModel(appSettingsRepository, transcriptionResultRepository, application) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
+// AppSettingsViewModelFactory for providing AppSettingsViewModel
+class AppSettingsViewModelFactory(
+    private val application: Application,
+    private val appSettingsRepository: AppSettingsRepository
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(AppSettingsViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return AppSettingsViewModel(appSettingsRepository, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -630,4 +659,53 @@ fun TranscriptionStatusDialog(
             }
         }
     )
+}
+
+@Composable
+fun ApiKeyWarningCard(
+    apiKeyStatus: ApiKeyStatus,
+    onNavigateToSettings: () -> Unit
+) {
+    if (apiKeyStatus == ApiKeyStatus.EMPTY || apiKeyStatus == ApiKeyStatus.INVALID) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Warning",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when (apiKeyStatus) {
+                        ApiKeyStatus.EMPTY -> "APIキーが設定されていません。設定画面で入力してください。"
+                        ApiKeyStatus.INVALID -> "APIキーが無効です。設定画面で確認してください。"
+                        else -> "" // Should not happen
+                    },
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = onNavigateToSettings,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onErrorContainer),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text("設定へ", color = MaterialTheme.colorScheme.errorContainer)
+                }
+            }
+        }
+    }
 }
