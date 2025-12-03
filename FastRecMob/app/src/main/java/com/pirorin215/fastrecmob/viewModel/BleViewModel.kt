@@ -220,7 +220,7 @@ class BleViewModel(
             backgroundReconnectJob = null
             addLog("Cancelled background reconnect job.")
             // And immediately try to connect
-            restartScan()
+            restartScan(forceScan = true)
         } else {
             // App is in the background, forcibly disconnect first
             addLog("App going to background. Forcibly disconnecting BLE.")
@@ -231,8 +231,7 @@ class BleViewModel(
             backgroundReconnectJob = viewModelScope.launch {
                 while (true) {
                     delay(30000) // Wait for 30 seconds
-                    addLog("Background job: attempting to reconnect...")
-                    restartScan()
+                    restartScan(forceScan = true)
                 }
             }
             addLog("Started background reconnect job.")
@@ -299,7 +298,7 @@ class BleViewModel(
                     resetOperationStates()
                     timeSyncJob?.cancel() // Cancel time sync job on error
                     timeSyncJob = null
-                    restartScan()
+                    restartScan(forceScan = true)
                 }
             }
         }.launchIn(viewModelScope)
@@ -743,9 +742,9 @@ class BleViewModel(
         // Note: The actual scan is handled by BleScanService
     }
 
-    fun restartScan() {
-        if (_connectionState.value != "Disconnected") {
-            addLog("Not restarting scan, already connected or connecting.")
+    fun restartScan(forceScan: Boolean = false) {
+        if (!forceScan && _connectionState.value != "Disconnected") {
+            addLog("Not restarting scan, already connected or connecting. (forceScan=false)")
             return
         }
 
