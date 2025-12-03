@@ -67,6 +67,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation("androidx.compose.material:material:1.6.8")
 
+    // Google Play Services Location
+    implementation("com.google.android.gms:play-services-location:21.2.0")
+
     // Google Cloud
     val librariesBomVersion = "26.36.0"
     implementation(platform("com.google.cloud:libraries-bom:$librariesBomVersion"))
@@ -78,6 +81,8 @@ dependencies {
 
     // DataStore for persistent settings
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+
 
 
 
