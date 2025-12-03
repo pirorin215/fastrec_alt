@@ -268,6 +268,15 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                 ) {
                                     Icon(Icons.Default.LocationOn, contentDescription = "Show Last Known Location")
                                 }
+                                Spacer(modifier = Modifier.width(8.dp)) // Add this line for spacing
+                                IconButton(
+                                    onClick = {
+                                        viewModel.forceReconnectBle()
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Autorenew, contentDescription = "Force Reconnect BLE")
+                                }
                             }
                         },
                         actions = {

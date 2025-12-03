@@ -1044,6 +1044,15 @@ class BleViewModel(
         repository.disconnect()
     }
 
+    fun forceReconnectBle() {
+        addLog("Force reconnect requested. Disconnecting and attempting to restart scan.")
+        viewModelScope.launch {
+            disconnect()
+            delay(500L) // Give a short delay for the stack to clear
+            restartScan(forceScan = true)
+        }
+    }
+
     private suspend fun doTranscription(filePath: String) {
         _transcriptionState.value = "Transcribing ${File(filePath).name}"
         _transcriptionResult.value = null
