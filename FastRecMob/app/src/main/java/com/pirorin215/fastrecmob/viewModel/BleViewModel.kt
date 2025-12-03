@@ -1219,4 +1219,15 @@ class BleViewModel(
             }
         }
     }
+
+    fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String) {
+        viewModelScope.launch {
+            // Create a new TranscriptionResult with the updated transcription
+            val updatedResult = originalResult.copy(transcription = newTranscription)
+            // Remove the old result and add the new one
+            transcriptionResultRepository.removeResult(originalResult)
+            transcriptionResultRepository.addResult(updatedResult)
+            addLog("Transcription result for ${originalResult.fileName} updated.")
+        }
+    }
 }

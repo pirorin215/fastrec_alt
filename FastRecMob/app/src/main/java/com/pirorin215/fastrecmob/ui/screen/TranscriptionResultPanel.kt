@@ -41,10 +41,10 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
 
-    // 全文表示用の状態
-    var showFullTextDialog by remember { mutableStateOf(false) }
-    var fullTextToShow by remember { mutableStateOf("") }
-    var fullTextFileName by remember { mutableStateOf("") }
+    // State for showing the detail bottom sheet
+    var selectedResultForDetail by remember { mutableStateOf<TranscriptionResult?>(null) }
+    val audioDirName by viewModel.audioDirName.collectAsState() // Collect audioDirName
+    val context = LocalContext.current
 
     // 新しい状態変数
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -123,10 +123,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                         isSelectionMode = false
                                     }
                                 } else {
-                                    // 通常モードではタップで全文表示
-                                    fullTextToShow = clickedItem.transcription
-                                    fullTextFileName = clickedItem.fileName
-                                    showFullTextDialog = true
+                                    selectedResultForDetail = clickedItem
                                 }
                             },
                             onItemLongClick = { clickedItem ->
@@ -145,55 +142,49 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
         }
     }
 
-    // 全文表示ダイアログ
-    if (showFullTextDialog) {
-        val context = LocalContext.current
-        val audioDirName by viewModel.audioDirName.collectAsState() // Collect audioDirName
-        val audioFile = remember(fullTextFileName, audioDirName) { FileUtil.getAudioFile(context, audioDirName, fullTextFileName) }
+    // TranscriptionDetailBottomSheetを表示
+    selectedResultForDetail?.let { result ->
+        val audioFile = remember(result.fileName, audioDirName) { FileUtil.getAudioFile(context, audioDirName, result.fileName) }
         val audioFileExists = remember(audioFile) { audioFile.exists() }
 
-        AlertDialog(
-            onDismissRequest = { showFullTextDialog = false },
-            title = { Text(FileUtil.extractRecordingDateTime(fullTextFileName)) },
-            text = {
-                val scrollState = rememberScrollState()
-                Column(modifier = Modifier.verticalScroll(scrollState).heightIn(max=400.dp)) {
-                    Text(fullTextToShow, fontSize = fontSize.sp)
+        TranscriptionDetailBottomSheet(
+            result = result,
+            fontSize = fontSize,
+            audioFileExists = audioFileExists,
+            audioDirName = audioDirName,
+            onPlay = { transcriptionResult ->
+                val fileToPlay = FileUtil.getAudioFile(context, audioDirName, transcriptionResult.fileName)
+                if (fileToPlay.exists()) {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "com.pirorin215.fastrecmob.provider",
+                            fileToPlay
+                        )
+                        setDataAndType(uri, "audio/wav")
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        // Handle case where no app can play WAV files
+                        e.printStackTrace()
+                    }
                 }
             },
-            confirmButton = {
-                Row {
-                    if (audioFileExists) {
-                        Button(
-                            onClick = {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "com.pirorin215.fastrecmob.provider",
-                                        audioFile
-                                    )
-                                    setDataAndType(uri, "audio/wav")
-                                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                try {
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // Handle case where no app can play WAV files
-                                    e.printStackTrace()
-                                }
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "再生")
-                            Spacer(Modifier.width(8.dp))
-                            Text("再生")
-                        }
-                    }
-                    Button(onClick = { showFullTextDialog = false }) {
-                        Text("閉じる")
-                    }
+            onDelete = { transcriptionResult ->
+                scope.launch {
+                    viewModel.removeTranscriptionResult(transcriptionResult)
+                    selectedResultForDetail = null // Close sheet after deletion
                 }
-            }
+            },
+            onSave = { originalResult, newText ->
+                scope.launch {
+                    viewModel.updateTranscriptionResult(originalResult, newText)
+                    selectedResultForDetail = null // Close sheet after saving
+                }
+            },
+            onDismiss = { selectedResultForDetail = null }
         )
     }
 
