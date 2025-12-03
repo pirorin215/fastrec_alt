@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import android.util.Log // Added import
 
 @Serializable
 data class LocationData(
@@ -31,19 +32,32 @@ class LocationTracker(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
 
+    companion object {
+        private const val TAG = "LocationTracker"
+    }
+
     suspend fun getCurrentLocation(): Result<LocationData> = suspendCancellableCoroutine { continuation ->
+        Log.d(TAG, "getCurrentLocation: Attempting to get current location.")
+
         if (!hasLocationPermission()) {
+            Log.w(TAG, "getCurrentLocation: Location permission not granted.")
             continuation.resumeWithException(SecurityException("Location permission not granted"))
             return@suspendCancellableCoroutine
         }
+        Log.d(TAG, "getCurrentLocation: Location permission granted.")
+
 
         // Check if location services are enabled. This is a basic check.
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-        if (!locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) &&
-            !locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+        val isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+        val isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+
+        if (!isGpsEnabled && !isNetworkEnabled) {
+            Log.w(TAG, "getCurrentLocation: Location services are disabled. GPS: $isGpsEnabled, Network: $isNetworkEnabled")
             continuation.resume(Result.failure(IllegalStateException("Location services are disabled.")))
             return@suspendCancellableCoroutine
         }
+        Log.d(TAG, "getCurrentLocation: Location services are enabled. GPS: $isGpsEnabled, Network: $isNetworkEnabled")
 
 
         val locationRequest = LocationRequest.Builder(
@@ -58,6 +72,7 @@ class LocationTracker(private val context: Context) {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
                     fusedLocationClient.removeLocationUpdates(this)
+                    Log.d(TAG, "onLocationResult: Received location: Lat=${location.latitude}, Lng=${location.longitude}")
                     if (continuation.isActive) {
                         continuation.resume(Result.success(LocationData(
                             latitude = location.latitude,
@@ -65,19 +80,23 @@ class LocationTracker(private val context: Context) {
                             timestamp = location.time
                         )))
                     }
+                } ?: run {
+                    Log.w(TAG, "onLocationResult: lastLocation is null.")
                 }
             }
         }
-
+        Log.d(TAG, "getCurrentLocation: Requesting location updates with FusedLocationProviderClient.")
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
             .addOnFailureListener { e ->
                 fusedLocationClient.removeLocationUpdates(locationCallback)
+                Log.e(TAG, "getCurrentLocation: Failed to request location updates: ${e.message}", e)
                 if (continuation.isActive) {
                     continuation.resume(Result.failure(e))
                 }
             }
 
         continuation.invokeOnCancellation {
+            Log.d(TAG, "getCurrentLocation: Location request cancelled. Removing updates.")
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
     }
