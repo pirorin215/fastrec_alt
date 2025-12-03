@@ -1173,6 +1173,11 @@ class BleViewModel(
         }
     }
 
+    fun clearLogs() {
+        _logs.value = emptyList()
+        addLog("App logs cleared.")
+    }
+
     // 特定の文字起こし結果を削除する関数
     fun removeTranscriptionResult(result: TranscriptionResult) {
         viewModelScope.launch {
