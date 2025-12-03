@@ -24,6 +24,7 @@ class AppSettingsRepository(private val context: Context) {
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
         val TRANSCRIPTION_FONT_SIZE = intPreferencesKey("transcription_font_size")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
     }
 
     // APIキーの変更を監視するためのFlow
@@ -106,6 +107,19 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveThemeMode(themeMode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.THEME_MODE] = themeMode.name
+        }
+    }
+
+    // APIキーの検証済みステータスを監視するためのFlow
+    val isApiKeyVerifiedFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.IS_API_KEY_VERIFIED] ?: false // Default to false
+        }
+
+    // APIキーの検証済みステータスを保存するsuspend関数
+    suspend fun saveApiKeyVerifiedStatus(isVerified: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.IS_API_KEY_VERIFIED] = isVerified
         }
     }
 }

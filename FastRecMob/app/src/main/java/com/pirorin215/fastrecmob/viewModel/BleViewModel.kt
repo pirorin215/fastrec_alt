@@ -51,6 +51,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
+import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
+import com.pirorin215.fastrecmob.LocationData
 
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
@@ -65,6 +67,7 @@ sealed class NavigationEvent {
 class BleViewModel(
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
+    private val lastKnownLocationRepository: LastKnownLocationRepository, // Add this
     private val context: Context
 ) : ViewModel() {
 
@@ -164,6 +167,7 @@ class BleViewModel(
 
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val locationTracker = com.pirorin215.fastrecmob.LocationTracker(context) // Add this
     private var speechToTextService: SpeechToTextService? = null // Change to nullable var
 
     private val _transcriptionState = MutableStateFlow("Idle")
@@ -292,6 +296,16 @@ class BleViewModel(
                     addLog("Successfully connected to ${state.device.address}")
                     // Request MTU after connection
                     repository.requestMtu(517)
+
+                    // Acquire and save location when connected
+                    viewModelScope.launch {
+                        locationTracker.getCurrentLocation().onSuccess { locationData ->
+                            lastKnownLocationRepository.saveLastKnownLocation(locationData)
+                            addLog("Saved last known location: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
+                        }.onFailure { e ->
+                            addLog("Failed to get or save location: ${e.message}")
+                        }
+                    }
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
                     _connectionState.value = "Disconnected"
@@ -1024,9 +1038,9 @@ class BleViewModel(
         val actualFileName = File(filePath).name
 
         if (currentService == null) {
-            _transcriptionState.value = "Error: API key is not set. Please set it in the settings."
-            addLog("Transcription failed: API key is not set.")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。", System.currentTimeMillis())
+            _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
+            addLog("Transcription failed: APIキーが設定されていません。")
+            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", System.currentTimeMillis())
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")
@@ -1045,10 +1059,16 @@ class BleViewModel(
             addLog("Transcription result saved for $actualFileName.")
             cleanupTranscriptionResultsAndAudioFiles()
         }.onFailure { error ->
-            _transcriptionState.value = "Error: ${error.message}"
+            val errorMessage = error.message ?: "不明なエラー"
+            val displayMessage = if (errorMessage.contains("API key authentication failed") || errorMessage.contains("API key is not set")) {
+                "文字起こしエラー: APIキーに問題がある可能性があります。設定画面をご確認ください。詳細: $errorMessage"
+            } else {
+                "文字起こしエラー: $errorMessage"
+            }
+            _transcriptionState.value = "Error: $displayMessage"
             _transcriptionResult.value = null
-            addLog("Transcription failed for $filePath: ${error.message}")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: ${error.message}", System.currentTimeMillis())
+            addLog("Transcription failed for $filePath: $displayMessage")
+            val errorResult = TranscriptionResult(actualFileName, displayMessage, System.currentTimeMillis())
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")

@@ -48,6 +48,7 @@ import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
+import com.pirorin215.fastrecmob.ui.screen.LastKnownLocationScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -56,6 +57,7 @@ import android.provider.Settings
 import android.util.Log // Add this import
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
 import androidx.compose.foundation.shape.CircleShape
 import androidx.lifecycle.Lifecycle
@@ -76,7 +78,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
             val appSettingsRepository = AppSettingsRepository(context.applicationContext as Application)
-            val viewModelFactory = BleViewModelFactory(appSettingsRepository, context.applicationContext as Application)
+            val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
+            val viewModelFactory = BleViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application)
             val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
@@ -170,6 +173,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     var showAppSettings by remember { mutableStateOf(false) }
 
     var showLogDownloadScreen by remember { mutableStateOf(false) }
+    var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
     var showAppLogPanel by remember { mutableStateOf(false) } // New state for AppLogCard visibility
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -231,6 +235,9 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
         showLogDownloadScreen -> {
             LogDownloadScreen(viewModel = viewModel, onBack = { showLogDownloadScreen = false })
         }
+        showLastKnownLocationScreen -> {
+            LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
+        }
         else -> {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -290,6 +297,13 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                     text = { Text("アプリログ") },
                                     onClick = {
                                         showAppLogPanel = !showAppLogPanel // Toggle visibility
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("最後にBLE通信した位置") },
+                                    onClick = {
+                                        showLastKnownLocationScreen = true
                                         expanded = false
                                     }
                                 )
@@ -572,13 +586,14 @@ fun AppLogCard(logs: List<String>, onDismiss: () -> Unit, onClearLogs: () -> Uni
 
 class BleViewModelFactory(
     private val appSettingsRepository: AppSettingsRepository,
+    private val lastKnownLocationRepository: LastKnownLocationRepository,
     private val application: Application
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
             val transcriptionResultRepository = TranscriptionResultRepository(application)
             @Suppress("UNCHECKED_CAST")
-            return BleViewModel(appSettingsRepository, transcriptionResultRepository, application) as T
+            return BleViewModel(appSettingsRepository, transcriptionResultRepository, lastKnownLocationRepository, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

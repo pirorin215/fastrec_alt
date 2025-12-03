@@ -28,10 +28,17 @@ class AppSettingsViewModel(
     private val _apiKeyStatus = MutableStateFlow(ApiKeyStatus.CHECKING)
     val apiKeyStatus: StateFlow<ApiKeyStatus> = _apiKeyStatus.asStateFlow()
 
+    private var lastCheckedApiKey: String = ""
+
     init {
         viewModelScope.launch {
             // Observe API key changes and trigger status check
-            appSettingsRepository.apiKeyFlow.collect { _ ->
+            appSettingsRepository.apiKeyFlow.collect { currentApiKey ->
+                if (currentApiKey != lastCheckedApiKey) {
+                    // APIキーが変更されたら、検証済みステータスをリセット
+                    appSettingsRepository.saveApiKeyVerifiedStatus(false)
+                    lastCheckedApiKey = currentApiKey
+                }
                 checkApiKeyStatus()
             }
         }
@@ -44,21 +51,26 @@ class AppSettingsViewModel(
 
             if (apiKey.isEmpty()) {
                 _apiKeyStatus.value = ApiKeyStatus.EMPTY
+                appSettingsRepository.saveApiKeyVerifiedStatus(false) // APIキーがない場合は未検証に
                 return@launch
             }
 
+            val isVerifiedInCache = appSettingsRepository.isApiKeyVerifiedFlow.first()
+            if (isVerifiedInCache && apiKey == lastCheckedApiKey) { // lastCheckedApiKeyでAPIキーの変更がないことを確認
+                _apiKeyStatus.value = ApiKeyStatus.VALID
+                return@launch
+            }
+
+            // APIキーが変更されたか、または未検証の場合はネットワーク経由でチェック
             val speechToTextService = SpeechToTextService(apiKey)
             val result = speechToTextService.verifyApiKey()
 
             _apiKeyStatus.value = if (result.isSuccess) {
+                appSettingsRepository.saveApiKeyVerifiedStatus(true)
                 ApiKeyStatus.VALID
             } else {
-                // Here, if result is failure, it means either network error or authentication error.
-                // SpeechToTextService.verifyApiKey already distinguishes empty key (via IllegalArgumentException)
-                // and auth failure (via specific message from StatusRuntimeException),
-                // but for simplicity, we can treat any failure from verifyApiKey as INVALID for now.
-                // If more granular error messages are needed, the exceptions from verifyApiKey
-                // should be propagated or mapped more specifically.
+                appSettingsRepository.saveApiKeyVerifiedStatus(false)
+                // ここでエラーの種類をもう少し細かく分類することも可能だが、一旦INVALIDとする
                 ApiKeyStatus.INVALID
             }
         }
