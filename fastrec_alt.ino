@@ -86,6 +86,8 @@ void startVibrationSync(unsigned long duration_ms) {
 
 void goDeepSleep() {
   float usagePercentage = getLittleFSUsagePercentage();
+      
+  stop_ble_advertising();
 
   updateDisplay("");
 
@@ -184,6 +186,14 @@ void flushAudioBufferToFile() {
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
 
+  if(g_ble_connected_status == 1 && !isBLEConnected()) {
+    goDeepSleep();
+    return;
+  }
+  g_ble_connected_status = isBLEConnected() ? 1 : 2;
+
+  start_ble_advertising();
+
   if (millis() - lastDisplayUpdateTime > 200) {
     float usagePercentage = getLittleFSUsagePercentage();
     updateDisplay("");
@@ -217,6 +227,9 @@ void handleIdle() {
 }
 
 void handleRec() {
+      
+  stop_ble_advertising();
+
   // If recording switch is turned off, stop recording
   if (digitalRead(REC_BUTTON_GPIO) == LOW) {
     applog("Recording switch turned OFF. Stopping recording.");
@@ -239,8 +252,9 @@ void handleRec() {
 
 void handleUpload() {
   applog("Performing post-recording actions...");
-
   static unsigned long lastUploadTryTime = 0; // To track last upload try time
+      
+  stop_ble_advertising();
 
   while (isUploadOrSyncNeeded()) {
     g_isForceUpload = false;
@@ -273,6 +287,8 @@ void handleUpload() {
 
 void handleSetup() {
   static unsigned long lastDisplayUpdateTime = 0;
+      
+  start_ble_advertising();
 
   if (millis() - lastDisplayUpdateTime > 200) {
     updateDisplay("");
@@ -305,10 +321,12 @@ void wakeupLogic() {
         applog("Wakeup was caused by: %d", wakeup_reason);
         if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
           applog("UPLOAD Button pressed on wake-up");
-          setAppState(UPLOAD, false);
+          //setAppState(UPLOAD, false);
+          setAppState(IDLE, false);
         } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
           applog("USB connected on wake-up");
           //setAppState(UPLOAD, false);
+          setAppState(IDLE, false);
         }
       }
       break;
@@ -413,27 +431,22 @@ void loop() {
 
   switch (g_currentAppState) {
     case IDLE:
-      start_ble_advertising();
       handleIdle();
       break;
 
     case REC:
-      stop_ble_advertising();
       handleRec();
       break;
 
     case UPLOAD:
-      stop_ble_advertising();
       handleUpload();
       break;
 
     case SETUP:
-      start_ble_advertising();
       handleSetup();
       break;
 
     case DSLEEP:
-      stop_ble_advertising();
       goDeepSleep();
       break;
   }
