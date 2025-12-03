@@ -309,7 +309,7 @@ class BleViewModel(
                 }
                 is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
                     _connectionState.value = "Disconnected"
-                    addLog("Disconnected. Reconnection will be handled by foreground/background state.")
+                    addLog("Disconnected. Handling reconnection based on app foreground state.")
                     resetOperationStates()
                     timeSyncJob?.cancel() // Cancel time sync job on disconnect
                     timeSyncJob = null
@@ -525,25 +525,26 @@ class BleViewModel(
         if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
-            Operation.FETCHING_INFO -> {
-                responseBuffer.addAll(value.toList())
-                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                if (currentBufferAsString.trim().endsWith("}")) {
-                    addLog("Assembled data for DeviceInfo: $currentBufferAsString")
-                    try {
-                        val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
-                        _deviceInfo.value = parsedResponse
-                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                        currentCommandCompletion?.complete(Pair(true, null)) // Signal success
-                    } catch (e: Exception) {
-                        addLog("Error parsing DeviceInfo JSON: ${e.message}")
-                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                Operation.FETCHING_INFO -> {
+                    responseBuffer.addAll(value.toList())
+                    val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                    addLog("FETCHING_INFO: Received fragment. Current buffer length: ${currentBufferAsString.length}. Data: ${currentBufferAsString.take(100)}...") // Log current buffer state
+                    if (currentBufferAsString.trim().endsWith("}")) {
+                        addLog("Assembled data for DeviceInfo: $currentBufferAsString")
+                        try {
+                            val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
+                            _deviceInfo.value = parsedResponse
+                            addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                            currentCommandCompletion?.complete(Pair(true, null)) // Signal success
+                        } catch (e: Exception) {
+                            addLog("Error parsing DeviceInfo JSON: ${e.message}")
+                            currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                        }
+                    } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
+                        addLog("Received error response for GET:info: $currentBufferAsString")
+                        currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
                     }
-                } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
-                    addLog("Received error response for GET:info: $currentBufferAsString")
-                    currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
                 }
-            }
             Operation.FETCHING_SETTINGS -> {
                 responseBuffer.addAll(value.toList())
                 viewModelScope.launch {

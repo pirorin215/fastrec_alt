@@ -53,13 +53,30 @@ fun TranscriptionDetailBottomSheet(
                 .padding(16.dp)
                 .verticalScroll(scrollState)
         ) {
-            // Header: FileName
-            Text(
-                text = FileUtil.extractRecordingDateTime(result.fileName),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Header: FileName
+                Text(
+                    text = FileUtil.extractRecordingDateTime(result.fileName),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Delete Button (moved to top right)
+                IconButton(
+                    onClick = { onDelete(result) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Transcription",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
 
             // Editable Text Field
             OutlinedTextField(
@@ -99,7 +116,31 @@ fun TranscriptionDetailBottomSheet(
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
                         Spacer(Modifier.width(4.dp))
-                        Text("Play")
+                        Text("再生")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+
+                // Map Button
+                result.locationData?.let { location ->
+                    Button(
+                        onClick = {
+                            val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
+                            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                            mapIntent.setPackage("com.google.android.apps.maps")
+                            if (mapIntent.resolveActivity(context.packageManager) != null) {
+                                context.startActivity(mapIntent)
+                            } else {
+                                val webIntentUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}")
+                                val webMapIntent = Intent(Intent.ACTION_VIEW, webIntentUri)
+                                context.startActivity(webMapIntent)
+                            }
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Show Location")
+                        Spacer(Modifier.width(4.dp))
+                        Text("地図")
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -112,47 +153,8 @@ fun TranscriptionDetailBottomSheet(
                 ) {
                     Icon(Icons.Default.Save, contentDescription = "Save Changes")
                     Spacer(Modifier.width(4.dp))
-                    Text("Save")
+                    Text("保存")
                 }
-                Spacer(Modifier.width(8.dp))
-
-                // Delete Button
-                Button(
-                    onClick = { onDelete(result) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Transcription")
-                    Spacer(Modifier.width(4.dp))
-                    Text("Delete")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp)) // Add some spacing
-
-            // Show Location Button
-            result.locationData?.let { location ->
-                Button(
-                    onClick = {
-                        val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
-                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
-                        mapIntent.setPackage("com.google.android.apps.maps") // Try to open in Google Maps
-                        if (mapIntent.resolveActivity(context.packageManager) != null) {
-                            context.startActivity(mapIntent)
-                        } else {
-                            // Fallback to web browser if Google Maps app is not installed
-                            val webIntentUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}")
-                            val webMapIntent = Intent(Intent.ACTION_VIEW, webIntentUri)
-                            context.startActivity(webMapIntent)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                ) {
-                    Icon(Icons.Default.LocationOn, contentDescription = "Show Location") // Assuming Icons.Default.LocationOn exists
-                    Spacer(Modifier.width(4.dp))
-                    Text("Show Location on Map")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Close Button
