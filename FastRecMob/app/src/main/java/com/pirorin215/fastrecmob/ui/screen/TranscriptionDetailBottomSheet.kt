@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +23,11 @@ import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Edit
+import android.content.Intent
+import android.net.Uri
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,13 +53,30 @@ fun TranscriptionDetailBottomSheet(
                 .padding(16.dp)
                 .verticalScroll(scrollState)
         ) {
-            // Header: FileName
-            Text(
-                text = FileUtil.extractRecordingDateTime(result.fileName),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Header: FileName
+                Text(
+                    text = FileUtil.extractRecordingDateTime(result.fileName),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Delete Button (moved to top right)
+                IconButton(
+                    onClick = { onDelete(result) }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Transcription",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
 
             // Editable Text Field
             OutlinedTextField(
@@ -93,7 +116,31 @@ fun TranscriptionDetailBottomSheet(
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
                         Spacer(Modifier.width(4.dp))
-                        Text("Play")
+                        Text("再生")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+
+                // Map Button
+                result.locationData?.let { location ->
+                    Button(
+                        onClick = {
+                            val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
+                            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                            mapIntent.setPackage("com.google.android.apps.maps")
+                            if (mapIntent.resolveActivity(context.packageManager) != null) {
+                                context.startActivity(mapIntent)
+                            } else {
+                                val webIntentUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}")
+                                val webMapIntent = Intent(Intent.ACTION_VIEW, webIntentUri)
+                                context.startActivity(webMapIntent)
+                            }
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Show Location")
+                        Spacer(Modifier.width(4.dp))
+                        Text("地図")
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -106,23 +153,9 @@ fun TranscriptionDetailBottomSheet(
                 ) {
                     Icon(Icons.Default.Save, contentDescription = "Save Changes")
                     Spacer(Modifier.width(4.dp))
-                    Text("Save")
-                }
-                Spacer(Modifier.width(8.dp))
-
-                // Delete Button
-                Button(
-                    onClick = { onDelete(result) },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Transcription")
-                    Spacer(Modifier.width(4.dp))
-                    Text("Delete")
+                    Text("保存")
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             // Close Button
             Button(

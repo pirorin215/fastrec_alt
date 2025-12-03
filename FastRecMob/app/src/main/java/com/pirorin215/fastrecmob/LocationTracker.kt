@@ -1,5 +1,6 @@
 package com.pirorin215.fastrecmob
 
+import kotlinx.serialization.Serializable
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -18,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+@Serializable
 data class LocationData(
     val latitude: Double,
     val longitude: Double,
