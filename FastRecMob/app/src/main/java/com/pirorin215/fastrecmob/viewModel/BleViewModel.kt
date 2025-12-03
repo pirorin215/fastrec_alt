@@ -222,7 +222,11 @@ class BleViewModel(
             // And immediately try to connect
             restartScan()
         } else {
-            // App is in the background, start the periodic reconnect job
+            // App is in the background, forcibly disconnect first
+            addLog("App going to background. Forcibly disconnecting BLE.")
+            disconnect()
+
+            // Then start the periodic reconnect job
             backgroundReconnectJob?.cancel() // Cancel any existing job first
             backgroundReconnectJob = viewModelScope.launch {
                 while (true) {
