@@ -17,24 +17,19 @@ import java.nio.ByteOrder
 
 class SpeechToTextService(private val apiKey: String) {
 
-    private var speechClient: SpeechClient? = null
-
     private fun getClient(): SpeechClient {
-        if (speechClient == null) {
-            if (apiKey.isEmpty()) {
-                throw IllegalStateException("API key is not set. Please enter it in the settings.")
-            }
-
-            val headerProvider = FixedHeaderProvider.create("X-Goog-Api-Key", apiKey)
-
-            val speechSettings = SpeechSettings.newBuilder()
-                .setCredentialsProvider(com.google.api.gax.core.NoCredentialsProvider.create())
-                .setHeaderProvider(headerProvider)
-                .build()
-
-            speechClient = SpeechClient.create(speechSettings)
+        if (apiKey.isEmpty()) {
+            throw IllegalStateException("API key is not set. Please enter it in the settings.")
         }
-        return speechClient!!
+
+        val headerProvider = FixedHeaderProvider.create("X-Goog-Api-Key", apiKey)
+
+        val speechSettings = SpeechSettings.newBuilder()
+            .setCredentialsProvider(com.google.api.gax.core.NoCredentialsProvider.create())
+            .setHeaderProvider(headerProvider)
+            .build()
+
+        return SpeechClient.create(speechSettings)
     }
 
     private fun readWavHeader(file: File): Pair<Int, Short> {
@@ -103,12 +98,70 @@ class SpeechToTextService(private val apiKey: String) {
             } catch (e: Exception) {
                 e.printStackTrace()
                 Result.failure(e)
+            } finally {
+                // ensure the client is shut down after use
+                getClient().shutdown()
             }
         }
     }
 
-    fun close() {
-        speechClient?.shutdown()
-        speechClient = null
+    suspend fun verifyApiKey(): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            if (apiKey.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("API key is empty."))
+            }
+
+            var speechClient: SpeechClient? = null
+            try {
+                speechClient = getClient()
+
+                // ダミーの短い音声データ (16kHz, LINEAR16, モノラルの無音データ数バイト)
+                val dummyAudioData = ByteArray(2) { 0 } // 1msの無音データ (16kHz * 16bit / 8bit/byte * 1ms = 2bytes)
+                val audioBytes = ByteString.copyFrom(dummyAudioData)
+
+                val config = RecognitionConfig.newBuilder()
+                    .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
+                    .setSampleRateHertz(16000)
+                    .setLanguageCode("en-US") // 言語は何でも良いが、エラーにならないように設定
+                    .build()
+
+                val audio = RecognitionAudio.newBuilder()
+                    .setContent(audioBytes)
+                    .build()
+
+                val request = RecognizeRequest.newBuilder()
+                    .setConfig(config)
+                    .setAudio(audio)
+                    .build()
+
+                // recognizeを呼び出して認証を試みる
+                speechClient.recognize(request)
+
+                // 成功すればUnitを返す
+                Result.success(Unit)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                when (e) {
+                    is io.grpc.StatusRuntimeException -> {
+                        if (e.status.code == io.grpc.Status.Code.UNAUTHENTICATED || e.status.code == io.grpc.Status.Code.PERMISSION_DENIED) {
+                            Result.failure(Exception("API key authentication failed."))
+                        } else {
+                            Result.failure(e)
+                        }
+                    }
+                    is com.google.api.gax.rpc.ApiException -> {
+                        Result.failure(e)
+                    }
+                    is IllegalStateException -> {
+                        // getClient()でAPIキーが空の場合にスローされる例外
+                        Result.failure(e)
+                    }
+                    else -> Result.failure(e)
+                }
+            } finally {
+                // クライアントをシャットダウンしてリソースを解放
+                speechClient?.shutdown()
+            }
+        }
     }
 }

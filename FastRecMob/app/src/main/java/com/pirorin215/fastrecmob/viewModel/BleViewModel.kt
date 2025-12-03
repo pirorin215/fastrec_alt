@@ -387,11 +387,11 @@ class BleViewModel(
 
         appSettingsRepository.apiKeyFlow.onEach { apiKey ->
             if (apiKey.isNotEmpty()) {
-                speechToTextService?.close()
+                
                 speechToTextService = SpeechToTextService(apiKey)
                 addLog("SpeechToTextService initialized with API Key.")
             } else {
-                speechToTextService?.close()
+                
                 speechToTextService = null
                 addLog("SpeechToTextService cleared (API Key not set).")
             }
@@ -1091,7 +1091,7 @@ class BleViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        speechToTextService?.close()
+        
         repository.disconnect()
         repository.close()
         addLog("ViewModel cleared, resources released.")
