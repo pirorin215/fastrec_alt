@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +23,11 @@ import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Edit
+import android.content.Intent
+import android.net.Uri
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +128,32 @@ fun TranscriptionDetailBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp)) // Add some spacing
+
+            // Show Location Button
+            result.locationData?.let { location ->
+                Button(
+                    onClick = {
+                        val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
+                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                        mapIntent.setPackage("com.google.android.apps.maps") // Try to open in Google Maps
+                        if (mapIntent.resolveActivity(context.packageManager) != null) {
+                            context.startActivity(mapIntent)
+                        } else {
+                            // Fallback to web browser if Google Maps app is not installed
+                            val webIntentUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}")
+                            val webMapIntent = Intent(Intent.ACTION_VIEW, webIntentUri)
+                            context.startActivity(webMapIntent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Default.LocationOn, contentDescription = "Show Location") // Assuming Icons.Default.LocationOn exists
+                    Spacer(Modifier.width(4.dp))
+                    Text("Show Location on Map")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Close Button
             Button(

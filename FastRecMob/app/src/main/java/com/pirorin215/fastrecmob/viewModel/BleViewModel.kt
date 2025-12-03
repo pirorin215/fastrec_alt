@@ -1037,10 +1037,26 @@ class BleViewModel(
         val currentService = speechToTextService
         val actualFileName = File(filePath).name
 
+        var locationData: LocationData? = null
+        try {
+            locationTracker.getCurrentLocation().onSuccess {
+                locationData = it
+                addLog("Obtained current location for transcription: Lat=${it.latitude}, Lng=${it.longitude}")
+            }.onFailure { e ->
+                addLog("Failed to get current location for transcription: ${e.message}. Proceeding without location data.")
+            }
+        } catch (e: SecurityException) {
+            addLog("Location permission not granted for transcription. Proceeding without location data.")
+        } catch (e: IllegalStateException) {
+            addLog("Location services are disabled for transcription. Proceeding without location data.")
+        } catch (e: Exception) {
+            addLog("Unexpected error getting location for transcription: ${e.message}. Proceeding without location data.")
+        }
+
         if (currentService == null) {
             _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
             addLog("Transcription failed: APIキーが設定されていません。")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", System.currentTimeMillis())
+            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", System.currentTimeMillis(), locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")
@@ -1053,7 +1069,7 @@ class BleViewModel(
         result.onSuccess { transcription ->
             _transcriptionResult.value = transcription
             addLog("Transcription successful for $filePath.")
-            val newResult = TranscriptionResult(actualFileName, transcription, System.currentTimeMillis())
+            val newResult = TranscriptionResult(actualFileName, transcription, System.currentTimeMillis(), locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(newResult)
             addLog("Transcription result saved for $actualFileName.")
@@ -1068,7 +1084,7 @@ class BleViewModel(
             _transcriptionState.value = "Error: $displayMessage"
             _transcriptionResult.value = null
             addLog("Transcription failed for $filePath: $displayMessage")
-            val errorResult = TranscriptionResult(actualFileName, displayMessage, System.currentTimeMillis())
+            val errorResult = TranscriptionResult(actualFileName, displayMessage, System.currentTimeMillis(), locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")

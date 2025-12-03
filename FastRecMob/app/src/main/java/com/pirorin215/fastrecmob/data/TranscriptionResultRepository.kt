@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.pirorin215.fastrecmob.LocationData
 
 // DataStoreのインスタンスをContextの拡張プロパティとして定義 (別名で)
 private val Context.transcriptionDataStore: DataStore<Preferences> by preferencesDataStore(name = "transcription_results")
@@ -20,7 +21,8 @@ private val Context.transcriptionDataStore: DataStore<Preferences> by preference
 data class TranscriptionResult(
     val fileName: String,
     val transcription: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val locationData: LocationData? = null
 )
 
 class TranscriptionResultRepository(private val context: Context) {
