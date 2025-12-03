@@ -1,5 +1,11 @@
 package com.pirorin215.fastrecmob
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast // For Toast message
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString // For AnnotatedString
+
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
@@ -320,7 +326,11 @@ fun BleControl() {
                                 .align(Alignment.BottomCenter)
                                 .heightIn(max = 200.dp) // Limit height of the log panel
                         ) {
-                            AppLogCard(logs = logs)
+                            AppLogCard(
+                                logs = logs,
+                                onDismiss = { showAppLogPanel = false },
+                                onClearLogs = { viewModel.clearLogs() }
+                            )
                         }
                     }
                 }
@@ -458,7 +468,6 @@ fun InfoItem(icon: ImageVector, label: String, value: String, modifier: Modifier
     }
 }
 
-
 @Composable
 fun InfoRow(label: String, value: String) {
     Row(
@@ -474,9 +483,16 @@ fun InfoRow(label: String, value: String) {
     Divider()
 }
 
+
+
+// ... other imports ...
+
 @Composable
-fun AppLogCard(logs: List<String>) {
-    var expanded by remember { mutableStateOf(false) }
+fun AppLogCard(logs: List<String>, onDismiss: () -> Unit, onClearLogs: () -> Unit) {
+    val context = LocalContext.current
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java) // Use getSystemService
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -488,37 +504,56 @@ fun AppLogCard(logs: List<String>) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("アプリログ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse" else "Expand"
-                    )
+                IconButton(
+                    onClick = { onClearLogs() },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Clear logs")
+                }
+                Spacer(modifier = Modifier.width(20.dp))
+                IconButton(
+                    onClick = {
+                        val logText = logs.joinToString("\n")
+                        val clip = ClipData.newPlainText("App Logs", logText)
+                        clipboardManager.setPrimaryClip(clip)
+                    },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy all logs")
+                }
+                Spacer(modifier = Modifier.width(20.dp))
+                IconButton(
+                    onClick = { onDismiss() },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close log panel")
                 }
             }
-            if (expanded) {
-                Spacer(modifier = Modifier.size(8.dp))
-                val lazyListState = rememberLazyListState()
-                SelectionContainer {
-                    Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
-                        LazyColumn(
-                            modifier = Modifier.padding(8.dp),
-                            state = lazyListState
-                        ) {
-                            items(logs) { log ->
-                                Text(text = log, style = MaterialTheme.typography.bodySmall)
-                            }
+            Spacer(modifier = Modifier.size(8.dp))
+            val lazyListState = rememberLazyListState()
+            SelectionContainer {
+                Card(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)) {
+                    LazyColumn(
+                        modifier = Modifier.padding(8.dp),
+                        state = lazyListState
+                    ) {
+                        items(logs) { log ->
+                            Text(text = log, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
-                LaunchedEffect(logs.size) {
-                    if (logs.isNotEmpty()) {
-                        lazyListState.animateScrollToItem(logs.size - 1)
-                    }
+            }
+            LaunchedEffect(logs.size) {
+                if (logs.isNotEmpty()) {
+                    lazyListState.animateScrollToItem(logs.size - 1)
                 }
             }
         }
     }
+    SnackbarHost(hostState = snackbarHostState, modifier = Modifier.wrapContentHeight(Alignment.Bottom))
 }
+
+// ... rest of the file ...
 
 
 

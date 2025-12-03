@@ -103,7 +103,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 }
                 LazyColumn(
                     state = lazyListState, // Assign state
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp) // Limit height
+                    modifier = Modifier.fillMaxWidth() // Allow to expand vertically
                 ) {
                     items(items = transcriptionResults.sortedByDescending { it.timestamp }, key = { it.timestamp }) { result ->
                         val isSelected = selectedItems.contains(result)

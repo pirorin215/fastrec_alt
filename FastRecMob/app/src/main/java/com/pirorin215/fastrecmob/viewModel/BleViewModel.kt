@@ -868,6 +868,7 @@ class BleViewModel(
 
                     if(infoSuccess) {
                         addLog("GET:info command completed successfully.")
+                        checkForNewWavFilesAndProcess() // Moved inside the lock
                     } else {
                         addLog("GET:info command failed or timed out.")
                     }
@@ -879,11 +880,6 @@ class BleViewModel(
                     currentCommandCompletion = null
                     addLog("fetchFileList lock released.")
                 }
-            }
-
-            // Lock is released, now we can trigger the next step
-            if (infoSuccess) {
-                checkForNewWavFilesAndProcess() // Check for new files now that we have the list
             }
         }
     }
@@ -1175,6 +1171,11 @@ class BleViewModel(
                 addLog("Audio directory not found, no files to clear.")
             }
         }
+    }
+
+    fun clearLogs() {
+        _logs.value = emptyList()
+        addLog("App logs cleared.")
     }
 
     // 特定の文字起こし結果を削除する関数
