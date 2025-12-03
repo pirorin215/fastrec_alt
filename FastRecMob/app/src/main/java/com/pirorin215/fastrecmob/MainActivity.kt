@@ -47,6 +47,7 @@ import android.provider.Settings
 import android.util.Log // Add this import
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+import com.pirorin215.fastrecmob.data.ThemeMode
 import androidx.compose.foundation.shape.CircleShape
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -64,7 +65,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            FastRecMobTheme {
+            val context = LocalContext.current
+            val viewModelFactory = BleViewModelFactory(context.applicationContext as Application)
+            val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
+            val themeMode by viewModel.themeMode.collectAsState()
+
+            FastRecMobTheme(themeMode = themeMode) {
                 BleApp(modifier = Modifier.fillMaxSize())
             }
         }
@@ -132,8 +138,7 @@ fun BleApp(modifier: Modifier = Modifier) {
 @Composable
 fun BleControl() {
     val context = LocalContext.current
-    val viewModelFactory = BleViewModelFactory(context.applicationContext as Application)
-    val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
+    val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
 
     val connectionState by viewModel.connectionState.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()

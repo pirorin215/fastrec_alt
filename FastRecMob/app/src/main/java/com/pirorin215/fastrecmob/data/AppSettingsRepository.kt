@@ -23,6 +23,7 @@ class AppSettingsRepository(private val context: Context) {
         val TRANSCRIPTION_CACHE_LIMIT = intPreferencesKey("transcription_cache_limit") // Renamed
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
         val TRANSCRIPTION_FONT_SIZE = intPreferencesKey("transcription_font_size")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -59,6 +60,13 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.AUDIO_DIR_NAME] ?: "FastRecRecordings"
         }
 
+    // テーマモードの変更を監視するためのFlow
+    val themeModeFlow: Flow<ThemeMode> = context.dataStore.data
+        .map { preferences ->
+            // デフォルト値をSYSTEMに設定
+            ThemeMode.valueOf(preferences[PreferencesKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name)
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -91,6 +99,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveAudioDirName(name: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.AUDIO_DIR_NAME] = name
+        }
+    }
+
+    // テーマモードを保存するsuspend関数
+    suspend fun saveThemeMode(themeMode: ThemeMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.THEME_MODE] = themeMode.name
         }
     }
 }
