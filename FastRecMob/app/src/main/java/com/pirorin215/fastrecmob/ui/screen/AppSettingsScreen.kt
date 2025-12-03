@@ -30,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import com.pirorin215.fastrecmob.data.ThemeMode
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import kotlin.math.roundToInt
 
@@ -41,12 +44,14 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()
     val currentTranscriptionCacheLimit by viewModel.transcriptionCacheLimit.collectAsState() // Renamed
     val currentFontSize by viewModel.transcriptionFontSize.collectAsState()
+    val currentThemeMode by viewModel.themeMode.collectAsState()
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var intervalText by remember(currentInterval) { mutableStateOf(currentInterval.toString()) }
     var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
     var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
+    var selectedThemeMode by remember(currentThemeMode) { mutableStateOf(currentThemeMode) }
 
 
     Scaffold(
@@ -100,6 +105,28 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Theme mode selection
+            Text("テーマモード", fontSize = 16.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ThemeMode.values().forEach { themeMode ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = (themeMode == selectedThemeMode),
+                            onClick = { selectedThemeMode = themeMode },
+                            colors = RadioButtonDefaults.colors()
+                        )
+                        Text(themeMode.name, fontSize = 14.sp)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
                     viewModel.saveApiKey(apiKeyText)
@@ -110,6 +137,7 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
                     val transcriptionCacheLimit = transcriptionCacheLimitText.toIntOrNull() ?: 100 // Renamed
                     viewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
                     viewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
+                    viewModel.saveThemeMode(selectedThemeMode)
                     onBack() // 保存後に前の画面に戻る
                 },
                 modifier = Modifier.fillMaxWidth()

@@ -49,11 +49,12 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import com.pirorin215.fastrecmob.service.SpeechToTextService
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
+import com.pirorin215.fastrecmob.data.ThemeMode
 
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+import com.pirorin215.fastrecmob.service.SpeechToTextService
 
 sealed class NavigationEvent {
     object NavigateBack : NavigationEvent()
@@ -117,6 +118,13 @@ class BleViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = "FastRecRecordings" // Default directory name
+        )
+
+    val themeMode: StateFlow<ThemeMode> = appSettingsRepository.themeModeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ThemeMode.SYSTEM // Default to SYSTEM
         )
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
@@ -1132,6 +1140,13 @@ class BleViewModel(
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
             addLog("API Key saved.")
+        }
+    }
+
+    fun saveThemeMode(themeMode: ThemeMode) {
+        viewModelScope.launch {
+            appSettingsRepository.saveThemeMode(themeMode)
+            addLog("Theme mode saved: $themeMode.")
         }
     }
 
