@@ -283,12 +283,15 @@ static std::string handle_del_file(const std::string& value) {
 static std::string handle_set_time(const std::string& value) {
   std::string timestamp_str = value.substr(std::string("SET:time:").length());
   if (!timestamp_str.empty()) {
-    long long timestamp_sec = atoll(timestamp_str.c_str());
-    if (timestamp_sec > 1704067200) { // Basic validation (after 2024-01-01)
+    long long timestamp_ll = atoll(timestamp_str.c_str());
+    if (timestamp_ll > 1704067200) { // Basic validation (after 2024-01-01)
       struct timeval tv;
-      tv.tv_sec = timestamp_sec;
+      tv.tv_sec = (time_t)timestamp_ll; // atollからtime_tへのキャストを明確化
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
+      
+      // Store the timestamp in RTC memory for persistence across deep sleep
+      g_last_ntp_epoch_s = (time_t)timestamp_ll;
       
       time_t now;
       struct tm timeinfo;

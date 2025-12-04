@@ -35,7 +35,7 @@ const AppState validTransitions[][2] = {
 };
 const size_t NUM_VALID_TRANSITIONS = sizeof(validTransitions) / sizeof(validTransitions[0]);
 
-void setAppState(AppState newState, bool applyDebounce = true) {
+void setAppState(AppState newState, bool applyDebounce=true) {
   static unsigned long lastStateChangeTime = 0; // 状態変更のデバウンス用
 
   if (g_currentAppState != newState) {
@@ -358,6 +358,24 @@ void initAdc() {
 
 void initRTCtime() {
   struct tm timeinfo;
+
+  // Check if we are waking up from deep sleep and have a valid stored time
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { // Assuming these are deep sleep wakeups
+    if (g_last_ntp_epoch_s > 1704067200) { // Check if stored epoch is valid (after 2024-01-01)
+      struct timeval tv;
+      tv.tv_sec = g_last_ntp_epoch_s;
+      tv.tv_usec = 0;
+      settimeofday(&tv, NULL);
+      applog("RTC restored from deep sleep with epoch: %ld", g_last_ntp_epoch_s);
+      // After setting time from RTC_DATA_ATTR, check for validity
+      if (getValidRtcTime(&timeinfo)) {
+        return; // Time successfully restored and is valid
+      }
+    }
+  }
+
+  // If not restored from deep sleep, or stored time was invalid, proceed with normal initialization
   if (!getValidRtcTime(&timeinfo)) { // Check RTC time at startup
     setRtcToDefaultTime();
   }
