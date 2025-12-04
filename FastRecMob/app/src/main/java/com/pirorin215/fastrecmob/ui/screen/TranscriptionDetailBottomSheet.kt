@@ -147,7 +147,6 @@ fun TranscriptionDetailBottomSheet(
             OutlinedTextField(
                 value = editableText,
                 onValueChange = { editableText = it },
-                label = { Text("Transcription Content") },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize.sp),
                 modifier = Modifier
                     .fillMaxWidth()
