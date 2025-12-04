@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -63,6 +64,11 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 )
 
                 if (transcriptionResults.isNotEmpty()) { // Show icons if the list is not empty
+                    if (isSelectionMode) {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                        }
+                    }
                     IconToggleButton(
                         checked = sortMode == SortMode.CUSTOM,
                         onCheckedChange = { isChecked ->
