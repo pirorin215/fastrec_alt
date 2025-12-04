@@ -15,16 +15,19 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.SortMode
@@ -43,6 +46,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
+    var showAddManualTranscriptionDialog by remember { mutableStateOf(false) } // Add this state
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
     val sortMode by viewModel.sortMode.collectAsState()
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
@@ -71,40 +75,42 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     modifier = Modifier.weight(1f)
                 )
 
-                if (transcriptionResults.isNotEmpty()) { // Show icons if the list is not empty
+                // New: Add manual transcription button
+                IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
+                    Icon(Icons.Filled.Add, "手動で文字起こしを追加")
+                }
+
+                // Clear selection button (always visible, enabled when in selection mode)
+                IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                }
+                IconToggleButton(
+                    checked = sortMode == SortMode.CUSTOM,
+                    onCheckedChange = { isChecked ->
+                        val newMode = if (isChecked) SortMode.CUSTOM else SortMode.TIMESTAMP
+                        viewModel.saveSortMode(newMode)
+                    }
+                ) {
+                    if (sortMode == SortMode.CUSTOM) {
+                        Icon(Icons.Default.SortByAlpha, contentDescription = "Custom Sort")
+                    } else {
+                        Icon(Icons.Default.AccessTime, contentDescription = "Sort by Time")
+                    }
+                }
+                IconButton(onClick = {
                     if (isSelectionMode) {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
-                        }
+                        showDeleteSelectedConfirmDialog = true
+                    } else {
+                        showDeleteAllConfirmDialog = true
                     }
-                    IconToggleButton(
-                        checked = sortMode == SortMode.CUSTOM,
-                        onCheckedChange = { isChecked ->
-                            val newMode = if (isChecked) SortMode.CUSTOM else SortMode.TIMESTAMP
-                            viewModel.saveSortMode(newMode)
-                        }
-                    ) {
-                        if (sortMode == SortMode.CUSTOM) {
-                            Icon(Icons.Default.SortByAlpha, contentDescription = "Custom Sort")
-                        } else {
-                            Icon(Icons.Default.AccessTime, contentDescription = "Sort by Time")
-                        }
-                    }
-                    IconButton(onClick = {
-                        if (isSelectionMode) {
-                            showDeleteSelectedConfirmDialog = true
-                        } else {
-                            showDeleteAllConfirmDialog = true
-                        }
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
-                    }
+                }) {
+                    Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
                 }
             }
 
             if (transcriptionResults.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                    Text("文字起こし履歴はありません。")
+                    Text("no data")
                 }
             } else {
                 val reorderableState = rememberReorderableLazyListState(
@@ -116,9 +122,24 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     }
                 )
                 val lazyListState = rememberLazyListState()
+                val listState = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState
+
+                // Remember the previous size of the list to detect when an item is added.
+                var previousListSize by remember { mutableStateOf(transcriptionResults.size) }
+
+                // When a new item is added (list size increases), scroll to the top.
+                LaunchedEffect(transcriptionResults.size) {
+                    if (transcriptionResults.size > previousListSize) {
+                        scope.launch {
+                            kotlinx.coroutines.delay(50) // Small delay to allow UI to recompose with new item
+                            listState.animateScrollToItem(0)
+                        }
+                    }
+                    previousListSize = transcriptionResults.size
+                }
 
                 LazyColumn(
-                    state = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState,
+                    state = listState,
                     modifier = (if (sortMode == SortMode.CUSTOM) Modifier.reorderable(reorderableState) else Modifier)
                         .fillMaxWidth()
                         .weight(1f)
@@ -128,11 +149,18 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                         if (sortMode == SortMode.CUSTOM) {
                             ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
                                 val elevation = if (isDragging) 4.dp else 0.dp
+                                val haptics = LocalHapticFeedback.current
+                                LaunchedEffect(isDragging) {
+                                    if (isDragging) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
+                                }
                                 Surface(shadowElevation = elevation) {
                                     TranscriptionResultItem(
                                         result = result,
                                         fontSize = fontSize,
                                         isSelected = isSelected,
+                                        isDragging = isDragging,
                                         onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
                                         onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
                                         sortMode = sortMode,
@@ -145,6 +173,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                 result = result,
                                 fontSize = fontSize,
                                 isSelected = isSelected,
+                                isDragging = false,
                                 onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
                                 onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
                                 sortMode = sortMode
@@ -200,8 +229,8 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     if (showDeleteAllConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteAllConfirmDialog = false },
-            title = { Text("履歴をクリア") },
-            text = { Text("全ての文字起こし履歴を削除しますか？") },
+            title = { Text("全件クリア") },
+            text = { Text("全てのメモを削除しますか？") },
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
@@ -219,8 +248,8 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     if (showDeleteSelectedConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteSelectedConfirmDialog = false },
-            title = { Text("選択した履歴を削除") },
-            text = { Text("${selectedFileNames.size} 件の文字起こし履歴を削除しますか？") },
+            title = { Text("選択した項目を削除") },
+            text = { Text("${selectedFileNames.size} 件を削除しますか？") },
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
@@ -234,6 +263,42 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
             }
         )
     }
+
+    // Manual transcription dialog (moved from MainActivity.kt)
+    if (showAddManualTranscriptionDialog) {
+        var transcriptionText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddManualTranscriptionDialog = false },
+            title = { Text("新規作成") },
+            text = {
+                OutlinedTextField(
+                    value = transcriptionText,
+                    onValueChange = { transcriptionText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    maxLines = 10
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (transcriptionText.isNotBlank()) {
+                            viewModel.addManualTranscription(transcriptionText)
+                            transcriptionText = ""
+                            showAddManualTranscriptionDialog = false
+                        }
+                    }
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddManualTranscriptionDialog = false }) {
+                    Text("キャンセル")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -242,13 +307,22 @@ fun TranscriptionResultItem(
     result: TranscriptionResult,
     fontSize: Int,
     isSelected: Boolean,
+    isDragging: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
     onToggleSelection: (String) -> Unit,
     sortMode: SortMode, // New parameter
     reorderableModifier: Modifier = Modifier
 ) {
-    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-    val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val backgroundColor = when {
+        isDragging -> MaterialTheme.colorScheme.tertiaryContainer
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val contentColor = when {
+        isDragging -> MaterialTheme.colorScheme.onTertiaryContainer
+        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
 
     Row(
         modifier = Modifier
@@ -305,4 +379,3 @@ fun TranscriptionResultItem(
         }
     }
 }
-

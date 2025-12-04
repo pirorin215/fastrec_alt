@@ -11,7 +11,7 @@ data class DateTimeInfo(val date: String, val time: String)
 
 object FileUtil {
     fun getRecordingDateTimeInfo(fileName: String): DateTimeInfo {
-        val regex = Regex("""R(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.wav""")
+        val regex = Regex("""[RM](\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.(wav|txt)""")
         val matchResult = regex.find(fileName)
 
         return if (matchResult != null && matchResult.groupValues.size > 1) {
@@ -40,6 +40,12 @@ object FileUtil {
     fun extractRecordingDateTime(fileName: String): String {
         val dateTimeInfo = getRecordingDateTimeInfo(fileName)
         return "${dateTimeInfo.date} ${dateTimeInfo.time}"
+    }
+
+    // タイムスタンプをファイル名に使用する形式にフォーマットする
+    fun formatTimestampForFileName(timestamp: Long): String {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault())
+        return dateFormat.format(Date(timestamp))
     }
 
     // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する

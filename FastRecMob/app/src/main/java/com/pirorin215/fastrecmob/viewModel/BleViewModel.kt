@@ -1362,4 +1362,33 @@ class BleViewModel(
             addLog("Removed ${resultsToRemove.size} selected transcription results.")
         }
     }
+
+    fun addManualTranscription(text: String) {
+        viewModelScope.launch {
+            var locationData: LocationData? = null
+            try {
+                locationTracker.getCurrentLocation().onSuccess {
+                    locationData = it
+                    addLog("Obtained current location for manual transcription: Lat=${it.latitude}, Lng=${it.longitude}")
+                }.onFailure { e ->
+                    addLog("Failed to get current location for manual transcription: ${e.message}. Proceeding without location data.")
+                }
+            } catch (e: SecurityException) {
+                addLog("Location permission not granted for manual transcription. Proceeding without location data.")
+            } catch (e: IllegalStateException) {
+                addLog("Location services are disabled for manual transcription. Proceeding without location data.")
+            } catch (e: Exception) {
+                addLog("Unexpected error getting location for manual transcription: ${e.message}. Proceeding without location data.")
+            }
+
+            val timestamp = System.currentTimeMillis()
+            val manualFileName = "M${com.pirorin215.fastrecmob.data.FileUtil.formatTimestampForFileName(timestamp)}.txt"
+            val newResult = TranscriptionResult(manualFileName, text, timestamp, locationData)
+
+            transcriptionResultRepository.addResult(newResult)
+            addLog("Manual transcription added: $manualFileName")
+
+            cleanupTranscriptionResultsAndAudioFiles()
+        }
+    }
 }

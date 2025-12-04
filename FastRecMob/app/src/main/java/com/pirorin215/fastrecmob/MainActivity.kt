@@ -307,19 +307,15 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                 Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 4.dp), // Removed verticalScroll from here
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         ApiKeyWarningCard(
                             apiKeyStatus = apiKeyStatus,
                             onNavigateToSettings = { showAppSettings = true }
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         SummaryInfoCard(deviceInfo = deviceInfo)
-                        // TranscriptionResultPanel now takes flexible space
-                        TranscriptionResultPanel(viewModel = viewModel, modifier = Modifier.weight(1f))
-                        Spacer(modifier = Modifier.height(8.dp))
+                        // Move FileDownloadSection above TranscriptionResultPanel
                         FileDownloadSection(
                             fileList = fileList,
                             fileTransferState = fileTransferState,
@@ -329,6 +325,8 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                             transferKbps = transferKbps,
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
+                        // TranscriptionResultPanel now takes flexible space
+                        TranscriptionResultPanel(viewModel = viewModel, modifier = Modifier.weight(1f))
                     }
                     PullRefreshIndicator(
                         refreshing = isRefreshing,

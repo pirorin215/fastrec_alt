@@ -17,6 +17,7 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     val isSelectionMode = selectedFileNames.isNotEmpty()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+
     Scaffold(
         topBar = {
             TopAppBar(

@@ -97,36 +97,31 @@ fun TranscriptionDetailBottomSheet(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Select All Button
-                    IconButton(
-                        onClick = {
-                            editableText = editableText.copy(selection = androidx.compose.ui.text.TextRange(0, editableText.text.length))
-                            focusRequester.requestFocus()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SelectAll,
-                            contentDescription = "Select All"
-                        )
-                    }
+
 
                     // Copy Button
                     IconButton(
                         onClick = {
                             val selectedText = editableText.text.substring(editableText.selection.min, editableText.selection.max)
-                            if (selectedText.isNotEmpty()) {
+                            val textToCopy = if (selectedText.isNotEmpty()) {
+                                selectedText
+                            } else {
+                                editableText.text // Copy full text if no selection
+                            }
+
+                            if (textToCopy.isNotEmpty()) {
                                 val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Transcription", selectedText)
+                                val clip = ClipData.newPlainText("Transcription", textToCopy)
                                 clipboardManager.setPrimaryClip(clip)
                                 Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "No text selected", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "No text to copy", Toast.LENGTH_SHORT).show()
                             }
                         }
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Selected Text"
+                            contentDescription = "Copy Text"
                         )
                     }
 
