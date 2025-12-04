@@ -3,6 +3,7 @@ package com.pirorin215.fastrecmob.ui.screen
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +42,8 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
     val sortMode by viewModel.sortMode.collectAsState()
+    val selectedFileNames by viewModel.selectedFileNames.collectAsState()
+    val isSelectionMode = selectedFileNames.isNotEmpty()
 
     var selectedResultForDetail by remember { mutableStateOf<TranscriptionResult?>(null) }
     val audioDirName by viewModel.audioDirName.collectAsState()
@@ -68,7 +71,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     )
                 }
 
-                if (transcriptionResults.isNotEmpty()) {
+                if (transcriptionResults.isNotEmpty() && !isSelectionMode) { // Only show sort/clear all when not in selection mode
                     IconToggleButton(
                         checked = sortMode == SortMode.CUSTOM,
                         onCheckedChange = { isChecked ->
@@ -105,9 +108,10 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
 
                 LazyColumn(
                     state = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState,
-                    modifier = if (sortMode == SortMode.CUSTOM) Modifier.fillMaxWidth().reorderable(reorderableState) else Modifier.fillMaxWidth()
+                    modifier = if (sortMode == SortMode.CUSTOM) Modifier.fillMaxWidth().fillMaxHeight().reorderable(reorderableState) else Modifier.fillMaxWidth().fillMaxHeight()
                 ) {
                     items(items = transcriptionResults, key = { it.fileName }) { result ->
+                        val isSelected = selectedFileNames.contains(result.fileName)
                         if (sortMode == SortMode.CUSTOM) {
                             ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
                                 val elevation = if (isDragging) 4.dp else 0.dp
@@ -116,7 +120,18 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                         result = result,
                                         fontSize = fontSize,
                                         isDraggable = true,
-                                        onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
+                                        isSelected = isSelected,
+                                        isSelectionMode = isSelectionMode,
+                                        onItemClick = { clickedItem ->
+                                            if (isSelectionMode) {
+                                                viewModel.toggleSelection(clickedItem.fileName)
+                                            } else {
+                                                selectedResultForDetail = clickedItem
+                                            }
+                                        },
+                                        onLongItemClick = { clickedItem ->
+                                            viewModel.toggleSelection(clickedItem.fileName)
+                                        },
                                         handleModifier = Modifier.detectReorderAfterLongPress(reorderableState)
                                     )
                                 }
@@ -126,7 +141,18 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                 result = result,
                                 fontSize = fontSize,
                                 isDraggable = false,
-                                onItemClick = { clickedItem -> selectedResultForDetail = clickedItem }
+                                isSelected = isSelected,
+                                isSelectionMode = isSelectionMode,
+                                onItemClick = { clickedItem ->
+                                    if (isSelectionMode) {
+                                        viewModel.toggleSelection(clickedItem.fileName)
+                                    } else {
+                                        selectedResultForDetail = clickedItem
+                                    }
+                                },
+                                onLongItemClick = { clickedItem ->
+                                    viewModel.toggleSelection(clickedItem.fileName)
+                                }
                             )
                         }
                         Divider()
@@ -196,36 +222,60 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TranscriptionResultItem(
     result: TranscriptionResult,
     fontSize: Int,
     isDraggable: Boolean,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
+    onLongItemClick: (TranscriptionResult) -> Unit,
     handleModifier: Modifier = Modifier
 ) {
+    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+    val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp),
+            .background(backgroundColor)
+            .padding(horizontal = 16.dp)
+            .heightIn(min = 56.dp), // Ensure a minimum height for the row
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isDraggable) {
+        if (isSelectionMode) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onItemClick(result) }, // Toggles selection on checkbox click
+                modifier = Modifier
+                    .size(40.dp) // Explicitly size the checkbox
+                    .padding(end = 8.dp)
+            )
+        } else if (isDraggable) {
             Icon(
                 imageVector = Icons.Default.DragHandle,
                 contentDescription = "Drag to reorder",
-                modifier = handleModifier.padding(8.dp)
+                modifier = handleModifier
+                    .size(40.dp) // Explicitly size the drag handle icon
+                    .padding(8.dp),
+                tint = contentColor
             )
         } else {
-            Spacer(modifier = Modifier.width(24.dp + 16.dp)) // Icon size + padding
+            // Spacer to align content when no checkbox or drag handle is present
+            Spacer(modifier = Modifier.width(40.dp)) // Match the size of the checkbox/icon
         }
 
+        // Content area that is clickable/long-clickable
         Row(
             modifier = Modifier
                 .weight(1f)
-                .clickable { onItemClick(result) }
-                .padding(vertical = 8.dp),
+                .combinedClickable(
+                    onClick = { onItemClick(result) },
+                    onLongClick = { onLongItemClick(result) }
+                )
+                .padding(vertical = 8.dp), // Keep vertical padding for text content
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -234,6 +284,7 @@ fun TranscriptionResultItem(
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                color = contentColor,
                 modifier = Modifier.width(140.dp)
             )
             Spacer(modifier = Modifier.width(1.dp))
@@ -242,6 +293,7 @@ fun TranscriptionResultItem(
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
+                color = contentColor,
                 modifier = Modifier.weight(1f)
             )
         }

@@ -234,6 +234,9 @@ class BleViewModel(
     private val _isAutoRefreshEnabled = MutableStateFlow(true)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
 
+    private val _selectedFileNames = MutableStateFlow<Set<String>>(emptySet())
+    val selectedFileNames: StateFlow<Set<String>> = _selectedFileNames.asStateFlow()
+
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
@@ -1260,6 +1263,31 @@ class BleViewModel(
             // The addResult method now handles updates, so we just call that.
             transcriptionResultRepository.addResult(updatedResult)
             addLog("Transcription result for ${originalResult.fileName} updated.")
+        }
+    }
+
+    fun toggleSelection(fileName: String) {
+        _selectedFileNames.value = if (_selectedFileNames.value.contains(fileName)) {
+            _selectedFileNames.value - fileName
+        } else {
+            _selectedFileNames.value + fileName
+        }
+        addLog("Toggled selection for $fileName. Current selections: ${_selectedFileNames.value.size}")
+    }
+
+    fun clearSelection() {
+        _selectedFileNames.value = emptySet()
+        addLog("Cleared selection.")
+    }
+
+    fun removeTranscriptionResults(fileNames: Set<String>) {
+        viewModelScope.launch {
+            val resultsToRemove = transcriptionResults.value.filter { fileNames.contains(it.fileName) }
+            resultsToRemove.forEach { result ->
+                removeTranscriptionResult(result) // Use the existing single delete function
+            }
+            clearSelection() // Clear selection after deletion
+            addLog("Removed ${resultsToRemove.size} selected transcription results.")
         }
     }
 }
