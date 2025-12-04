@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.SortMode
@@ -51,13 +52,20 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val audioDirName by viewModel.audioDirName.collectAsState()
     val context = LocalContext.current
 
-    Card() {
+
+    Card(shape = RoundedCornerShape(0.dp)) {
         Column() {
-            Row() {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 val transcriptionCount by viewModel.transcriptionCount.collectAsState()
                 val audioFileCount by viewModel.audioFileCount.collectAsState()
                 Text(
-                    "メモ: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
+                    "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
