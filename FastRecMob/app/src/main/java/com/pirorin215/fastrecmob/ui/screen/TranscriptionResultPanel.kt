@@ -19,12 +19,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.SortMode
@@ -142,11 +143,18 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                         if (sortMode == SortMode.CUSTOM) {
                             ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
                                 val elevation = if (isDragging) 4.dp else 0.dp
+                                val haptics = LocalHapticFeedback.current
+                                LaunchedEffect(isDragging) {
+                                    if (isDragging) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
+                                }
                                 Surface(shadowElevation = elevation) {
                                     TranscriptionResultItem(
                                         result = result,
                                         fontSize = fontSize,
                                         isSelected = isSelected,
+                                        isDragging = isDragging,
                                         onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
                                         onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
                                         sortMode = sortMode,
@@ -159,6 +167,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                 result = result,
                                 fontSize = fontSize,
                                 isSelected = isSelected,
+                                isDragging = false,
                                 onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
                                 onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
                                 sortMode = sortMode
@@ -256,13 +265,22 @@ fun TranscriptionResultItem(
     result: TranscriptionResult,
     fontSize: Int,
     isSelected: Boolean,
+    isDragging: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
     onToggleSelection: (String) -> Unit,
     sortMode: SortMode, // New parameter
     reorderableModifier: Modifier = Modifier
 ) {
-    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-    val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val backgroundColor = when {
+        isDragging -> MaterialTheme.colorScheme.tertiaryContainer
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val contentColor = when {
+        isDragging -> MaterialTheme.colorScheme.onTertiaryContainer
+        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
+    }
 
     Row(
         modifier = Modifier
