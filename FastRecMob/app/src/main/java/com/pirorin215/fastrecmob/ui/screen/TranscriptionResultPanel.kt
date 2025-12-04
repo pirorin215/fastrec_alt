@@ -116,9 +116,23 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     }
                 )
                 val lazyListState = rememberLazyListState()
+                val listState = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState
+
+                // Remember the previous size of the list to detect when an item is added.
+                var previousListSize by remember { mutableStateOf(transcriptionResults.size) }
+
+                // When a new item is added (list size increases), scroll to the top.
+                LaunchedEffect(transcriptionResults.size) {
+                    if (transcriptionResults.size > previousListSize) {
+                        scope.launch {
+                            listState.animateScrollToItem(0)
+                        }
+                    }
+                    previousListSize = transcriptionResults.size
+                }
 
                 LazyColumn(
-                    state = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState,
+                    state = listState,
                     modifier = (if (sortMode == SortMode.CUSTOM) Modifier.reorderable(reorderableState) else Modifier)
                         .fillMaxWidth()
                         .weight(1f)

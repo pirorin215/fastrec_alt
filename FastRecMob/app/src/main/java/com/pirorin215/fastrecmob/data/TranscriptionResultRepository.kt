@@ -71,8 +71,10 @@ class TranscriptionResultRepository(private val context: Context) {
                     }
                 }
             } else {
-                // 新しいアイテムを追加 (displayOrderを末尾に設定)
-                currentList + result.copy(displayOrder = currentList.size)
+                // 新しいアイテムを先頭に追加するため、既存アイテムのdisplayOrderをインクリメント
+                val shiftedList = currentList.map { it.copy(displayOrder = it.displayOrder + 1) }
+                // 新しいアイテムをdisplayOrder = 0として追加
+                shiftedList + result.copy(displayOrder = 0)
             }
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
         }
