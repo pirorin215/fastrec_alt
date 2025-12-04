@@ -258,31 +258,26 @@ fun TranscriptionResultItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor)
-            .padding(horizontal = 16.dp)
-            .height(64.dp), // Use a fixed height to prevent resizing
+            .background(backgroundColor),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isSelectionMode) {
             Checkbox(
                 checked = isSelected,
-                onCheckedChange = { onItemClick(result) }, // Toggles selection on checkbox click
-                modifier = Modifier
-                    .size(40.dp) // Explicitly size the checkbox
-                    .padding(end = 8.dp)
+                onCheckedChange = { onItemClick(result) }
             )
         } else if (isDraggable) {
             Icon(
                 imageVector = Icons.Default.DragHandle,
                 contentDescription = "Drag to reorder",
                 modifier = handleModifier
-                    .size(40.dp) // Explicitly size the drag handle icon
+                    .size(40.dp) // Revert to original size
                     .padding(8.dp),
                 tint = contentColor
             )
         } else {
             // Spacer to align content when no checkbox or drag handle is present
-            Spacer(modifier = Modifier.size(40.dp)) // Match the size of the checkbox/icon
+            Spacer(modifier = Modifier.size(40.dp)) // Revert to original size
         }
 
         // Content area that is clickable/long-clickable
