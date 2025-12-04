@@ -135,6 +135,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                         isSelected = isSelected,
                                         onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
                                         onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
+                                        sortMode = sortMode,
                                         reorderableModifier = Modifier.detectReorderAfterLongPress(reorderableState)
                                     )
                                 }
@@ -145,7 +146,8 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                 fontSize = fontSize,
                                 isSelected = isSelected,
                                 onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
-                                onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) }
+                                onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
+                                sortMode = sortMode
                             )
                         }
                         Divider()
@@ -241,7 +243,8 @@ fun TranscriptionResultItem(
     fontSize: Int,
     isSelected: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
-    onToggleSelection: (String) -> Unit, // New lambda for checkbox
+    onToggleSelection: (String) -> Unit,
+    sortMode: SortMode, // New parameter
     reorderableModifier: Modifier = Modifier
 ) {
     val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
@@ -269,26 +272,28 @@ fun TranscriptionResultItem(
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val dateTimeInfo = FileUtil.getRecordingDateTimeInfo(result.fileName)
-            Column(modifier = Modifier.width(80.dp)) {
-                Text(
-                    text = dateTimeInfo.date,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = contentColor
-                )
-                Text(
-                    text = dateTimeInfo.time,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = contentColor
-                )
+            if (sortMode == SortMode.TIMESTAMP) {
+                val dateTimeInfo = FileUtil.getRecordingDateTimeInfo(result.fileName)
+                Column(modifier = Modifier.width(80.dp)) {
+                    Text(
+                        text = dateTimeInfo.date,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = contentColor
+                    )
+                    Text(
+                        text = dateTimeInfo.time,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = contentColor
+                    )
+                }
+                Spacer(modifier = Modifier.width(1.dp))
             }
-            Spacer(modifier = Modifier.width(1.dp))
             Text(
                 text = result.transcription,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize.sp),
