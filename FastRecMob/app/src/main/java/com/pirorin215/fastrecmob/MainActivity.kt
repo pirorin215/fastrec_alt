@@ -43,7 +43,6 @@ import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
 import com.pirorin215.fastrecmob.viewModel.ApiKeyStatus
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import com.pirorin215.fastrecmob.data.countWavFiles
 import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
@@ -179,7 +178,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_INFO
+    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_DEVICE_INFO
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
         onRefresh = { viewModel.fetchFileList() }
@@ -455,7 +454,7 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
                 InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm", modifier = Modifier.weight(1f))
                 InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%", modifier = Modifier.weight(1f))
                 InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%", modifier = Modifier.weight(1f))
-                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = countWavFiles(deviceInfo?.ls ?: "").toString(), modifier = Modifier.weight(1f))
+                InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = (deviceInfo?.wavCount ?: 0).toString(), modifier = Modifier.weight(1f))
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(
                         imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

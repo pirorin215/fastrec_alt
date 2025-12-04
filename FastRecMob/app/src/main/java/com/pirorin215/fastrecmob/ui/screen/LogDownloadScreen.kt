@@ -17,10 +17,23 @@ import com.pirorin215.fastrecmob.viewModel.BleViewModel
 
 import androidx.activity.compose.BackHandler
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogDownloadScreen(viewModel: BleViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
+
+    LaunchedEffect(Unit) {
+        viewModel.fetchFileList("txt")
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.fetchFileList("wav")
+        }
+    }
 
     val fileList by viewModel.fileList.collectAsState()
     val fileTransferState by viewModel.fileTransferState.collectAsState()

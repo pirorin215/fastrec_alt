@@ -3,13 +3,12 @@ package com.pirorin215.fastrecmob.data
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
 data class DeviceInfoResponse(
-    val ls: String,
+    @SerialName("wav_count") val wavCount: Int,
+    @SerialName("txt_count") val txtCount: Int,
+    @SerialName("ini_count") val iniCount: Int,
     @SerialName("battery_level") val batteryLevel: Float,
     @SerialName("battery_voltage") val batteryVoltage: Float,
     @SerialName("app_state") val appState: String,
@@ -21,28 +20,24 @@ data class DeviceInfoResponse(
     @SerialName("littlefs_usage_percent") val littlefsUsagePercent: Int
 )
 
-data class FileEntry(val name: String, val size: String)
+@Serializable
+data class FileEntry(
+    @SerialName("name") val name: String,
+    @SerialName("size") val size: Long
+)
 
-// Helper function to parse the 'ls' string
-fun parseFileEntries(lsString: String): List<FileEntry> {
-    return lsString.trim().split('\n').mapNotNull {
-        if (it.isBlank()) return@mapNotNull null
-        val parts = it.split(" (", limit = 2)
-        if (parts.size == 2) {
-            val name = parts[0].trim()
-            val size = parts[1].removeSuffix(" bytes)").trim()
-            FileEntry(name, size)
-        } else {
-            // Handle directories or other non-file entries if necessary
-            FileEntry(it.trim(), "N/A")
-        }
+private val json = Json { ignoreUnknownKeys = true }
+
+// Helper function to parse the JSON array string from GET:ls
+fun parseFileEntries(jsonString: String): List<FileEntry> {
+    if (jsonString.isBlank()) return emptyList()
+    return try {
+        json.decodeFromString<List<FileEntry>>(jsonString)
+    } catch (e: Exception) {
+        // Log the error or handle it appropriately
+        println("Error parsing file entries JSON: ${e.message}")
+        emptyList()
     }
-}
-
-// Helper function to count .wav files from the 'ls' string
-fun countWavFiles(lsString: String): Int {
-    val fileEntries = parseFileEntries(lsString)
-    return fileEntries.count { it.name.lowercase().endsWith(".wav") }
 }
 
 

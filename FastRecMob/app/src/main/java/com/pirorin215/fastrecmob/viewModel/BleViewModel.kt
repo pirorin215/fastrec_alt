@@ -252,12 +252,13 @@ class BleViewModel(
 
     enum class Operation {
         IDLE,
-        FETCHING_INFO,
+        FETCHING_DEVICE_INFO,
+        FETCHING_FILE_LIST,
         FETCHING_SETTINGS,
         DOWNLOADING_FILE,
         SENDING_SETTINGS,
         DELETING_FILE,
-        SENDING_TIME // Added new state
+        SENDING_TIME
     }
 
     private var responseBuffer = mutableListOf<Byte>()
@@ -321,54 +322,56 @@ class BleViewModel(
                 }
                 is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
                     addLog("Device is ready for communication.")
-                viewModelScope.launch {
-                    var timeSyncSuccess = false
-                    bleMutex.withLock { // Acquire lock before sending SET:time
-                        _currentOperation.value = Operation.SENDING_TIME // New operation state
-                        responseBuffer.clear() // Clear buffer for SET:time response
-                        val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-                        currentCommandCompletion = timeCompletion // Use common completion for SET:time
+                    viewModelScope.launch {
+                        bleMutex.withLock { // Acquire lock before sending SET:time
+                            _currentOperation.value = Operation.SENDING_TIME // New operation state
+                            responseBuffer.clear() // Clear buffer for SET:time response
+                            val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
+                            currentCommandCompletion = timeCompletion // Use common completion for SET:time
 
-                        val currentTimestampSec = System.currentTimeMillis() / 1000
-                        val timeCommand = "SET:time:$currentTimestampSec"
-                        addLog("Sending initial time synchronization command: $timeCommand")
-                        sendCommand(timeCommand)
+                            val currentTimestampSec = System.currentTimeMillis() / 1000
+                            val timeCommand = "SET:time:$currentTimestampSec"
+                            addLog("Sending initial time synchronization command: $timeCommand")
+                            sendCommand(timeCommand)
 
-                        val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) { // 5 second timeout for time sync
-                            timeCompletion.await()
-                        } ?: Pair(false, null)
+                            val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) { // 5 second timeout for time sync
+                                timeCompletion.await()
+                            } ?: Pair(false, null)
 
-                        if (timeSyncSuccess) {
-                            addLog("Initial time synchronization successful.")
-                        } else {
-                            addLog("Initial time synchronization failed or timed out.")
-                        }
-                        _currentOperation.value = Operation.IDLE // RESET TO IDLE HERE!
-                    } // Release lock after SET:time completion/timeout
-
-                    // Start periodic time synchronization
-                    timeSyncJob?.cancel() // Cancel any existing job
-                    timeSyncJob = viewModelScope.launch {
-                        while (true) {
-                            delay(TIME_SYNC_INTERVAL_MS)
-                            if (connectionState.value == "Connected" && _currentOperation.value == Operation.IDLE) {
-                                bleMutex.withLock { // Acquire lock for periodic time sync
-                                    val periodicTimestampSec = System.currentTimeMillis() / 1000
-                                    val periodicTimeCommand = "SET:time:$periodicTimestampSec"
-                                    addLog("Sending periodic time synchronization command: $periodicTimeCommand")
-                                    sendCommand(periodicTimeCommand)
-                                } // Release lock
+                            if (timeSyncSuccess) {
+                                addLog("Initial time synchronization successful.")
                             } else {
-                                addLog("Skipping periodic time sync: not connected or operation in progress.")
+                                addLog("Initial time synchronization failed or timed out.")
+                            }
+                            _currentOperation.value = Operation.IDLE
+                        }
+
+                        // Launch fetches in separate jobs so they don't block the `onReady` handler
+                        fetchDeviceInfo()
+                        fetchFileList()
+
+
+                        // Start periodic time synchronization
+                        timeSyncJob?.cancel() // Cancel any existing job
+                        timeSyncJob = viewModelScope.launch {
+                            while (true) {
+                                delay(TIME_SYNC_INTERVAL_MS)
+                                if (connectionState.value == "Connected" && _currentOperation.value == Operation.IDLE) {
+                                    bleMutex.withLock { // Acquire lock for periodic time sync
+                                        val periodicTimestampSec = System.currentTimeMillis() / 1000
+                                        val periodicTimeCommand = "SET:time:$periodicTimestampSec"
+                                        addLog("Sending periodic time synchronization command: $periodicTimeCommand")
+                                        sendCommand(periodicTimeCommand)
+                                    } // Release lock
+                                } else {
+                                    addLog("Skipping periodic time sync: not connected or operation in progress.")
+                                }
                             }
                         }
+                        if (_isAutoRefreshEnabled.value) {
+                            startAutoRefresh()
+                        }
                     }
-                    // Now proceed with other on-ready tasks
-                    fetchFileList()
-                    if (_isAutoRefreshEnabled.value) {
-                        startAutoRefresh()
-                    }
-                }
                 }
                 is com.pirorin215.fastrecmob.data.BleEvent.CharacteristicChanged -> {
                     handleCharacteristicChanged(event.characteristic, event.value)
@@ -379,20 +382,16 @@ class BleViewModel(
             }
         }.launchIn(viewModelScope)
 
-        deviceInfo.onEach { info ->
-            info?.ls?.let { fileString ->
-                _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(fileString)
+        appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
+            if (apiKey.isNotEmpty()) {
+                speechToTextService = SpeechToTextService(apiKey)
+                addLog("SpeechToTextService initialized with API Key.")
+            } else {
+                speechToTextService = null
+                addLog("SpeechToTextService cleared (API Key not set).")
             }
         }.launchIn(viewModelScope)
-                appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
-                    if (apiKey.isNotEmpty()) {
-                        speechToTextService = SpeechToTextService(apiKey)
-                        addLog("SpeechToTextService initialized with API Key.")
-                    } else {
-                        speechToTextService = null
-                        addLog("SpeechToTextService cleared (API Key not set).")
-                    }
-                }.launchIn(viewModelScope)
+
         viewModelScope.launch {
             com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
                 addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
@@ -416,6 +415,7 @@ class BleViewModel(
                 // The mutex in fetchFileList now handles concurrency, so we can call it directly.
                 // It will wait if another operation is in progress.
                 fetchFileList()
+                fetchDeviceInfo()
             }
         }
     }
@@ -500,35 +500,65 @@ class BleViewModel(
         if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
-                Operation.FETCHING_INFO -> {
-                    // Check if responseBuffer is empty and current fragment is not starting with '{'
-                    // This is to prevent "OK: Time set to..." or other stray messages from polluting the JSON buffer
-                    val incomingString = value.toString(Charsets.UTF_8).trim()
-                    if (responseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
-                        addLog("FETCHING_INFO: Ignoring unexpected leading fragment: $incomingString")
-                        // Do not add to buffer if it's not a JSON start and buffer is empty
-                        return
-                    }
-
-                    responseBuffer.addAll(value.toList())
-                    val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                    addLog("FETCHING_INFO: Received fragment. Current buffer length: ${currentBufferAsString.length}. Data: ${currentBufferAsString.take(100)}...") // Log current buffer state
-                    if (currentBufferAsString.trim().endsWith("}")) {
-                        addLog("Assembled data for DeviceInfo: $currentBufferAsString")
-                        try {
-                            val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
-                            _deviceInfo.value = parsedResponse
-                            addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                            currentCommandCompletion?.complete(Pair(true, null)) // Signal success
-                        } catch (e: Exception) {
-                            addLog("Error parsing DeviceInfo JSON: ${e.message}")
-                            currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
-                        }
-                    } else if (currentBufferAsString.startsWith("ERROR:")) { // Handle ERROR response from microcontroller
-                        addLog("Received error response for GET:info: $currentBufferAsString")
-                        currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
-                    }
+            Operation.FETCHING_DEVICE_INFO -> {
+                val incomingString = value.toString(Charsets.UTF_8).trim()
+                if (responseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
+                    addLog("FETCHING_DEVICE_INFO: Ignoring unexpected leading fragment: $incomingString")
+                    return
                 }
+
+                responseBuffer.addAll(value.toList())
+                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                addLog("FETCHING_DEVICE_INFO: Received fragment. Buffer length: ${currentBufferAsString.length}.")
+                if (currentBufferAsString.trim().endsWith("}")) {
+                    addLog("Assembled data for DeviceInfo: $currentBufferAsString")
+                    try {
+                        val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
+                        _deviceInfo.value = parsedResponse
+                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                        currentCommandCompletion?.complete(Pair(true, null)) // Signal success
+                    } catch (e: Exception) {
+                        addLog("Error parsing DeviceInfo JSON: ${e.message}")
+                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                    }
+                } else if (currentBufferAsString.startsWith("ERROR:")) {
+                    addLog("Received error response for GET:info: $currentBufferAsString")
+                    currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
+                }
+            }
+            Operation.FETCHING_FILE_LIST -> {
+                val incomingString = value.toString(Charsets.UTF_8).trim()
+                // Handle cases where response might not start with '[' (e.g. empty list or error)
+                if (responseBuffer.isEmpty() && !incomingString.startsWith("[") && !incomingString.startsWith("ERROR:")) {
+                    addLog("FETCHING_FILE_LIST: Ignoring unexpected leading fragment: $incomingString")
+                    // If it's an empty array, it might come as "[]" in one go.
+                    if (incomingString == "[]") {
+                         _fileList.value = emptyList()
+                         currentCommandCompletion?.complete(Pair(true, null))
+                    }
+                    return
+                }
+
+                responseBuffer.addAll(value.toList())
+                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                addLog("FETCHING_FILE_LIST: Received fragment. Buffer length: ${currentBufferAsString.length}.")
+
+                if (currentBufferAsString.trim().endsWith("]")) {
+                    addLog("Assembled data for FileList: $currentBufferAsString")
+                    try {
+                        _fileList.value = com.pirorin215.fastrecmob.data.parseFileEntries(currentBufferAsString)
+                        addLog("Parsed FileList. Count: ${_fileList.value.size}")
+                        currentCommandCompletion?.complete(Pair(true, null)) // Signal success
+                    } catch (e: Exception) {
+                        addLog("Error parsing FileList JSON: ${e.message}")
+                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
+                    }
+                } else if (currentBufferAsString.startsWith("ERROR:")) {
+                    addLog("Received error response for GET:ls: $currentBufferAsString")
+                    _fileList.value = emptyList() // Clear list on error
+                    currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
+                }
+            }
             Operation.FETCHING_SETTINGS -> {
                 responseBuffer.addAll(value.toList())
                 viewModelScope.launch {
@@ -739,9 +769,10 @@ class BleViewModel(
             updateLocalAudioFileCount() // Ensure count is updated after cleanup
         }
     }
-    
 
-    
+
+
+
     fun startScan() {
         _logs.value = emptyList()
         addLog("Manual scan button pressed. Waiting for service to find device.")
@@ -781,7 +812,7 @@ class BleViewModel(
         addLog("Sending command: $command")
         repository.sendCommand(command)
     }
-    
+
     fun deleteFileOnMicrocontroller(fileName: String) {
         viewModelScope.launch {
             if (connectionState.value != "Connected") {
@@ -795,10 +826,10 @@ class BleViewModel(
                     _currentOperation.value = Operation.DELETING_FILE
                     for (i in 0..MAX_DELETE_RETRIES) {
                         addLog("Sending command to delete file: DEL:file:$fileName (Attempt ${i + 1}/${MAX_DELETE_RETRIES + 1})")
-                        
+
                         val deleteCompletion = CompletableDeferred<Boolean>()
                         currentDeleteCompletion = deleteCompletion
-                        
+
                         sendCommand("DEL:file:$fileName")
 
                         try {
@@ -813,7 +844,7 @@ class BleViewModel(
                         if (success) {
                             addLog("Successfully deleted file: $fileName.")
                             // Allow some time for the device to process deletion before fetching the list
-                            delay(1000L) 
+                            delay(1000L)
                             // fetchFileList will acquire its own lock, so we must exit this one first.
                             // Launch a new coroutine to avoid blocking this finally block.
                             viewModelScope.launch { fetchFileList() }
@@ -835,39 +866,36 @@ class BleViewModel(
             }
         }
     }
-    
-    fun fetchFileList() {
+
+    fun fetchDeviceInfo() {
         viewModelScope.launch {
             if (connectionState.value != "Connected") {
-                addLog("Cannot fetch file list, not connected.")
+                addLog("Cannot fetch device info, not connected.")
                 return@launch
             }
 
-            var infoSuccess = false
             bleMutex.withLock {
                 if (_currentOperation.value != Operation.IDLE) {
-                    addLog("Cannot fetch file list, another operation is in progress.")
+                    addLog("Cannot fetch device info, another operation is in progress: ${_currentOperation.value}")
                     return@withLock
                 }
 
                 try {
-                    _currentOperation.value = Operation.FETCHING_INFO
+                    _currentOperation.value = Operation.FETCHING_DEVICE_INFO
                     responseBuffer.clear()
-                    addLog("Requesting file list from device...")
+                    addLog("Requesting device info from device...")
 
                     val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                     currentCommandCompletion = commandCompletion
 
                     sendCommand("GET:info")
 
-                    val (success, _) = withTimeoutOrNull(15000L) { // 15 seconds timeout
+                    val (success, _) = withTimeoutOrNull(15000L) {
                         commandCompletion.await()
                     } ?: Pair(false, null)
-                    infoSuccess = success
 
-                    if(infoSuccess) {
-                        addLog("GET:info command completed successfully. Saving location.")
-                        // Save location on successful GET:info
+                    if (success) {
+                        addLog("GET:info command completed successfully.")
                         viewModelScope.launch {
                             locationTracker.getCurrentLocation().onSuccess { locationData ->
                                 lastKnownLocationRepository.saveLastKnownLocation(locationData)
@@ -876,22 +904,66 @@ class BleViewModel(
                                 addLog("Failed to get or save location on GET:info success: ${e.message}")
                             }
                         }
-                        checkForNewWavFilesAndProcess() // Moved inside the lock
                     } else {
                         addLog("GET:info command failed or timed out.")
+                    }
+                } catch (e: Exception) {
+                    addLog("An unexpected error occurred during fetchDeviceInfo: ${e.message}")
+                } finally {
+                    _currentOperation.value = Operation.IDLE
+                    currentCommandCompletion = null
+                    addLog("fetchDeviceInfo lock released.")
+                }
+            }
+        }
+    }
+
+    fun fetchFileList(extension: String = "wav") {
+        viewModelScope.launch {
+            if (connectionState.value != "Connected") {
+                addLog("Cannot fetch file list, not connected.")
+                return@launch
+            }
+
+            bleMutex.withLock {
+                if (_currentOperation.value != Operation.IDLE) {
+                    addLog("Cannot fetch file list, another operation is in progress: ${_currentOperation.value}")
+                    return@withLock
+                }
+
+                try {
+                    _currentOperation.value = Operation.FETCHING_FILE_LIST
+                    responseBuffer.clear()
+                    addLog("Requesting file list from device (GET:ls:$extension)...")
+
+                    val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
+                    currentCommandCompletion = commandCompletion
+
+                    sendCommand("GET:ls:$extension")
+
+                    val (success, _) = withTimeoutOrNull(15000L) {
+                        commandCompletion.await()
+                    } ?: Pair(false, null)
+
+                    if (success) {
+                        addLog("GET:ls:$extension command completed successfully.")
+                        if (extension == "wav") {
+                            checkForNewWavFilesAndProcess()
+                        }
+                    } else {
+                        addLog("GET:ls:$extension command failed or timed out.")
                     }
                 } catch (e: Exception) {
                     addLog("An unexpected error occurred during fetchFileList: ${e.message}")
                 } finally {
                     _currentOperation.value = Operation.IDLE
-                    responseBuffer.clear()
                     currentCommandCompletion = null
                     addLog("fetchFileList lock released.")
                 }
             }
         }
     }
-    
+
     fun getSettings() {
         if (_currentOperation.value != Operation.IDLE || connectionState.value != "Connected") {
             addLog("Cannot get settings, busy or not connected.")
@@ -902,7 +974,7 @@ class BleViewModel(
         addLog("Requesting settings from device...")
         sendCommand("GET:setting_ini")
     }
-    
+
     fun applyRemoteSettings() {
         _remoteDeviceSettings.value?.let {
             _deviceSettings.value = it
@@ -910,12 +982,12 @@ class BleViewModel(
         }
         dismissSettingsDiff()
     }
-    
+
     fun dismissSettingsDiff() {
         _remoteDeviceSettings.value = null
         _settingsDiff.value = null
     }
-    
+
     fun sendSettings() {
         if (_currentOperation.value != Operation.IDLE || connectionState.value != "Connected") {
             addLog("Cannot send settings, busy or not connected.")
@@ -931,47 +1003,47 @@ class BleViewModel(
             _navigationEvent.emit(NavigationEvent.NavigateBack)
         }
     }
-    
+
     fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
         dismissSettingsDiff()
         _deviceSettings.value = updater(_deviceSettings.value)
     }
-    
+
     fun downloadFile(fileName: String) {
         viewModelScope.launch {
             if (connectionState.value != "Connected") {
                 addLog("Cannot download file, not connected.")
                 return@launch
             }
-    
+
             var downloadResult: Pair<Boolean, String?> = Pair(false, null)
             bleMutex.withLock {
                 if (_currentOperation.value != Operation.IDLE) {
                     addLog("Cannot download file '$fileName', another operation is in progress: ${_currentOperation.value}")
                     return@withLock
                 }
-    
+
                 val operationCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                 currentCommandCompletion = operationCompletion
-    
+
                 try {
                     _currentOperation.value = Operation.DOWNLOADING_FILE
                     _fileTransferState.value = "WaitingForStart"
                     currentDownloadingFileName = fileName
-    
+
                     val fileEntry = _fileList.value.find { it.name == fileName }
-                    val fileSize = fileEntry?.size?.substringBefore(" ")?.toLongOrNull() ?: 0L
+                    val fileSize = fileEntry?.size ?: 0L
                     _currentFileTotalSize.value = fileSize
-                    
+
                     addLog("Requesting file: $fileName (size: $fileSize bytes)")
                     sendCommand("GET:file:$fileName")
-                    
+
                     // Generous timeout: 20s base + 1s per 8KB
                     val timeout = 20000L + (fileSize / 8192L) * 1000L
                     downloadResult = withTimeoutOrNull(timeout) {
                         operationCompletion.await()
                     } ?: Pair(false, null)
-    
+
                     if (downloadResult.first) {
                         addLog("File download operation reported success for: $fileName.")
                     } else {

@@ -186,31 +186,115 @@ static std::string handle_get_setting_ini() {
   return "ERROR: Unknown error in handle_get_setting_ini"; // Should not be reached
 }
 
+static std::string handle_get_ls(const std::string& value) {
+  std::string ext_from_val = value.substr(std::string("GET:ls:").length());
+  if (ext_from_val.empty()) {
+    return "ERROR: No extension specified for GET:ls";
+  }
+  
+  String extension = String(ext_from_val.c_str());
+  if (!extension.startsWith(".")) {
+    extension = "." + extension;
+  }
+
+  const int MAX_LS_FILES = 10;
+  String files[MAX_LS_FILES];
+  unsigned long file_sizes[MAX_LS_FILES]; // Array to store file sizes
+  int file_count = 0;
+
+  File root = LittleFS.open("/", "r");
+  if (!root) {
+    return "ERROR: Failed to open root directory";
+  }
+
+  File file = root.openNextFile();
+  while (file) {
+    if (!file.isDirectory()) {
+      String fileName = file.name();
+      if (fileName.endsWith(extension)) {
+        if (file_count < MAX_LS_FILES) {
+          files[file_count] = fileName;
+          file_sizes[file_count] = file.size();
+          file_count++;
+        } else {
+          int max_idx = 0;
+          for (int i = 1; i < MAX_LS_FILES; i++) {
+            if (files[i] > files[max_idx]) {
+              max_idx = i;
+            }
+          }
+          if (fileName < files[max_idx]) {
+            files[max_idx] = fileName;
+            file_sizes[max_idx] = file.size();
+          }
+        }
+      }
+    }
+    file.close(); // Close the file after use
+    file = root.openNextFile();
+  }
+  root.close();
+
+  // Sort the collected files and their sizes using a simple bubble sort
+  for (int i = 0; i < file_count - 1; i++) {
+    for (int j = 0; j < file_count - i - 1; j++) {
+      if (files[j] > files[j + 1]) {
+        // Swap filenames
+        String temp_name = files[j];
+        files[j] = files[j + 1];
+        files[j + 1] = temp_name;
+
+        // Swap corresponding file sizes
+        unsigned long temp_size = file_sizes[j];
+        file_sizes[j] = file_sizes[j + 1];
+        file_sizes[j + 1] = temp_size;
+      }
+    }
+  }
+
+  StaticJsonDocument<1024> doc; // Increased size to accommodate 10 file entries
+  JsonArray fileArray = doc.to<JsonArray>();
+
+  for (int i = 0; i < file_count; i++) {
+    JsonObject fileEntry = fileArray.add<JsonObject>();
+    fileEntry["name"] = files[i];
+    fileEntry["size"] = file_sizes[i];
+  }
+  
+  std::string jsonResponseStd;
+  serializeJson(doc, jsonResponseStd);
+  return jsonResponseStd;
+}
+
 static std::string handle_get_info() {
   StaticJsonDocument<1024> doc;
-  std::string littlefs_ls_std = "";
+
+  int wav_count = 0;
+  int txt_count = 0;
+  int ini_count = 0;
+
   File root = LittleFS.open("/", "r");
   if (root) {
     File file = root.openNextFile();
     while (file) {
-      littlefs_ls_std += file.name();
-      if (file.isDirectory()) {
-        littlefs_ls_std += "/";
-      } else {
-        littlefs_ls_std += " (";
-        char fileSizeStr[20];
-        snprintf(fileSizeStr, sizeof(fileSizeStr), "%lu", file.size());
-        littlefs_ls_std += fileSizeStr;
-        littlefs_ls_std += " bytes)";
+      if (!file.isDirectory()) {
+        const char* filename = file.name();
+        if (strstr(filename, ".wav")) wav_count++;
+        else if (strstr(filename, ".txt")) txt_count++;
+        else if (strstr(filename, ".ini")) ini_count++;
       }
-      littlefs_ls_std += "\n";
+      file.close();
       file = root.openNextFile();
     }
     root.close();
   } else {
-    littlefs_ls_std = "ERROR: Failed to open root directory";
+    applog("ERROR: Failed to open root directory for info");
   }
-  doc["ls"] = littlefs_ls_std;
+
+  doc["wav_count"] = wav_count;
+  doc["txt_count"] = txt_count;
+  doc["ini_count"] = ini_count;
+  
   float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
   if (batteryLevel < 0.0f) batteryLevel = 0.0f;
   if (batteryLevel > 100.0f) batteryLevel = 100.0f;
@@ -398,6 +482,8 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
         responseData = handle_get_setting_ini();
       } else if (value == "GET:info") {
         responseData = handle_get_info();
+      } else if (value.rfind("GET:ls:", 0) == 0) {
+        responseData = handle_get_ls(value);
       } else if (value.rfind("SET:setting_ini:", 0) == 0) {
         handle_set_setting_ini(value);
         return; // Function handles response and restart
