@@ -279,23 +279,10 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
                 print(f"{ '接続済みSSID'}     : {info.get('connected_ssid', 'N/A')}")
                 print(f"{ 'WiFi RSSI'}        : {info.get('wifi_rssi', 'N/A')}")
                 print(f"{ 'LittleFS使用率'}   : {info.get('littlefs_usage_percent', 'N/A')} %")
-                ls_content = info.get('ls', '')
-                if ls_content:
-                    print(f"{ 'ディレクトリ一覧'}:")
-                    for item in ls_content.strip().split('\n'):
-                        if item:
-                            # Check if it's a file with size info (e.g., "filename (12345 bytes)")
-                            if " (" in item and item.endswith(" bytes)"):
-                                parts = item.rsplit(" (", 1)
-                                filename = parts[0]
-                                size_info = parts[1][:-1] # Remove the closing parenthesis
-                                print(f"  - {filename:<30} {size_info:>15}") # Aligned output
-                            elif item.endswith("/"): # Directory
-                                print(f"  - {item}")
-                            else: # File without explicit size (shouldn't happen after .ino change, but for robustness)
-                                print(f"  - {item}")
-                else:
-                    print(f"  { 'ディレクトリ一覧'}: N/A")
+                print(f"{ 'WAVファイル数'}    : {info.get('wav_count', 'N/A')}")
+                print(f"{ 'TXTファイル数'}    : {info.get('txt_count', 'N/A')}")
+                print(f"{ 'INIファイル数'}    : {info.get('ini_count', 'N/A')}")
+
             return info
         except json.JSONDecodeError:
             if not silent:
@@ -306,40 +293,73 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
+async def list_files(extension: str, verbose: bool = False):
+    """Executes GET:ls command and prints the result."""
+    if not extension:
+        print(f"{RED}エラー: 拡張子が指定されていません。{RESET}")
+        return
+    
+    # Allow users to enter with or without a dot
+    ext_for_command = extension.replace(".", "")
+    command = f"GET:ls:{ext_for_command}"
+    
+    if verbose:
+        print(f"ファイルリスト取得コマンド: {command}")
+
+    file_list_json_str = await run_ble_command(command, verbose)
+
+    if not file_list_json_str or file_list_json_str.startswith("ERROR:"):
+        print(f"{RED}ファイルの取得に失敗しました: {file_list_json_str}{RESET}")
+        return
+    
+    try:
+        files_data = json.loads(file_list_json_str)
+        if not files_data:
+            print(f"拡張子 '{extension}' を持つファイルは見つかりませんでした。")
+            return
+        
+        print(f"--- ファイルリスト (.{ext_for_command}) ---")
+        for file_entry in files_data:
+            name = file_entry.get("name", "N/A")
+            size = file_entry.get("size", 0)
+            print(f"  - {name:<30} {size:>10} bytes")
+        print("--------------------")
+
+    except json.JSONDecodeError:
+        print(f"{RED}エラー: 受信した情報がJSON形式ではありません。{RESET}")
+    
+
 async def get_file_from_device(file_extension_filter: str, verbose: bool = False):
     global received_chunk_count, g_total_file_size_for_transfer
-    received_chunk_count = 0 # Reset counter before each download
+    received_chunk_count = 0 
 
-    info = await get_device_info(verbose, silent=True)
-    if not info or 'ls' not in info:
-        print(f"{RED}ファイルリストの取得に失敗しました。{RESET}")
+    # Allow users to enter with or without a dot
+    ext_for_command = file_extension_filter.replace(".", "")
+    command = f"GET:ls:{ext_for_command}"
+    if verbose:
+        print(f"ファイルリスト取得コマンド: {command}")
+
+    file_list_json_str = await run_ble_command(command, verbose)
+
+    if not file_list_json_str or file_list_json_str.startswith("ERROR:"):
+        print(f"{RED}該当するファイルが見つかりませんでした。({file_list_json_str}){RESET}")
         return
 
-    ls_content = info.get('ls', '')
-    files_with_sizes = []
-    for item in ls_content.strip().split('\n'):
-        # First, try to extract filename and size
-        match = re.match(r"(.+?)\s+\((\d+)\s+bytes\)", item)
-        if match:
-            filename_from_ls = match.group(1)
-            size = int(match.group(2))
-        else:
-            filename_from_ls = item.strip()
-            size = 0 # Default size if not parsed
+    try:
+        files_data = json.loads(file_list_json_str)
+    except json.JSONDecodeError:
+        print(f"{RED}エラー: 受信したファイルリストがJSON形式ではありません。{RESET}")
+        return
 
-        # Now apply the filter to the extracted filename
-        if (file_extension_filter.startswith('.') and filename_from_ls.endswith(file_extension_filter)) or \
-           (not file_extension_filter.startswith('.') and filename_from_ls.startswith(file_extension_filter)):
-            files_with_sizes.append((filename_from_ls, size))
-
-
-    if not files_with_sizes:
+    if not files_data:
         print(f"{RED}該当するファイルが見つかりませんでした。{RESET}")
         return
 
     print(f"\n取得するファイルを選択してください:")
-    for i, (filename, size) in enumerate(files_with_sizes):
-        print(f"{i + 1}. {filename} ({size} bytes)")
+    for i, file_entry in enumerate(files_data):
+        name = file_entry.get("name", "N/A")
+        size = file_entry.get("size", 0)
+        print(f"{i + 1}. {name} ({size} bytes)")
     print("0. キャンセル")
 
     sys.stdout.write("Enter your choice: ")
@@ -355,31 +375,32 @@ async def get_file_from_device(file_extension_filter: str, verbose: bool = False
         if choice_num == 0:
             print("キャンセルしました。")
             return
-        if 1 <= choice_num <= len(files_with_sizes):
-            selected_filename, selected_file_size = files_with_sizes[choice_num - 1]
+        if 1 <= choice_num <= len(files_data):
+            selected_filename = files_data[choice_num - 1].get("name")
+            selected_file_size = files_data[choice_num - 1].get("size", 0)
         else:
             print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
             return
     except ValueError:
         print(f"{RED}無効な入力です。もう一度お試しください。{RESET}")
         return
+    
+    g_total_file_size_for_transfer = selected_file_size 
 
     print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
     command = f"GET:file:{selected_filename}"
-    g_total_file_size_for_transfer = selected_file_size
     file_content = await run_ble_command_for_file(command, verbose)
 
     if file_content is not None:
         print(f"Total received file size: {len(file_content)} bytes")
         try:
-            with open(selected_filename, 'wb') as f: # Write as binary
+            with open(selected_filename, 'wb') as f:
                 f.write(file_content)
             print(f"{GREEN}{selected_filename} を正常に取得し、カレントディレクトリに保存しました。{RESET}")
         except IOError as e:
             print(f"{RED}ファイル '{selected_filename}' の保存中にエラーが発生しました: {e}{RESET}")
     else:
         print(f"{RED}{selected_filename} の取得に失敗しました。{RESET}")
-
 
 async def reset_all(verbose: bool = False):
     print(f"\n{RED}デバイスを完全にリセット。続行しますか？ (y/N){RESET}")
@@ -409,66 +430,140 @@ async def reset_all(verbose: bool = False):
     await handle_reboot_and_reconnect(verbose)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='BLE Tool for fastrec device.')
+async def main():
+    parser = argparse.ArgumentParser(description='BLE Tool for fastrec device. Run without arguments for interactive menu.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output.')
+    
+    subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
+
+    parser_info = subparsers.add_parser('info', help='Get device information.')
+    
+    parser_ls = subparsers.add_parser('ls', help='List files with a specific extension.')
+    parser_ls.add_argument('extension', type=str, help='File extension to list (e.g., "wav", "log").')
+
+    parser_get = subparsers.add_parser('get', help='Interactively get a file with a specific extension.')
+    parser_get.add_argument('extension', type=str, help='File extension to get (e.g., "wav", "log").')
+
+    parser_get_ini = subparsers.add_parser('get_ini', help='Get setting.ini from the device.')
+    
+    parser_set_ini = subparsers.add_parser('set_ini', help='Send local setting.ini to the device.')
+    parser_set_ini.add_argument('file', type=str, nargs='?', default='setting.ini', help='Path to the setting.ini file.')
+    
+    parser_reset = subparsers.add_parser('reset', help='Factory reset the device.')
+
     args = parser.parse_args()
     verbose = args.verbose
-
-    async def main_loop():
-        global g_client
-        client = None
-        try:
+    
+    global g_client
+    try:
+        if args.command: # If a subcommand is given, run non-interactively
             print(f"BLEデバイス '{DEVICE_NAME}' をスキャン中...")
             device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=10.0)
             if not device:
                 print(f"{RED}エラー: '{DEVICE_NAME}' デバイスが見つかりませんでした。{RESET}")
                 return
             print(f"{GREEN}デバイス発見: {device.address}{RESET}")
-            DEVICE_ADDRESS = device.address # Store device address globally
+            
+            global DEVICE_ADDRESS
+            DEVICE_ADDRESS = device.address
             g_client = BleakClient(DEVICE_ADDRESS)
-            print(f"{DEVICE_ADDRESS} に接続中...通知を有効化中...")
+
+            print(f"{DEVICE_ADDRESS} に接続中...")
             await g_client.connect()
             await g_client.start_notify(RESPONSE_UUID, notification_handler)
             print(f"{GREEN}'{RESPONSE_UUID}' の通知を有効化しました。{RESET}")
+            
+            if args.command == 'info':
+                await get_device_info(verbose)
+            elif args.command == 'ls':
+                await list_files(args.extension, verbose)
+            elif args.command == 'get':
+                await get_file_from_device(args.extension, verbose)
+            elif args.command == 'get_ini':
+                await get_setting_ini(verbose)
+            elif args.command == 'set_ini':
+                await send_setting_ini(args.file, verbose)
+            elif args.command == 'reset':
+                await reset_all(verbose)
 
-            while True:
-                print("\n--- BLE Tool Menu ---")
-                print("1. 録音レコーダに setting.ini を送信")
-                print("2. 録音レコーダの setting.ini を表示")
-                print("3. 録音レコーダの情報取得")
-                print("4. 録音レコーダのログファイルを取得")
-                print("5. 録音レコーダのWAVファイルを取得")
-                print(f"{RED}6. デバイスの初期化{RESET}")
-                print("0. 終了")
-                sys.stdout.write("Enter your choice: ")
-                sys.stdout.flush()
-                choice = getch()
-                print(choice)
+        else: # No subcommand, run interactive menu
+            await main_loop(verbose)
 
-                if choice == '1':
-                    await send_setting_ini("setting.ini", verbose)
-                elif choice == '2':
-                    await get_setting_ini(verbose)
-                elif choice == '3':
-                    await get_device_info(verbose)
-                elif choice == '4':
-                    await get_file_from_device("log.", verbose)
-                elif choice == '5':
-                    await get_file_from_device(".wav", verbose)
-                elif choice == '6':
-                    await reset_all(verbose)
-                elif choice == '0':
-                    print("BLEツールを終了します。")
-                    break
-                else:
-                    print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+    except Exception as e:
+        print(f"{RED}致命的なエラーが発生しました: {e}{RESET}")
+    finally:
+        if g_client and g_client.is_connected:
+            await g_client.stop_notify(RESPONSE_UUID)
+            await g_client.disconnect()
+            print("BLE接続を切断しました。")
 
-        except Exception as e:
-            print(f"{RED}致命的なエラーが発生しました: {e}{RESET}")
-        finally:
-            if g_client and g_client.is_connected:
+
+async def main_loop(verbose: bool = False):
+    global g_client
+    try:
+        print(f"BLEデバイス '{DEVICE_NAME}' をスキャン中...")
+        device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=10.0)
+        if not device:
+            print(f"{RED}エラー: '{DEVICE_NAME}' デバイスが見つかりませんでした。{RESET}")
+            return
+        print(f"{GREEN}デバイス発見: {device.address}{RESET}")
+        
+        global DEVICE_ADDRESS
+        DEVICE_ADDRESS = device.address # Store device address globally
+        g_client = BleakClient(DEVICE_ADDRESS)
+        
+        print(f"{DEVICE_ADDRESS} に接続中...通知を有効化中...")
+        await g_client.connect()
+        await g_client.start_notify(RESPONSE_UUID, notification_handler)
+        print(f"{GREEN}'{RESPONSE_UUID}' の通知を有効化しました。{RESET}")
+
+        while True:
+            print("\n--- BLE Tool Menu ---")
+            print("1. 録音レコーダに setting.ini を送信")
+            print("2. 録音レコーダの setting.ini を表示")
+            print("3. 録音レコーダの情報取得")
+            print("4. 録音レコーダのログファイルを取得")
+            print("5. 録音レコーダのWAVファイルを取得")
+            print(f"{RED}6. デバイスの初期化{RESET}")
+            print("0. 終了")
+            sys.stdout.write("Enter your choice: ")
+            sys.stdout.flush()
+            choice = getch()
+            print(choice)
+
+            if choice == '1':
+                await send_setting_ini("setting.ini", verbose)
+            elif choice == '2':
+                await get_setting_ini(verbose)
+            elif choice == '3':
+                await get_device_info(verbose)
+            elif choice == '4':
+                await get_file_from_device("txt", verbose)
+            elif choice == '5':
+                await get_file_from_device("wav", verbose)
+            elif choice == '6':
+                await reset_all(verbose)
+            elif choice == '0':
+                print("BLEツールを終了します。")
+                break
+            else:
+                print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+
+    except Exception as e:
+        # Catch exceptions to ensure we disconnect cleanly
+        print(f"{RED}エラーが発生しました: {e}{RESET}")
+    finally:
+        # This block will run even if an exception occurs in the try block
+        if g_client and g_client.is_connected:
+            # The notification stop might fail if the device is already gone,
+            # so a simple try/except pass can be useful here.
+            try:
                 await g_client.stop_notify(RESPONSE_UUID)
-                await g_client.disconnect()
+            except Exception as e:
+                pass # Ignore errors on stop_notify
+            await g_client.disconnect()
+            print("BLE接続を切断しました。")
 
-    asyncio.run(main_loop())
+
+if __name__ == "__main__":
+    asyncio.run(main())
