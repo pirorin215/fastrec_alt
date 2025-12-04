@@ -7,30 +7,39 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class DateTimeInfo(val date: String, val time: String)
+
 object FileUtil {
-    // ファイル名から録音日時を抽出する
-    // 例: R2025-12-01-02-04-08.wav -> 2025/12/01 02:04:08
-    fun extractRecordingDateTime(fileName: String): String {
+    fun getRecordingDateTimeInfo(fileName: String): DateTimeInfo {
         val regex = Regex("""R(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.wav""")
         val matchResult = regex.find(fileName)
 
         return if (matchResult != null && matchResult.groupValues.size > 1) {
             val dateTimeString = matchResult.groupValues[1] // "2025-12-01-02-04-08"
             try {
-                // Parse the string into a Date object
                 val inputFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault())
                 val date = inputFormat.parse(dateTimeString)
 
-                // Format the Date object into the desired output format
-                val outputFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault())
-                date?.let { outputFormat.format(it) } ?: "不明な日時"
+                val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.getDefault())
+                val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+                date?.let {
+                    DateTimeInfo(dateFormat.format(it), timeFormat.format(it))
+                } ?: DateTimeInfo("不明な日付", "不明な時刻")
             } catch (e: ParseException) {
                 e.printStackTrace()
-                "不明な日時"
+                DateTimeInfo("不明な日付", "不明な時刻")
             }
         } else {
-            "不明な日時"
+            DateTimeInfo("不明な日付", "不明な時刻")
         }
+    }
+
+    // ファイル名から録音日時を抽出する
+    // 例: R2025-12-01-02-04-08.wav -> 2025/12/01 02:04:08
+    fun extractRecordingDateTime(fileName: String): String {
+        val dateTimeInfo = getRecordingDateTimeInfo(fileName)
+        return "${dateTimeInfo.date} ${dateTimeInfo.time}"
     }
 
     // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する
