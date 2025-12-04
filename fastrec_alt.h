@@ -169,7 +169,6 @@ int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wif
 // ble setting
 volatile bool g_start_file_transfer = false;
 std::string g_file_to_transfer_name;
-volatile unsigned char g_ble_connected_status = 0;
 
 // --- Function Prototypes ---
 

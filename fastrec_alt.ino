@@ -186,12 +186,6 @@ void flushAudioBufferToFile() {
 void handleIdle() {
   static unsigned long lastDisplayUpdateTime = 0;
 
-  if(g_ble_connected_status == 1 && !isBLEConnected()) {
-    goDeepSleep();
-    return;
-  }
-  g_ble_connected_status = isBLEConnected() ? 1 : 2;
-
   start_ble_advertising();
 
   if (millis() - lastDisplayUpdateTime > 200) {
@@ -220,7 +214,7 @@ void handleIdle() {
   // Go to deep sleep if idle for a while, not connected to USB, and not in BLE setup
   if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && 
       !isConnectUSB() && 
-      (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)
+      (!isBLEConnected() || g_audioFileCount == 0)
     ) {
     setAppState(DSLEEP, false);
   }
@@ -296,7 +290,7 @@ void handleSetup() {
   }
 
   // If in SETUP state, not connected via BLE, and inactive, go to deep sleep
-  if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && (pBLEServer == nullptr || pBLEServer->getConnectedCount() == 0)) {
+  if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && (!isBLEConnected() || g_audioFileCount == 0)) {
     setAppState(DSLEEP, false);
   }
 }

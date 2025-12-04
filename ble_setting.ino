@@ -268,6 +268,7 @@ static std::string handle_del_file(const std::string& value) {
   if (LittleFS.exists(fileNameToDelete.c_str())) {
     if (LittleFS.remove(fileNameToDelete.c_str())) {
       applog("Deleted file: %s", fileNameToDelete.c_str());
+      g_audioFileCount = countAudioFiles(); // Update global count after successful deletion
       return "OK: File " + fileNameToDelete + " deleted.";
     } else {
       applog("ERROR: Failed to delete file: %s", fileNameToDelete.c_str());
