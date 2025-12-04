@@ -266,27 +266,36 @@ fun TranscriptionResultItem(
                 .weight(1f)
                 .clickable(
                     onClick = { onItemClick(result) }
-                )
-                .padding(vertical = 8.dp),
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = FileUtil.extractRecordingDateTime(result.fileName),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = contentColor,
-                modifier = Modifier.width(140.dp)
-            )
+            val dateTimeInfo = FileUtil.getRecordingDateTimeInfo(result.fileName)
+            Column(modifier = Modifier.width(80.dp)) {
+                Text(
+                    text = dateTimeInfo.date,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = contentColor
+                )
+                Text(
+                    text = dateTimeInfo.time,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = contentColor
+                )
+            }
             Spacer(modifier = Modifier.width(1.dp))
             Text(
                 text = result.transcription,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize.sp),
-                maxLines = 1,
-                overflow = TextOverflow.Clip,
-                color = contentColor,
-                modifier = Modifier.weight(1f)
+                maxLines = 1, // Ensure text does not wrap
+                overflow = TextOverflow.Ellipsis, // Add ellipsis if text is too long
+                modifier = Modifier.weight(1f),
+                color = contentColor
             )
         }
     }
