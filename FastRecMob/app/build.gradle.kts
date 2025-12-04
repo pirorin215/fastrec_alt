@@ -83,6 +83,7 @@ dependencies {
 
     // DataStore for persistent settings
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("org.burnoutcrew.composereorderable:reorderable:0.9.6")
 
 
 

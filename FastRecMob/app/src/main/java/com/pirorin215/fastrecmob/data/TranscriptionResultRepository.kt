@@ -22,7 +22,8 @@ data class TranscriptionResult(
     val fileName: String,
     val transcription: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val locationData: LocationData? = null
+    val locationData: LocationData? = null,
+    val displayOrder: Int = 0
 )
 
 class TranscriptionResultRepository(private val context: Context) {
@@ -41,21 +42,46 @@ class TranscriptionResultRepository(private val context: Context) {
         .map { preferences ->
             val jsonString = preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] ?: "[]"
             try {
-                json.decodeFromString<List<TranscriptionResult>>(jsonString)
+                val results = json.decodeFromString<List<TranscriptionResult>>(jsonString)
+                // Fix for legacy data without displayOrder.
+                if (results.any { it.displayOrder == 0 } && results.distinctBy { it.displayOrder }.size == 1) {
+                    results.sortedByDescending { it.timestamp }.mapIndexed { index, result -> result.copy(displayOrder = index) }
+                } else {
+                    results
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 emptyList() // パース失敗時は空リストを返す
             }
         }
 
-    // 文字起こし結果を追加するsuspend関数
+    // 文字起こし結果を追加または更新するsuspend関数
     suspend fun addResult(result: TranscriptionResult) {
         context.transcriptionDataStore.edit { preferences ->
-            val currentList = transcriptionResultsFlow.first() // 現在のリストを取得 (Flowをブロックするが、DataStoreは非同期なので問題ない)
-            // Filter out any existing result with the same fileName before adding the new one
-            val listWithoutExisting = currentList.filter { it.fileName != result.fileName }
-            val updatedList = listWithoutExisting + result
+            val currentList = transcriptionResultsFlow.first()
+            val existingResult = currentList.find { it.fileName == result.fileName }
+
+            val updatedList = if (existingResult != null) {
+                // 既存のアイテムを更新 (displayOrderは維持)
+                currentList.map {
+                    if (it.fileName == result.fileName) {
+                        result.copy(displayOrder = existingResult.displayOrder)
+                    } else {
+                        it
+                    }
+                }
+            } else {
+                // 新しいアイテムを追加 (displayOrderを末尾に設定)
+                currentList + result.copy(displayOrder = currentList.size)
+            }
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
+        }
+    }
+
+    // 新しいリスト全体を保存するsuspend関数
+    suspend fun updateResults(results: List<TranscriptionResult>) {
+        context.transcriptionDataStore.edit { preferences ->
+            preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(results)
         }
     }
 
@@ -70,7 +96,11 @@ class TranscriptionResultRepository(private val context: Context) {
     suspend fun removeResult(result: TranscriptionResult) {
         context.transcriptionDataStore.edit { preferences ->
             val currentList = transcriptionResultsFlow.first()
-            val updatedList = currentList.filter { it.fileName != result.fileName } // resultと一致するものを除外
+            val listAfterRemoval = currentList.filter { it.fileName != result.fileName }
+            // displayOrderを再インデックスする
+            val updatedList = listAfterRemoval.sortedBy { it.displayOrder }.mapIndexed { index, item ->
+                item.copy(displayOrder = index)
+            }
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
         }
     }

@@ -24,6 +24,7 @@ class AppSettingsRepository(private val context: Context) {
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
         val TRANSCRIPTION_FONT_SIZE = intPreferencesKey("transcription_font_size")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val SORT_MODE = stringPreferencesKey("sort_mode") // Add this
         val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
     }
 
@@ -68,6 +69,13 @@ class AppSettingsRepository(private val context: Context) {
             ThemeMode.valueOf(preferences[PreferencesKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name)
         }
 
+    // 並び替えモードの変更を監視するためのFlow
+    val sortModeFlow: Flow<SortMode> = context.dataStore.data
+        .map { preferences ->
+            // デフォルト値をTIMESTAMPに設定
+            SortMode.valueOf(preferences[PreferencesKeys.SORT_MODE] ?: SortMode.TIMESTAMP.name)
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -107,6 +115,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveThemeMode(themeMode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.THEME_MODE] = themeMode.name
+        }
+    }
+
+    // 並び替えモードを保存するsuspend関数
+    suspend fun saveSortMode(sortMode: SortMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SORT_MODE] = sortMode.name
         }
     }
 

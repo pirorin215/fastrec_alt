@@ -3,21 +3,18 @@ package com.pirorin215.fastrecmob.ui.screen
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,11 +24,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
+import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+import org.burnoutcrew.reorderable.ReorderableItem
+import org.burnoutcrew.reorderable.detectReorderAfterLongPress
+import org.burnoutcrew.reorderable.rememberReorderableLazyListState
+import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -40,24 +40,21 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
+    val sortMode by viewModel.sortMode.collectAsState()
 
-    // State for showing the detail bottom sheet
     var selectedResultForDetail by remember { mutableStateOf<TranscriptionResult?>(null) }
-    val audioDirName by viewModel.audioDirName.collectAsState() // Collect audioDirName
+    val audioDirName by viewModel.audioDirName.collectAsState()
     val context = LocalContext.current
-
-    // 新しい状態変数
-    var isSelectionMode by remember { mutableStateOf(false) }
-    val selectedItems = remember { mutableStateListOf<TranscriptionResult>() } // 選択されたアイテムのリスト
 
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(0.dp)
     ) {
         Column(modifier = Modifier.padding(0.dp)) {
-            // Header for the panel
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -71,20 +68,21 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     )
                 }
 
-                if (isSelectionMode) {
-                    IconButton(onClick = { // 選択解除ボタン
-                        isSelectionMode = false
-                        selectedItems.clear()
-                    }) {
-                        Icon(Icons.Default.Close, contentDescription = "Cancel Selection")
-                    }
-                    if (selectedItems.isNotEmpty()) {
-                        IconButton(onClick = { showDeleteAllConfirmDialog = true }) { // 複数削除
-                            Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
+                if (transcriptionResults.isNotEmpty()) {
+                    IconToggleButton(
+                        checked = sortMode == SortMode.CUSTOM,
+                        onCheckedChange = { isChecked ->
+                            val newMode = if (isChecked) SortMode.CUSTOM else SortMode.TIMESTAMP
+                            viewModel.saveSortMode(newMode)
+                        }
+                    ) {
+                        if (sortMode == SortMode.CUSTOM) {
+                            Icon(Icons.Default.SortByAlpha, contentDescription = "Custom Sort")
+                        } else {
+                            Icon(Icons.Default.AccessTime, contentDescription = "Sort by Time")
                         }
                     }
-                } else if (transcriptionResults.isNotEmpty()) {
-                    IconButton(onClick = { showDeleteAllConfirmDialog = true }) { // 全て削除
+                    IconButton(onClick = { showDeleteAllConfirmDialog = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "Clear All")
                     }
                 }
@@ -95,46 +93,42 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     Text("文字起こし履歴はありません。")
                 }
             } else {
-                val lazyListState = rememberLazyListState() // Create LazyListState
-                LaunchedEffect(transcriptionResults.size) { // Observe changes in list size
-                    if (transcriptionResults.isNotEmpty()) {
-                        lazyListState.animateScrollToItem(0) // Scroll to the top
+                val reorderableState = rememberReorderableLazyListState(
+                    onMove = { from, to ->
+                        val reorderedList = transcriptionResults.toMutableList().apply {
+                            add(to.index, removeAt(from.index))
+                        }
+                        viewModel.updateDisplayOrder(reorderedList)
                     }
-                }
+                )
+                val lazyListState = rememberLazyListState()
+
                 LazyColumn(
-                    state = lazyListState, // Assign state
-                    modifier = Modifier.fillMaxWidth() // Allow to expand vertically
+                    state = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState,
+                    modifier = if (sortMode == SortMode.CUSTOM) Modifier.fillMaxWidth().reorderable(reorderableState) else Modifier.fillMaxWidth()
                 ) {
-                    items(items = transcriptionResults.sortedByDescending { it.timestamp }, key = { it.timestamp }) { result ->
-                        val isSelected = selectedItems.contains(result)
-                        TranscriptionResultItem(
-                            result = result,
-                            isSelectionMode = isSelectionMode,
-                            isSelected = isSelected,
-                            fontSize = fontSize,
-                            onItemClick = { clickedItem ->
-                                if (isSelectionMode) {
-                                    if (selectedItems.contains(clickedItem)) {
-                                        selectedItems.remove(clickedItem)
-                                    } else {
-                                        selectedItems.add(clickedItem)
-                                    }
-                                    if (selectedItems.isEmpty()) {
-                                        isSelectionMode = false
-                                    }
-                                } else {
-                                    selectedResultForDetail = clickedItem
-                                }
-                            },
-                            onItemLongClick = { clickedItem ->
-                                isSelectionMode = true
-                                if (selectedItems.contains(clickedItem)) {
-                                    selectedItems.remove(clickedItem)
-                                } else {
-                                    selectedItems.add(clickedItem)
+                    items(items = transcriptionResults, key = { it.fileName }) { result ->
+                        if (sortMode == SortMode.CUSTOM) {
+                            ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
+                                val elevation = if (isDragging) 4.dp else 0.dp
+                                Surface(shadowElevation = elevation) {
+                                    TranscriptionResultItem(
+                                        result = result,
+                                        fontSize = fontSize,
+                                        isDraggable = true,
+                                        onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
+                                        handleModifier = Modifier.detectReorderAfterLongPress(reorderableState)
+                                    )
                                 }
                             }
-                        )
+                        } else {
+                            TranscriptionResultItem(
+                                result = result,
+                                fontSize = fontSize,
+                                isDraggable = false,
+                                onItemClick = { clickedItem -> selectedResultForDetail = clickedItem }
+                            )
+                        }
                         Divider()
                     }
                 }
@@ -142,7 +136,6 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
         }
     }
 
-    // TranscriptionDetailBottomSheetを表示
     selectedResultForDetail?.let { result ->
         val audioFile = remember(result.fileName, audioDirName) { FileUtil.getAudioFile(context, audioDirName, result.fileName) }
         val audioFileExists = remember(audioFile) { audioFile.exists() }
@@ -156,18 +149,13 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 val fileToPlay = FileUtil.getAudioFile(context, audioDirName, transcriptionResult.fileName)
                 if (fileToPlay.exists()) {
                     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "com.pirorin215.fastrecmob.provider",
-                            fileToPlay
-                        )
+                        val uri = FileProvider.getUriForFile(context, "com.pirorin215.fastrecmob.provider", fileToPlay)
                         setDataAndType(uri, "audio/wav")
                         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     try {
                         context.startActivity(intent)
                     } catch (e: Exception) {
-                        // Handle case where no app can play WAV files
                         e.printStackTrace()
                     }
                 }
@@ -175,99 +163,88 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
             onDelete = { transcriptionResult ->
                 scope.launch {
                     viewModel.removeTranscriptionResult(transcriptionResult)
-                    selectedResultForDetail = null // Close sheet after deletion
+                    selectedResultForDetail = null
                 }
             },
             onSave = { originalResult, newText ->
                 scope.launch {
                     viewModel.updateTranscriptionResult(originalResult, newText)
-                    selectedResultForDetail = null // Close sheet after saving
+                    selectedResultForDetail = null
                 }
             },
             onDismiss = { selectedResultForDetail = null }
         )
     }
 
-    // 複数削除/全て削除確認ダイアログ
     if (showDeleteAllConfirmDialog) {
-        val dialogTitle = if (isSelectionMode) "選択項目を削除" else "履歴をクリア"
-        val dialogText = if (isSelectionMode) "${selectedItems.size}件の項目を削除しますか？" else "全ての文字起こし履歴を削除しますか？"
-
         AlertDialog(
             onDismissRequest = { showDeleteAllConfirmDialog = false },
-            title = { Text(dialogTitle) },
-            text = { Text(dialogText) },
+            title = { Text("履歴をクリア") },
+            text = { Text("全ての文字起こし履歴を削除しますか？") },
             confirmButton = {
                 Button(onClick = {
                     scope.launch {
-                        if (isSelectionMode) {
-                            selectedItems.forEach { viewModel.removeTranscriptionResult(it) }
-                            selectedItems.clear()
-                            isSelectionMode = false
-                        } else {
-                            viewModel.clearTranscriptionResults()
-                        }
+                        viewModel.clearTranscriptionResults()
                         showDeleteAllConfirmDialog = false
                     }
-                }) {
-                    Text("削除")
-                }
+                }) { Text("削除") }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showDeleteAllConfirmDialog = false }) {
-                    Text("キャンセル")
-                }
+                OutlinedButton(onClick = { showDeleteAllConfirmDialog = false }) { Text("キャンセル") }
             }
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TranscriptionResultItem(
     result: TranscriptionResult,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
     fontSize: Int,
+    isDraggable: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
-    onItemLongClick: (TranscriptionResult) -> Unit
+    handleModifier: Modifier = Modifier
 ) {
-    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-    val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor)
-            .combinedClickable(
-                onClick = { onItemClick(result) },
-                onLongClick = if (!isSelectionMode) { { onItemLongClick(result) } } else { null } // 選択モードでなければ長押し可能
-            )
-            .padding(vertical = 8.dp, horizontal = 16.dp),
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // ColumnではなくRowで横並びにする
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            // 録音日時を表示 (固定幅にするか、weightで比率調整するか検討)
+        if (isDraggable) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = "Drag to reorder",
+                modifier = handleModifier.padding(8.dp)
+            )
+        } else {
+            Spacer(modifier = Modifier.width(24.dp + 16.dp)) // Icon size + padding
+        }
+
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onItemClick(result) }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = FileUtil.extractRecordingDateTime(result.fileName),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Normal,
-                color = contentColor,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis, // エリプシスで省略
-                modifier = Modifier.width(140.dp) // 日時表示の幅を固定
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(140.dp)
             )
-            Spacer(modifier = Modifier.width(1.dp)) // 日時と文章の間のスペース
-            // 文字起こし冒頭の文章 (残り幅を占有し、見切れる)
+            Spacer(modifier = Modifier.width(1.dp))
             Text(
-                text = result.transcription, // 文字数制限を削除
+                text = result.transcription,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = fontSize.sp),
                 maxLines = 1,
-                overflow = TextOverflow.Clip, // 見切れるように
-                color = contentColor,
-                modifier = Modifier.weight(1f) // 残り幅を占有
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.weight(1f)
             )
         }
     }
 }
+

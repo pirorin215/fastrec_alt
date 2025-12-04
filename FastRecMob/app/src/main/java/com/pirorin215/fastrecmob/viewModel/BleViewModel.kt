@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -131,7 +132,20 @@ class BleViewModel(
             initialValue = ThemeMode.SYSTEM // Default to SYSTEM
         )
 
+    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsRepository.sortModeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP
+        )
+
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
+        .combine(sortMode) { list: List<TranscriptionResult>, mode: com.pirorin215.fastrecmob.data.SortMode ->
+            when (mode) {
+                com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.timestamp }
+                com.pirorin215.fastrecmob.data.SortMode.CUSTOM -> list.sortedBy { it.displayOrder }
+            }
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -1168,6 +1182,23 @@ class BleViewModel(
         }
     }
 
+    fun saveSortMode(sortMode: com.pirorin215.fastrecmob.data.SortMode) {
+        viewModelScope.launch {
+            appSettingsRepository.saveSortMode(sortMode)
+            addLog("Sort mode saved: $sortMode.")
+        }
+    }
+
+    fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
+        viewModelScope.launch {
+            val updatedList = reorderedList.mapIndexed { index, result ->
+                result.copy(displayOrder = index)
+            }
+            transcriptionResultRepository.updateResults(updatedList)
+            addLog("Transcription results order updated.")
+        }
+    }
+
     fun clearTranscriptionResults() {
         viewModelScope.launch {
             // First, clear all results from the repository (DataStore)
@@ -1226,8 +1257,7 @@ class BleViewModel(
         viewModelScope.launch {
             // Create a new TranscriptionResult with the updated transcription
             val updatedResult = originalResult.copy(transcription = newTranscription)
-            // Remove the old result and add the new one
-            transcriptionResultRepository.removeResult(originalResult)
+            // The addResult method now handles updates, so we just call that.
             transcriptionResultRepository.addResult(updatedResult)
             addLog("Transcription result for ${originalResult.fileName} updated.")
         }
