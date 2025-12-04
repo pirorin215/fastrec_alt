@@ -220,37 +220,6 @@ class BleViewModel(
     private val _isAutoRefreshEnabled = MutableStateFlow(true)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
 
-    var isAppInForeground: Boolean = true // Track app foreground state
-        private set // Ensure only ViewModel can directly set this
-
-    fun setAppInForeground(isForeground: Boolean) {
-        isAppInForeground = isForeground
-        addLog("App foreground state changed: $isAppInForeground")
-
-        if (isAppInForeground) {
-            // App is in the foreground, cancel any background jobs
-            backgroundReconnectJob?.cancel()
-            backgroundReconnectJob = null
-            addLog("Cancelled background reconnect job.")
-            // And immediately try to connect
-            restartScan(forceScan = true)
-        } else {
-            // App is in the background, forcibly disconnect first
-            addLog("App going to background. Forcibly disconnecting BLE.")
-            disconnect()
-
-            // Then start the periodic reconnect job
-            backgroundReconnectJob?.cancel() // Cancel any existing job first
-            backgroundReconnectJob = viewModelScope.launch {
-                while (true) {
-                    delay(30000) // Wait for 30 seconds
-                    restartScan(forceScan = true)
-                }
-            }
-            addLog("Started background reconnect job.")
-        }
-    }
-
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
@@ -277,7 +246,6 @@ class BleViewModel(
     private var responseBuffer = mutableListOf<Byte>()
     private val transcriptionQueue = mutableListOf<String>()
     private var autoRefreshJob: Job? = null
-    private var backgroundReconnectJob: Job? = null
     private var _transferStartTime = 0L
 
     init {
@@ -501,13 +469,7 @@ class BleViewModel(
                 // No WAV files to download from device. Now, check the local transcription queue.
                 if (transcriptionQueue.isEmpty()) {
                     // Device is clean AND local queue is empty. We are fully idle.
-                    addLog("No files to process on device or locally. Checking if disconnection is needed.")
-                    if (!isAppInForeground) {
-                        addLog("Idle and in background. Disconnecting.")
-                        disconnect()
-                    } else {
-                        addLog("Idle and in foreground. Staying connected.")
-                    }
+                    addLog("No files to process on device or locally. Staying connected.")
                 } else {
                     // There are still files being transcribed locally.
                     addLog("No new untranscribed WAV files found on microcontroller. Checking transcription queue.")

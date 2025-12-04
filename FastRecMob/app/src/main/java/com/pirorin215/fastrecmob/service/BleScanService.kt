@@ -43,8 +43,6 @@ class BleScanService : Service() {
     private val DEVICE_NAME = "fastrec" // BleViewModelと共通
     private val SCAN_TIMEOUT_MS = 30000L // 30秒のスキャンタイムアウト
 
-    // マイコンのアドバタイズ戦略に合わせたスキャン設定
-    // マイコンが20秒サイクルで3秒間アドバタイズするため、アプリは継続的に低電力でスキャンし続ける
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER) // バッテリー消費を抑える
         .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES) // 全ての一致を報告

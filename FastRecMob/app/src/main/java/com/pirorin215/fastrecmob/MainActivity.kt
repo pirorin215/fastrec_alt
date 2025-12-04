@@ -201,27 +201,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     // For background operation, dialogs are generally not desired.
     // The ViewModel still tracks transcriptionState and transcriptionResult for internal logging.
 
-    // Lifecycle observer to handle app foreground/background changes
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> {
-                    viewModel.setAppInForeground(true)
-                    appSettingsViewModel.checkApiKeyStatus() // Check API key status on app foreground
-                }
-                Lifecycle.Event.ON_STOP -> {
-                    viewModel.setAppInForeground(false)
-                }
-                else -> { /* Do nothing for other events */ }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+    // Lifecycle observer to handle app foreground/background changes is removed to unify behavior.
 
     when {
         showSettings -> {
