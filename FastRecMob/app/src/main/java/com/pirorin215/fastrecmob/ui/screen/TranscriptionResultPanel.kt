@@ -132,20 +132,10 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                                     TranscriptionResultItem(
                                         result = result,
                                         fontSize = fontSize,
-                                        isDraggable = true,
                                         isSelected = isSelected,
-                                        isSelectionMode = isSelectionMode,
-                                        onItemClick = { clickedItem ->
-                                            if (isSelectionMode) {
-                                                viewModel.toggleSelection(clickedItem.fileName)
-                                            } else {
-                                                selectedResultForDetail = clickedItem
-                                            }
-                                        },
-                                        onLongItemClick = { clickedItem ->
-                                            viewModel.toggleSelection(clickedItem.fileName)
-                                        },
-                                        handleModifier = Modifier.detectReorderAfterLongPress(reorderableState)
+                                        onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
+                                        onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
+                                        reorderableModifier = Modifier.detectReorderAfterLongPress(reorderableState)
                                     )
                                 }
                             }
@@ -153,19 +143,9 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                             TranscriptionResultItem(
                                 result = result,
                                 fontSize = fontSize,
-                                isDraggable = false,
                                 isSelected = isSelected,
-                                isSelectionMode = isSelectionMode,
-                                onItemClick = { clickedItem ->
-                                    if (isSelectionMode) {
-                                        viewModel.toggleSelection(clickedItem.fileName)
-                                    } else {
-                                        selectedResultForDetail = clickedItem
-                                    }
-                                },
-                                onLongItemClick = { clickedItem ->
-                                    viewModel.toggleSelection(clickedItem.fileName)
-                                }
+                                onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
+                                onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) }
                             )
                         }
                         Divider()
@@ -259,12 +239,10 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
 fun TranscriptionResultItem(
     result: TranscriptionResult,
     fontSize: Int,
-    isDraggable: Boolean,
     isSelected: Boolean,
-    isSelectionMode: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
-    onLongItemClick: (TranscriptionResult) -> Unit,
-    handleModifier: Modifier = Modifier
+    onToggleSelection: (String) -> Unit, // New lambda for checkbox
+    reorderableModifier: Modifier = Modifier
 ) {
     val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
     val contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
@@ -272,37 +250,24 @@ fun TranscriptionResultItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(backgroundColor),
+            .background(backgroundColor)
+            .then(reorderableModifier), // Apply reorderableModifier here
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isSelectionMode) {
-            Checkbox(
-                checked = isSelected,
-                onCheckedChange = { onItemClick(result) }
-            )
-        } else if (isDraggable) {
-            Icon(
-                imageVector = Icons.Default.DragHandle,
-                contentDescription = "Drag to reorder",
-                modifier = handleModifier
-                    .size(40.dp) // Revert to original size
-                    .padding(8.dp),
-                tint = contentColor
-            )
-        } else {
-            // Spacer to align content when no checkbox or drag handle is present
-            Spacer(modifier = Modifier.size(40.dp)) // Revert to original size
-        }
+        // Always display the Checkbox on the left
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onToggleSelection(result.fileName) }
+        )
 
-        // Content area that is clickable/long-clickable
+        // Content area that is clickable
         Row(
             modifier = Modifier
                 .weight(1f)
-                .combinedClickable(
-                    onClick = { onItemClick(result) },
-                    onLongClick = { onLongItemClick(result) }
+                .clickable(
+                    onClick = { onItemClick(result) }
                 )
-                .padding(vertical = 8.dp), // Keep vertical padding for text content
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
