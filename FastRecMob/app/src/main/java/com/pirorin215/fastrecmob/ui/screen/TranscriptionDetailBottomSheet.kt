@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,8 +70,11 @@ fun TranscriptionDetailBottomSheet(
     val isEdited = remember(editableText.text) { editableText.text != result.transcription }
     val scrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+    )
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -147,7 +151,7 @@ fun TranscriptionDetailBottomSheet(
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize.sp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 400.dp)
+                    .heightIn(min = 200.dp, max = 600.dp)
                     .padding(vertical = 8.dp)
                     .focusRequester(focusRequester)
             )
@@ -206,7 +210,6 @@ fun TranscriptionDetailBottomSheet(
                     }
                     Spacer(Modifier.width(8.dp))
                 }
-
                 // Save Button
                 Button(
                     onClick = { onSave(result, editableText.text) },
@@ -218,7 +221,6 @@ fun TranscriptionDetailBottomSheet(
                     Text("保存")
                 }
             }
-
             // Close Button
             Button(
                 onClick = onDismiss,
@@ -229,7 +231,6 @@ fun TranscriptionDetailBottomSheet(
                 Spacer(Modifier.width(4.dp))
                 Text("Close")
             }
-            Spacer(modifier = Modifier.height(30.dp)) // Padding for bottom sheet swipe handle
         }
     }
 }
