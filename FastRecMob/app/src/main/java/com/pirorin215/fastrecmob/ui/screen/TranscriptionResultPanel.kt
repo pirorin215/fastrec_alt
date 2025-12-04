@@ -40,6 +40,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
+    var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
     val sortMode by viewModel.sortMode.collectAsState()
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
@@ -49,29 +50,19 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
     val audioDirName by viewModel.audioDirName.collectAsState()
     val context = LocalContext.current
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(0.dp)
-    ) {
-        Column(modifier = Modifier.padding(0.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    val transcriptionCount by viewModel.transcriptionCount.collectAsState()
-                    val audioFileCount by viewModel.audioFileCount.collectAsState()
-                    Text(
-                        "メモ: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+    Card() {
+        Column() {
+            Row() {
+                val transcriptionCount by viewModel.transcriptionCount.collectAsState()
+                val audioFileCount by viewModel.audioFileCount.collectAsState()
+                Text(
+                    "メモ: $transcriptionCount 件, 音声ファイル: $audioFileCount 件",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
 
-                if (transcriptionResults.isNotEmpty() && !isSelectionMode) { // Only show sort/clear all when not in selection mode
+                if (transcriptionResults.isNotEmpty()) { // Show icons if the list is not empty
                     IconToggleButton(
                         checked = sortMode == SortMode.CUSTOM,
                         onCheckedChange = { isChecked ->
@@ -85,8 +76,14 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                             Icon(Icons.Default.AccessTime, contentDescription = "Sort by Time")
                         }
                     }
-                    IconButton(onClick = { showDeleteAllConfirmDialog = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear All")
+                    IconButton(onClick = {
+                        if (isSelectionMode) {
+                            showDeleteSelectedConfirmDialog = true
+                        } else {
+                            showDeleteAllConfirmDialog = true
+                        }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
                     }
                 }
             }
@@ -108,7 +105,9 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
 
                 LazyColumn(
                     state = if (sortMode == SortMode.CUSTOM) reorderableState.listState else lazyListState,
-                    modifier = if (sortMode == SortMode.CUSTOM) Modifier.fillMaxWidth().fillMaxHeight().reorderable(reorderableState) else Modifier.fillMaxWidth().fillMaxHeight()
+                    modifier = (if (sortMode == SortMode.CUSTOM) Modifier.reorderable(reorderableState) else Modifier)
+                        .fillMaxWidth()
+                        .weight(1f)
                 ) {
                     items(items = transcriptionResults, key = { it.fileName }) { result ->
                         val isSelected = selectedFileNames.contains(result.fileName)
@@ -220,6 +219,25 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
             }
         )
     }
+
+    if (showDeleteSelectedConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedConfirmDialog = false },
+            title = { Text("選択した履歴を削除") },
+            text = { Text("${selectedFileNames.size} 件の文字起こし履歴を削除しますか？") },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        viewModel.removeTranscriptionResults(selectedFileNames)
+                        showDeleteSelectedConfirmDialog = false
+                    }
+                }) { Text("削除") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteSelectedConfirmDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -242,7 +260,7 @@ fun TranscriptionResultItem(
             .fillMaxWidth()
             .background(backgroundColor)
             .padding(horizontal = 16.dp)
-            .heightIn(min = 56.dp), // Ensure a minimum height for the row
+            .height(64.dp), // Use a fixed height to prevent resizing
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isSelectionMode) {
@@ -264,7 +282,7 @@ fun TranscriptionResultItem(
             )
         } else {
             // Spacer to align content when no checkbox or drag handle is present
-            Spacer(modifier = Modifier.width(40.dp)) // Match the size of the checkbox/icon
+            Spacer(modifier = Modifier.size(40.dp)) // Match the size of the checkbox/icon
         }
 
         // Content area that is clickable/long-clickable
