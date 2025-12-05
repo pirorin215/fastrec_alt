@@ -9,10 +9,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel // Add this import
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit) {
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
     val isSelectionMode = selectedFileNames.isNotEmpty()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -47,7 +48,7 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, onBack: () -> Unit) {
             )
         }
     ) { paddingValues ->
-        TranscriptionResultPanel(viewModel = viewModel, modifier = Modifier.padding(paddingValues))
+        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.padding(paddingValues))
     }
 
     if (showDeleteConfirmDialog) {

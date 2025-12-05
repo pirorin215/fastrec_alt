@@ -1148,22 +1148,32 @@ class BleViewModel(
         val actualFileName = File(filePath).name
 
         var locationData: LocationData? = null
-        try {
-            locationTracker.getCurrentLocation().onSuccess {
-                locationData = it
-                addLog("Obtained current location for transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-            }.onFailure { e ->
-                addLog("Failed to get current location for transcription: ${e.message}. Proceeding without location data.")
-            }
-        } catch (e: SecurityException) {
-            addLog("Location permission not granted for transcription. Proceeding without location data.")
-        } catch (e: IllegalStateException) {
-            addLog("Location services are disabled for transcription. Proceeding without location data.")
-        } catch (e: Exception) {
-            addLog("Unexpected error getting location for transcription: ${e.message}. Proceeding without location data.")
-        }
+        // Try to use pre-collected low-power location
+        locationData = _currentForegroundLocation.value
 
-        if (currentService == null) {
+        if (locationData != null) {
+            addLog("Using pre-collected location for transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
+        } else {
+            // Fallback: Get low power location on-demand if pre-collected is not available
+            addLog("Pre-collected location not available. Attempting on-demand low power location for transcription.")
+            try {
+                locationTracker.getLowPowerLocation().onSuccess {
+                    locationData = it
+                    addLog("Obtained on-demand low power location for transcription: Lat=${it.latitude}, Lng=${it.longitude}")
+                }.onFailure { e ->
+                    addLog("Failed to get on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
+                }
+            } catch (e: SecurityException) {
+                addLog("Location permission not granted for transcription. Proceeding without location data.")
+            } catch (e: IllegalStateException) {
+                addLog("Location services are disabled for transcription. Proceeding without location data.")
+            } catch (e: Exception) {
+                                addLog("Unexpected error getting on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
+                            }
+                        } // Missing closing brace for the else block.
+                
+                        if (currentService == null) {
+                            _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
             _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
             addLog("Transcription failed: APIキーが設定されていません。")
             val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", System.currentTimeMillis(), locationData)
@@ -1241,62 +1251,6 @@ class BleViewModel(
         repository.disconnect()
         repository.close()
         addLog("ViewModel cleared, resources released.")
-    }
-
-    fun saveRefreshInterval(seconds: Int) {
-        viewModelScope.launch {
-            // Basic validation, ensure it's not too frequent
-            val interval = if (seconds < 5) 5 else seconds
-            appSettingsRepository.saveRefreshIntervalSeconds(interval)
-            addLog("Refresh interval saved: $interval seconds.")
-        }
-    }
-
-
-
-    fun saveTranscriptionCacheLimit(limit: Int) {
-        viewModelScope.launch {
-            val cacheLimit = if (limit < 1) 1 else limit // Ensure at least 1
-            appSettingsRepository.saveTranscriptionCacheLimit(cacheLimit)
-            addLog("Transcription cache limit saved: $cacheLimit files.")
-        }
-    }
-
-    fun saveTranscriptionFontSize(size: Int) {
-        viewModelScope.launch {
-            val fontSize = size.coerceIn(10, 24) // Ensure font size is within a reasonable range
-            appSettingsRepository.saveTranscriptionFontSize(fontSize)
-            addLog("Transcription font size saved: $fontSize sp.")
-        }
-    }
-
-    fun saveAudioDirName(name: String) {
-        viewModelScope.launch {
-            val dirName = name.ifBlank { "FastRecRecordings" } // Fallback to default if blank
-            appSettingsRepository.saveAudioDirName(dirName)
-            addLog("Audio directory name saved: $dirName")
-        }
-    }
-
-    fun saveApiKey(apiKey: String) {
-        viewModelScope.launch {
-            appSettingsRepository.saveApiKey(apiKey)
-            addLog("API Key saved.")
-        }
-    }
-
-    fun saveThemeMode(themeMode: ThemeMode) {
-        viewModelScope.launch {
-            appSettingsRepository.saveThemeMode(themeMode)
-            addLog("Theme mode saved: $themeMode.")
-        }
-    }
-
-    fun saveSortMode(sortMode: com.pirorin215.fastrecmob.data.SortMode) {
-        viewModelScope.launch {
-            appSettingsRepository.saveSortMode(sortMode)
-            addLog("Sort mode saved: $sortMode.")
-        }
     }
 
     fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
@@ -1395,6 +1349,27 @@ class BleViewModel(
             }
             clearSelection() // Clear selection after deletion
             addLog("Removed ${resultsToRemove.size} selected transcription results.")
+        }
+    }
+
+    fun retranscribe(result: TranscriptionResult) {
+        viewModelScope.launch {
+            addLog("Attempting to retranscribe file: ${result.fileName}")
+
+            // 1. Remove the old result
+            transcriptionResultRepository.removeResult(result)
+            addLog("Removed old transcription result for ${result.fileName} before re-transcribing.")
+
+            // 2. Get the audio file path
+            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+            if (audioFile.exists()) {
+                addLog("Audio file found for retranscription: ${audioFile.absolutePath}")
+                // 3. Call doTranscription with the file path
+                doTranscription(audioFile.absolutePath)
+                addLog("Initiated retranscription for ${result.fileName}.")
+            } else {
+                addLog("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe.")
+            }
         }
     }
 

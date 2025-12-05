@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.SharingStarted // Add this import
+import kotlinx.coroutines.flow.stateIn // Add this import
+import com.pirorin215.fastrecmob.data.ThemeMode // Add this import
 
 enum class ApiKeyStatus {
     VALID,
@@ -27,6 +30,88 @@ class AppSettingsViewModel(
 
     private val _apiKeyStatus = MutableStateFlow(ApiKeyStatus.CHECKING)
     val apiKeyStatus: StateFlow<ApiKeyStatus> = _apiKeyStatus.asStateFlow()
+
+    val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ""
+        )
+
+    val refreshIntervalSeconds: StateFlow<Int> = appSettingsRepository.refreshIntervalSecondsFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 30 // Provide a default
+        )
+
+    val transcriptionCacheLimit: StateFlow<Int> = appSettingsRepository.transcriptionCacheLimitFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 100 // Default to 100 files
+        )
+
+    val transcriptionFontSize: StateFlow<Int> = appSettingsRepository.transcriptionFontSizeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 14 // Default to 14
+        )
+
+    val themeMode: StateFlow<ThemeMode> = appSettingsRepository.themeModeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ThemeMode.SYSTEM // Default to SYSTEM
+        )
+
+    fun saveApiKey(apiKey: String) {
+        viewModelScope.launch {
+            appSettingsRepository.saveApiKey(apiKey)
+        }
+    }
+
+    fun saveRefreshInterval(seconds: Int) {
+        viewModelScope.launch {
+            val interval = if (seconds < 5) 5 else seconds
+            appSettingsRepository.saveRefreshIntervalSeconds(interval)
+        }
+    }
+
+    fun saveTranscriptionCacheLimit(limit: Int) {
+        viewModelScope.launch {
+            val cacheLimit = if (limit < 1) 1 else limit
+            appSettingsRepository.saveTranscriptionCacheLimit(cacheLimit)
+        }
+    }
+
+    fun saveTranscriptionFontSize(size: Int) {
+        viewModelScope.launch {
+            val fontSize = size.coerceIn(10, 24)
+            appSettingsRepository.saveTranscriptionFontSize(fontSize)
+        }
+    }
+
+    fun saveThemeMode(themeMode: ThemeMode) {
+        viewModelScope.launch {
+            appSettingsRepository.saveThemeMode(themeMode)
+        }
+    }
+
+    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsRepository.sortModeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP
+        )
+
+    fun saveSortMode(sortMode: com.pirorin215.fastrecmob.data.SortMode) {
+        viewModelScope.launch {
+            appSettingsRepository.saveSortMode(sortMode)
+        }
+    }
+
 
     private var lastCheckedApiKey: String = ""
 

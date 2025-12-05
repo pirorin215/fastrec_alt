@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh // Add this import
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Button
@@ -63,6 +64,7 @@ fun TranscriptionDetailBottomSheet(
     onPlay: (TranscriptionResult) -> Unit,
     onDelete: (TranscriptionResult) -> Unit,
     onSave: (TranscriptionResult, String) -> Unit,
+    onRetranscribe: (TranscriptionResult) -> Unit, // Add this new parameter
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -97,6 +99,15 @@ fun TranscriptionDetailBottomSheet(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Retranscribe Button
+                    IconButton(
+                        onClick = { onRetranscribe(result) }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh, // Using Refresh icon for re-transcribe
+                            contentDescription = "Retranscribe"
+                        )
+                    }
 
 
                     // Copy Button

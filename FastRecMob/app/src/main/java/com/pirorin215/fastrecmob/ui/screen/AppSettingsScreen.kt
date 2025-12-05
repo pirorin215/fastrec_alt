@@ -33,22 +33,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import com.pirorin215.fastrecmob.data.ThemeMode
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import kotlin.math.roundToInt
 
 import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     // DataStoreから現在の設定値を取得
-    val currentApiKey by viewModel.apiKey.collectAsState()
-    val currentInterval by viewModel.refreshIntervalSeconds.collectAsState()
-    val currentTranscriptionCacheLimit by viewModel.transcriptionCacheLimit.collectAsState() // Renamed
-    val currentFontSize by viewModel.transcriptionFontSize.collectAsState()
-    val currentThemeMode by viewModel.themeMode.collectAsState()
+    val currentApiKey by appSettingsViewModel.apiKey.collectAsState()
+    val currentInterval by appSettingsViewModel.refreshIntervalSeconds.collectAsState()
+    val currentTranscriptionCacheLimit by appSettingsViewModel.transcriptionCacheLimit.collectAsState() // Renamed
+    val currentFontSize by appSettingsViewModel.transcriptionFontSize.collectAsState()
+    val currentThemeMode by appSettingsViewModel.themeMode.collectAsState()
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
@@ -133,15 +133,15 @@ fun AppSettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
-                    viewModel.saveApiKey(apiKeyText)
+                    appSettingsViewModel.saveApiKey(apiKeyText)
                     // 入力が不正な場合はデフォルト値30を使う
                     val interval = intervalText.toIntOrNull() ?: 30
-                    viewModel.saveRefreshInterval(interval)
+                    appSettingsViewModel.saveRefreshInterval(interval)
                     // 入力が不正な場合はデフォルト値100を使う
                     val transcriptionCacheLimit = transcriptionCacheLimitText.toIntOrNull() ?: 100 // Renamed
-                    viewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
-                    viewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
-                    viewModel.saveThemeMode(selectedThemeMode)
+                    appSettingsViewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
+                    appSettingsViewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
+                    appSettingsViewModel.saveThemeMode(selectedThemeMode)
                     onBack() // 保存後に前の画面に戻る
                 },
                 modifier = Modifier.fillMaxWidth()

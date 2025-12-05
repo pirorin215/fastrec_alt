@@ -220,7 +220,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
         }
         showAppSettings -> {
             // AppSettingsScreenのインポートが必要になる可能性
-            com.pirorin215.fastrecmob.ui.screen.AppSettingsScreen(viewModel = viewModel, onBack = { showAppSettings = false })
+            com.pirorin215.fastrecmob.ui.screen.AppSettingsScreen(appSettingsViewModel = appSettingsViewModel, onBack = { showAppSettings = false })
         }
 
         showLogDownloadScreen -> {
@@ -338,7 +338,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
                         // TranscriptionResultPanel now takes flexible space
-                        TranscriptionResultPanel(viewModel = viewModel, modifier = Modifier.weight(1f))
+                        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.weight(1f))
                     }
                     PullRefreshIndicator(
                         refreshing = isRefreshing,

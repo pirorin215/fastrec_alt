@@ -33,6 +33,7 @@ import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel // Import AppSettingsViewModel
 import kotlinx.coroutines.launch
 import org.burnoutcrew.reorderable.ReorderableItem
 import org.burnoutcrew.reorderable.detectReorderAfterLongPress
@@ -41,14 +42,14 @@ import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modifier) {
+fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier) {
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
     var showAddManualTranscriptionDialog by remember { mutableStateOf(false) } // Add this state
-    val fontSize by viewModel.transcriptionFontSize.collectAsState()
-    val sortMode by viewModel.sortMode.collectAsState()
+    val fontSize by viewModel.transcriptionFontSize.collectAsState() // This is still in BleViewModel for now, but should eventually be moved if it's a setting
+    val sortMode by appSettingsViewModel.sortMode.collectAsState() // Collect from AppSettingsViewModel
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
     val isSelectionMode = selectedFileNames.isNotEmpty()
 
@@ -88,7 +89,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     checked = sortMode == SortMode.CUSTOM,
                     onCheckedChange = { isChecked ->
                         val newMode = if (isChecked) SortMode.CUSTOM else SortMode.TIMESTAMP
-                        viewModel.saveSortMode(newMode)
+                        appSettingsViewModel.saveSortMode(newMode)
                     }
                 ) {
                     if (sortMode == SortMode.CUSTOM) {
@@ -220,6 +221,12 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                 scope.launch {
                     viewModel.updateTranscriptionResult(originalResult, newText)
                     selectedResultForDetail = null
+                }
+            },
+            onRetranscribe = { transcriptionResult ->
+                scope.launch {
+                    viewModel.retranscribe(transcriptionResult)
+                    selectedResultForDetail = null // Dismiss the sheet after re-transcribing
                 }
             },
             onDismiss = { selectedResultForDetail = null }
