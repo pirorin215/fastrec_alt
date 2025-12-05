@@ -88,13 +88,18 @@ fun TranscriptionDetailBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Header: FileName
-                Text(
-                    text = FileUtil.extractRecordingDateTime(result.fileName),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "作成日時: " + FileUtil.extractRecordingDateTime(result.fileName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "編集日時: " + FileUtil.formatTimestampToDateTimeString(result.lastEditedTimestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically

@@ -142,7 +142,8 @@ class BleViewModel(
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .combine(sortMode) { list: List<TranscriptionResult>, mode: com.pirorin215.fastrecmob.data.SortMode ->
             when (mode) {
-                com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.timestamp }
+                com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.lastEditedTimestamp }
+            com.pirorin215.fastrecmob.data.SortMode.CREATION_TIME -> list.sortedByDescending { com.pirorin215.fastrecmob.data.FileUtil.getTimestampFromFileName(it.fileName) }
                 com.pirorin215.fastrecmob.data.SortMode.CUSTOM -> list.sortedBy { it.displayOrder }
             }
         }
@@ -771,7 +772,7 @@ class BleViewModel(
         try {
             addLog("Running transcription results and audio file cleanup...")
             val limit = transcriptionCacheLimit.value
-            val currentTranscriptionResults = transcriptionResults.value.sortedBy { it.timestamp } // Oldest first
+            val currentTranscriptionResults = transcriptionResults.value.sortedBy { it.lastEditedTimestamp } // Oldest first
 
             if (currentTranscriptionResults.size > limit) {
                 val resultsToDelete = currentTranscriptionResults.take(currentTranscriptionResults.size - limit)
@@ -1168,15 +1169,14 @@ class BleViewModel(
             } catch (e: IllegalStateException) {
                 addLog("Location services are disabled for transcription. Proceeding without location data.")
             } catch (e: Exception) {
-                                addLog("Unexpected error getting on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
-                            }
-                        } // Missing closing brace for the else block.
-                
-                        if (currentService == null) {
-                            _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
+                addLog("Unexpected error getting on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
+            }
+        }
+
+        if (currentService == null) {
             _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
             addLog("Transcription failed: APIキーが設定されていません。")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", System.currentTimeMillis(), locationData)
+            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")
@@ -1189,7 +1189,7 @@ class BleViewModel(
         result.onSuccess { transcription ->
             _transcriptionResult.value = transcription
             addLog("Transcription successful for $filePath.")
-            val newResult = TranscriptionResult(actualFileName, transcription, System.currentTimeMillis(), locationData)
+            val newResult = TranscriptionResult(actualFileName, transcription, locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(newResult)
             addLog("Transcription result saved for $actualFileName.")
@@ -1204,7 +1204,7 @@ class BleViewModel(
             _transcriptionState.value = "Error: $displayMessage"
             _transcriptionResult.value = null
             addLog("Transcription failed for $filePath: $displayMessage")
-            val errorResult = TranscriptionResult(actualFileName, displayMessage, System.currentTimeMillis(), locationData)
+            val errorResult = TranscriptionResult(actualFileName, displayMessage, locationData)
             // Directly await these operations
             transcriptionResultRepository.addResult(errorResult)
             addLog("Transcription error result saved for $actualFileName.")
@@ -1320,7 +1320,10 @@ class BleViewModel(
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String) {
         viewModelScope.launch {
             // Create a new TranscriptionResult with the updated transcription
-            val updatedResult = originalResult.copy(transcription = newTranscription)
+            val updatedResult = originalResult.copy(
+                transcription = newTranscription,
+                lastEditedTimestamp = System.currentTimeMillis()
+            )
             // The addResult method now handles updates, so we just call that.
             transcriptionResultRepository.addResult(updatedResult)
             addLog("Transcription result for ${originalResult.fileName} updated.")
@@ -1403,7 +1406,7 @@ class BleViewModel(
 
             val timestamp = System.currentTimeMillis()
             val manualFileName = "M${com.pirorin215.fastrecmob.data.FileUtil.formatTimestampForFileName(timestamp)}.txt"
-            val newResult = TranscriptionResult(manualFileName, text, timestamp, locationData)
+            val newResult = TranscriptionResult(manualFileName, text, locationData)
 
             transcriptionResultRepository.addResult(newResult)
             addLog("Manual transcription added: $manualFileName")

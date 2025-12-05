@@ -21,10 +21,23 @@ private val Context.transcriptionDataStore: DataStore<Preferences> by preference
 data class TranscriptionResult(
     val fileName: String,
     val transcription: String,
-    val timestamp: Long = System.currentTimeMillis(),
+    val lastEditedTimestamp: Long = System.currentTimeMillis(),
     val locationData: LocationData? = null,
     val displayOrder: Int = 0
-)
+) {
+    // Secondary constructor to simplify creation when lastEditedTimestamp is current time
+    constructor(
+        fileName: String,
+        transcription: String,
+        locationData: LocationData? = null
+    ) : this(
+        fileName = fileName,
+        transcription = transcription,
+        lastEditedTimestamp = System.currentTimeMillis(),
+        locationData = locationData,
+        displayOrder = 0
+    )
+}
 
 class TranscriptionResultRepository(private val context: Context) {
 
@@ -45,7 +58,7 @@ class TranscriptionResultRepository(private val context: Context) {
                 val results = json.decodeFromString<List<TranscriptionResult>>(jsonString)
                 // Fix for legacy data without displayOrder.
                 if (results.any { it.displayOrder == 0 } && results.distinctBy { it.displayOrder }.size == 1) {
-                    results.sortedByDescending { it.timestamp }.mapIndexed { index, result -> result.copy(displayOrder = index) }
+                    results.sortedByDescending { it.lastEditedTimestamp }.mapIndexed { index, result -> result.copy(displayOrder = index) }
                 } else {
                     results
                 }
@@ -62,7 +75,7 @@ class TranscriptionResultRepository(private val context: Context) {
             val existingResult = currentList.find { it.fileName == result.fileName }
 
             val updatedList = if (existingResult != null) {
-                // 既存のアイテムを更新 (displayOrderは維持)
+                // 既存のアイテムを更新 (displayOrderは維持、lastEditedTimestampは渡されたresultのものを使用)
                 currentList.map {
                     if (it.fileName == result.fileName) {
                         result.copy(displayOrder = existingResult.displayOrder)

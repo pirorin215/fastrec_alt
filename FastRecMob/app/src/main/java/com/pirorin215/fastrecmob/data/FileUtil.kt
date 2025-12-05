@@ -48,6 +48,29 @@ object FileUtil {
         return dateFormat.format(Date(timestamp))
     }
 
+    fun formatTimestampToDateTimeString(timestamp: Long): String {
+        val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault())
+        return dateFormat.format(Date(timestamp))
+    }
+
+    fun getTimestampFromFileName(fileName: String): Long {
+        val regex = Regex("""[RM](\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})\.(wav|txt)""")
+        val matchResult = regex.find(fileName)
+
+        return if (matchResult != null && matchResult.groupValues.size > 1) {
+            val dateTimeString = matchResult.groupValues[1] // "2025-12-01-02-04-08"
+            try {
+                val inputFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault())
+                inputFormat.parse(dateTimeString)?.time ?: 0L
+            } catch (e: ParseException) {
+                e.printStackTrace()
+                0L
+            }
+        } else {
+            0L
+        }
+    }
+
     // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する
     fun getAudioFile(context: android.content.Context, dirName: String, fileName: String): File {
         val audioDir = context.getExternalFilesDir(dirName)
