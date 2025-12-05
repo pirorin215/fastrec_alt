@@ -175,6 +175,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
     var showAppLogPanel by remember { mutableStateOf(false) } // New state for AppLogCard visibility
 
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -229,7 +230,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
         showLastKnownLocationScreen -> {
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
         }
-        else -> {
+                else -> {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -309,6 +310,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                         expanded = false
                                     }
                                 )
+
                             }
                         }
                     )
@@ -316,7 +318,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
             ) { innerPadding ->
                 val apiKeyStatus by appSettingsViewModel.apiKeyStatus.collectAsState()
 
-                Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState).padding(innerPadding)) {
+                Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize(),
@@ -340,11 +342,6 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                         // TranscriptionResultPanel now takes flexible space
                         TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.weight(1f))
                     }
-                    PullRefreshIndicator(
-                        refreshing = isRefreshing,
-                        state = pullRefreshState,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {
                         Box(
