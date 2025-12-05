@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +111,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
             } else {
                 val reorderableState = rememberReorderableLazyListState(
                     onMove = { from, to ->
+                        viewModel.clearSelection()
                         val reorderedList = transcriptionResults.toMutableList().apply {
                             add(to.index, removeAt(from.index))
                         }
@@ -121,6 +123,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
 
                 // Remember the previous size of the list to detect when an item is added.
                 var previousListSize by remember { mutableStateOf(transcriptionResults.size) }
+                var lazyColumnHeight by remember { mutableStateOf(0) }
 
                 // When a new item is added (list size increases), scroll to the top.
                 LaunchedEffect(transcriptionResults.size) {
@@ -132,11 +135,31 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, modifier: Modifier = Modif
                     previousListSize = transcriptionResults.size
                 }
 
+                LaunchedEffect(Unit) {
+                    snapshotFlow { reorderableState.draggingItemOffset }
+                        .collect { offset ->
+                            offset?.let {
+                                val listHeight = lazyColumnHeight
+                                if (listHeight > 0) {
+                                    val topThreshold = listHeight * 0.1f
+                                    val bottomThreshold = listHeight * 0.9f
+                                    if (it > bottomThreshold) {
+                                        listState.scrollBy(it - bottomThreshold)
+                                    } else if (it < topThreshold && it > 0) {
+                                        listState.scrollBy(it - topThreshold)
+                                    }
+                                }
+                            }
+                        }
+                }
                 LazyColumn(
                     state = listState,
                     modifier = (if (sortMode == SortMode.CUSTOM) Modifier.reorderable(reorderableState) else Modifier)
                         .fillMaxWidth()
                         .weight(1f)
+                        .onGloballyPositioned {
+                            lazyColumnHeight = it.size.height
+                        }
                 ) {
                     items(items = transcriptionResults, key = { it.fileName }) { result ->
                         val isSelected = selectedFileNames.contains(result.fileName)
