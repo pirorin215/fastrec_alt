@@ -240,6 +240,12 @@ class BleViewModel(
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
+    // --- New properties for pre-collected location ---
+    private val _currentForegroundLocation = MutableStateFlow<LocationData?>(null)
+    val currentForegroundLocation: StateFlow<LocationData?> = _currentForegroundLocation.asStateFlow()
+    private var lowPowerLocationJob: Job? = null
+    // --- End new properties ---
+
     // --- Refactored Properties ---
     private val repository: com.pirorin215.fastrecmob.data.BleRepository = com.pirorin215.fastrecmob.data.BleRepository(context)
     private var currentDownloadingFileName: String? = null
@@ -436,6 +442,35 @@ class BleViewModel(
             stopAutoRefresh()
         }
     }
+
+    // --- Low Power Location Updates ---
+    fun startLowPowerLocationUpdates() {
+        if (lowPowerLocationJob?.isActive == true) {
+            addLog("Low power location updates already active.")
+            return
+        }
+        addLog("Starting low power location updates.")
+        lowPowerLocationJob = viewModelScope.launch {
+            while (true) {
+                locationTracker.getLowPowerLocation().onSuccess { locationData ->
+                    _currentForegroundLocation.value = locationData
+                    addLog("Pre-collected low power location: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
+                }.onFailure { e ->
+                    _currentForegroundLocation.value = null // Clear stale location on failure
+                    addLog("Failed to pre-collect low power location: ${e.message}")
+                }
+                delay(30000L) // Update every 30 seconds
+            }
+        }
+    }
+
+    fun stopLowPowerLocationUpdates() {
+        lowPowerLocationJob?.cancel()
+        lowPowerLocationJob = null
+        _currentForegroundLocation.value = null // Clear location when stopping
+        addLog("Stopped low power location updates.")
+    }
+    // --- End Low Power Location Updates ---
 
     private fun addLog(message: String) {
         Log.d(TAG, message)
@@ -1202,7 +1237,7 @@ class BleViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        
+        lowPowerLocationJob?.cancel() // Cancel low power location updates
         repository.disconnect()
         repository.close()
         addLog("ViewModel cleared, resources released.")
@@ -1366,19 +1401,29 @@ class BleViewModel(
     fun addManualTranscription(text: String) {
         viewModelScope.launch {
             var locationData: LocationData? = null
-            try {
-                locationTracker.getCurrentLocation().onSuccess {
-                    locationData = it
-                    addLog("Obtained current location for manual transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-                }.onFailure { e ->
-                    addLog("Failed to get current location for manual transcription: ${e.message}. Proceeding without location data.")
+
+            // Try to use pre-collected low-power location
+            locationData = _currentForegroundLocation.value
+
+            if (locationData != null) {
+                addLog("Using pre-collected location for manual transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
+            } else {
+                // Fallback: Get low power location on-demand if pre-collected is not available
+                addLog("Pre-collected location not available. Attempting on-demand low power location for manual transcription.")
+                try {
+                    locationTracker.getLowPowerLocation().onSuccess {
+                        locationData = it
+                        addLog("Obtained on-demand low power location for manual transcription: Lat=${it.latitude}, Lng=${it.longitude}")
+                    }.onFailure { e ->
+                        addLog("Failed to get on-demand low power location for manual transcription: ${e.message}. Proceeding without location data.")
+                    }
+                } catch (e: SecurityException) {
+                    addLog("Location permission not granted for manual transcription. Proceeding without location data.")
+                } catch (e: IllegalStateException) {
+                    addLog("Location services are disabled for manual transcription. Proceeding without location data.")
+                } catch (e: Exception) {
+                    addLog("Unexpected error getting on-demand low power location for manual transcription: ${e.message}. Proceeding without location data.")
                 }
-            } catch (e: SecurityException) {
-                addLog("Location permission not granted for manual transcription. Proceeding without location data.")
-            } catch (e: IllegalStateException) {
-                addLog("Location services are disabled for manual transcription. Proceeding without location data.")
-            } catch (e: Exception) {
-                addLog("Unexpected error getting location for manual transcription: ${e.message}. Proceeding without location data.")
             }
 
             val timestamp = System.currentTimeMillis()

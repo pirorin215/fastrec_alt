@@ -196,11 +196,23 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
         }
     }
 
-    // TranscriptionStatusDialog removed for background operation
-    // For background operation, dialogs are generally not desired.
-    // The ViewModel still tracks transcriptionState and transcriptionResult for internal logging.
-
-    // Lifecycle observer to handle app foreground/background changes is removed to unify behavior.
+    // Observe lifecycle events to start/stop low power location updates
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                Log.d(TAG, "ON_RESUME: Starting low power location updates.")
+                viewModel.startLowPowerLocationUpdates()
+            } else if (event == Lifecycle.Event.ON_PAUSE) {
+                Log.d(TAG, "ON_PAUSE: Stopping low power location updates.")
+                viewModel.stopLowPowerLocationUpdates()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     when {
         showSettings -> {

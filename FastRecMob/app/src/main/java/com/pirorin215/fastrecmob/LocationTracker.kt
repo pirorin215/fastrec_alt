@@ -72,6 +72,49 @@ class LocationTracker(private val context: Context) {
         }
     }
 
+    suspend fun getLowPowerLocation(): Result<LocationData> {
+        Log.d(TAG, "getLowPowerLocation: Attempting to get low power location.")
+
+        if (!hasLocationPermission()) {
+            Log.w(TAG, "getLowPowerLocation: Location permission not granted.")
+            return Result.failure(SecurityException("Location permission not granted"))
+        }
+        Log.d(TAG, "getLowPowerLocation: Location permission granted.")
+
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+        val isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+
+        if (!isGpsEnabled && !isNetworkEnabled) {
+            Log.w(TAG, "getLowPowerLocation: Location services are disabled. GPS: $isGpsEnabled, Network: $isNetworkEnabled")
+            return Result.failure(IllegalStateException("Location services are disabled."))
+        }
+        Log.d(TAG, "getLowPowerLocation: Location services are enabled. GPS: $isGpsEnabled, Network: $isNetworkEnabled")
+
+        val cancellationTokenSource = CancellationTokenSource()
+        return try {
+            val location = fusedLocationClient.getCurrentLocation(
+                com.google.android.gms.location.Priority.PRIORITY_LOW_POWER,
+                cancellationTokenSource.token
+            ).await()
+
+            if (location != null) {
+                Log.d(TAG, "getLowPowerLocation: Received location: Lat=${location.latitude}, Lng=${location.longitude}")
+                Result.success(LocationData(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    timestamp = location.time
+                ))
+            } else {
+                Log.w(TAG, "getLowPowerLocation: FusedLocationProviderClient returned null location.")
+                Result.failure(Exception("Failed to get low power location: FusedLocationProviderClient returned null."))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getLowPowerLocation: Exception while getting low power location: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     private fun hasLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             context,
