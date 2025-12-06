@@ -26,6 +26,7 @@ class AppSettingsRepository(private val context: Context) {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val SORT_MODE = stringPreferencesKey("sort_mode") // Add this
         val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
+        val GOOGLE_TODO_LIST_NAME = stringPreferencesKey("google_todo_list_name")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -76,6 +77,12 @@ class AppSettingsRepository(private val context: Context) {
             SortMode.valueOf(preferences[PreferencesKeys.SORT_MODE] ?: SortMode.TIMESTAMP.name)
         }
 
+    val googleTodoListNameFlow: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            // Default to "fastrec"
+            preferences[PreferencesKeys.GOOGLE_TODO_LIST_NAME] ?: "fastrec"
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -122,6 +129,12 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveSortMode(sortMode: SortMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SORT_MODE] = sortMode.name
+        }
+    }
+
+    suspend fun saveGoogleTodoListName(name: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GOOGLE_TODO_LIST_NAME] = name
         }
     }
 

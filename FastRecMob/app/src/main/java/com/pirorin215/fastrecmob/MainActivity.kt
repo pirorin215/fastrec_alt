@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
 
-            val todoViewModelFactory = TodoViewModelFactory(context.applicationContext as Application)
+            val todoViewModelFactory = TodoViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val todoViewModel: TodoViewModel = viewModel(factory = todoViewModelFactory)
 
             val themeMode by viewModel.themeMode.collectAsState()

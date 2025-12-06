@@ -212,6 +212,7 @@ fun PreviewTodoScreen() {
         // This preview will only show the initial state (sign-in button)
         // as we cannot easily create a mock ViewModel with a signed-in state here.
         val application = LocalContext.current.applicationContext as android.app.Application
-        TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application))
+        val appSettingsRepository = com.pirorin215.fastrecmob.data.AppSettingsRepository(application)
+        TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application, appSettingsRepository))
     }
 }

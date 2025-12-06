@@ -66,6 +66,13 @@ class AppSettingsViewModel(
             initialValue = ThemeMode.SYSTEM // Default to SYSTEM
         )
 
+    val googleTodoListName: StateFlow<String> = appSettingsRepository.googleTodoListNameFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = "fastrec"
+        )
+
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
@@ -96,6 +103,12 @@ class AppSettingsViewModel(
     fun saveThemeMode(themeMode: ThemeMode) {
         viewModelScope.launch {
             appSettingsRepository.saveThemeMode(themeMode)
+        }
+    }
+
+    fun saveGoogleTodoListName(name: String) {
+        viewModelScope.launch {
+            appSettingsRepository.saveGoogleTodoListName(name)
         }
     }
 

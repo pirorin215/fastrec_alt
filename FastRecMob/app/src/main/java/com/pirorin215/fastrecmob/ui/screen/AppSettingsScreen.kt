@@ -52,6 +52,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     val currentTranscriptionCacheLimit by appSettingsViewModel.transcriptionCacheLimit.collectAsState() // Renamed
     val currentFontSize by appSettingsViewModel.transcriptionFontSize.collectAsState()
     val currentThemeMode by appSettingsViewModel.themeMode.collectAsState()
+    val currentGoogleTodoListName by appSettingsViewModel.googleTodoListName.collectAsState()
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
@@ -59,6 +60,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
     var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
     var selectedThemeMode by remember(currentThemeMode) { mutableStateOf(currentThemeMode) }
+    var googleTodoListNameText by remember(currentGoogleTodoListName) { mutableStateOf(currentGoogleTodoListName) }
 
 
     Scaffold(
@@ -133,6 +135,13 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = googleTodoListNameText,
+                onValueChange = { googleTodoListNameText = it },
+                label = { Text("Google ToDo List Name") },
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
@@ -145,6 +154,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     appSettingsViewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
                     appSettingsViewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
                     appSettingsViewModel.saveThemeMode(selectedThemeMode)
+                    appSettingsViewModel.saveGoogleTodoListName(googleTodoListNameText)
                     onBack() // 保存後に前の画面に戻る
                 },
                 modifier = Modifier.fillMaxWidth()

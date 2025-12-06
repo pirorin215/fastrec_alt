@@ -28,6 +28,8 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import com.pirorin215.fastrecmob.data.AppSettingsRepository
+import kotlinx.coroutines.flow.first
 
 // Data classes for JSON parsing
 @Serializable
@@ -42,7 +44,10 @@ data class TasksResponse(val items: List<Task>? = null)
 @Serializable
 data class Task(val id: String? = null, val title: String? = null, val status: String? = null)
 
-class TodoViewModel(application: Application) : AndroidViewModel(application) {
+class TodoViewModel(
+    application: Application,
+    private val appSettingsRepository: AppSettingsRepository
+) : AndroidViewModel(application) {
 
     private val _todoItems = MutableStateFlow<List<TodoItem>>(emptyList())
     val todoItems: StateFlow<List<TodoItem>> = _todoItems.asStateFlow()
@@ -54,8 +59,6 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     val googleSignInClient: GoogleSignInClient
-
-    private var fastrecTaskListId: String? = null
 
     private val json = Json { ignoreUnknownKeys = true }
     private val tasksScope = "https://www.googleapis.com/auth/tasks"
@@ -93,7 +96,6 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         googleSignInClient.signOut().addOnCompleteListener {
             _account.value = null
             _todoItems.value = emptyList()
-            fastrecTaskListId = null
         }
     }
 
@@ -101,14 +103,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         if (_account.value == null) return@launch
         _isLoading.value = true
         try {
-            val taskListId = getFastrecTaskListId()
-            if (taskListId == null) {
+            val currentTaskListId = getTaskListId()
+            if (currentTaskListId == null) {
                 Log.e(TAG, "No task list found.")
                 _todoItems.value = emptyList()
                 return@launch
             }
 
-            val url = "https://www.googleapis.com/tasks/v1/lists/$taskListId/tasks"
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
             val response = makeApiRequest(url)
 
             val tasksResponse = json.decodeFromString<TasksResponse>(response)
@@ -134,8 +136,8 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         if (_account.value == null || text.isBlank()) return@launch
         _isLoading.value = true
         try {
-            val taskListId = fastrecTaskListId ?: getFastrecTaskListId() ?: return@launch
-            val url = "https://www.googleapis.com/tasks/v1/lists/$taskListId/tasks"
+            val currentTaskListId = getTaskListId() ?: return@launch
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
             val taskJson = json.encodeToString(Task.serializer(), Task(title = text, status = "needsAction"))
             makeApiRequest(url, "POST", taskJson)
             loadTasks() // Refresh list
@@ -148,9 +150,9 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleTodoCompletion(item: TodoItem) = viewModelScope.launch {
         if (_account.value == null) return@launch
         try {
-            val taskListId = fastrecTaskListId ?: getFastrecTaskListId() ?: return@launch
+            val currentTaskListId = getTaskListId() ?: return@launch
             val newStatus = if (item.isCompleted.value) "needsAction" else "completed"
-            val url = "https://www.googleapis.com/tasks/v1/lists/$taskListId/tasks/${item.id}"
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
             val taskJson = json.encodeToString(Task.serializer(), Task(id = item.id, status = newStatus))
             makeApiRequest(url, "PATCH", taskJson)
             
@@ -171,8 +173,8 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     fun removeTodoItem(item: TodoItem) = viewModelScope.launch {
         if (_account.value == null) return@launch
         try {
-            val taskListId = fastrecTaskListId ?: getFastrecTaskListId() ?: return@launch
-            val url = "https://www.googleapis.com/tasks/v1/lists/$taskListId/tasks/${item.id}"
+            val currentTaskListId = getTaskListId() ?: return@launch
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
             makeApiRequest(url, "DELETE")
 
             // Update UI
@@ -183,16 +185,18 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
-    private suspend fun getFastrecTaskListId(): String? {
-        if (fastrecTaskListId != null) return fastrecTaskListId
-
+    private suspend fun getTaskListId(): String? {
+        val listName = appSettingsRepository.googleTodoListNameFlow.first()
+        if (listName.isBlank()) {
+             Log.w(TAG, "Google Todo List Name is blank. Using '@default'.")
+             return "@default"
+        }
         return try {
             val url = "https://www.googleapis.com/tasks/v1/users/@me/lists"
             val response = makeApiRequest(url)
             val taskListsResponse = json.decodeFromString<TaskListsResponse>(response)
-            val fastrecList = taskListsResponse.items.find { it.title == "fastrec" }
-            fastrecTaskListId = fastrecList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
-            fastrecTaskListId
+            val foundList = taskListsResponse.items.find { it.title == listName }
+            foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list if named list not found
         } catch (e: Exception) {
             Log.e(TAG, "Error getting task lists", e)
             null
@@ -238,11 +242,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-class TodoViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
+class TodoViewModelFactory(
+    private val application: Application,
+    private val appSettingsRepository: AppSettingsRepository
+) : ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TodoViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return TodoViewModel(application) as T
+            return TodoViewModel(application, appSettingsRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
