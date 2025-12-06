@@ -60,6 +60,8 @@ class TodoViewModel(
 
     val googleSignInClient: GoogleSignInClient
 
+    private var taskListId: String? = null
+
     private val json = Json { ignoreUnknownKeys = true }
     private val tasksScope = "https://www.googleapis.com/auth/tasks"
 
@@ -74,6 +76,11 @@ class TodoViewModel(
             _account.value = GoogleSignIn.getLastSignedInAccount(getApplication())
             if (_account.value != null) {
                 loadTasks()
+            }
+
+            // Observe changes to the Google Todo list name and clear the cached taskListId
+            appSettingsRepository.googleTodoListNameFlow.collect {
+                taskListId = null
             }
         }
     }
@@ -96,6 +103,7 @@ class TodoViewModel(
         googleSignInClient.signOut().addOnCompleteListener {
             _account.value = null
             _todoItems.value = emptyList()
+            taskListId = null
         }
     }
 
@@ -103,7 +111,7 @@ class TodoViewModel(
         if (_account.value == null) return@launch
         _isLoading.value = true
         try {
-            val currentTaskListId = getTaskListId()
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
             if (currentTaskListId == null) {
                 Log.e(TAG, "No task list found.")
                 _todoItems.value = emptyList()
@@ -136,7 +144,7 @@ class TodoViewModel(
         if (_account.value == null || text.isBlank()) return@launch
         _isLoading.value = true
         try {
-            val currentTaskListId = getTaskListId() ?: return@launch
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
             val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
             val taskJson = json.encodeToString(Task.serializer(), Task(title = text, status = "needsAction"))
             makeApiRequest(url, "POST", taskJson)
@@ -150,7 +158,7 @@ class TodoViewModel(
     fun toggleTodoCompletion(item: TodoItem) = viewModelScope.launch {
         if (_account.value == null) return@launch
         try {
-            val currentTaskListId = getTaskListId() ?: return@launch
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
             val newStatus = if (item.isCompleted.value) "needsAction" else "completed"
             val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
             val taskJson = json.encodeToString(Task.serializer(), Task(id = item.id, status = newStatus))
@@ -159,7 +167,7 @@ class TodoViewModel(
             // Update UI optimistically
             val updatedItems = _todoItems.value.map {
                 if (it.id == item.id) {
-                    it.apply { isCompleted.value = !isCompleted.value }
+                    it.apply { isCompleted.value = !it.isCompleted.value }
                 } else {
                     it
                 }
@@ -173,7 +181,7 @@ class TodoViewModel(
     fun removeTodoItem(item: TodoItem) = viewModelScope.launch {
         if (_account.value == null) return@launch
         try {
-            val currentTaskListId = getTaskListId() ?: return@launch
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
             val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
             makeApiRequest(url, "DELETE")
 
@@ -186,9 +194,12 @@ class TodoViewModel(
 
 
     private suspend fun getTaskListId(): String? {
+        if (taskListId != null) return taskListId
+
         val listName = appSettingsRepository.googleTodoListNameFlow.first()
         if (listName.isBlank()) {
              Log.w(TAG, "Google Todo List Name is blank. Using '@default'.")
+             taskListId = "@default" // Cache the default
              return "@default"
         }
         return try {
@@ -196,7 +207,8 @@ class TodoViewModel(
             val response = makeApiRequest(url)
             val taskListsResponse = json.decodeFromString<TaskListsResponse>(response)
             val foundList = taskListsResponse.items.find { it.title == listName }
-            foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list if named list not found
+            taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
+            taskListId
         } catch (e: Exception) {
             Log.e(TAG, "Error getting task lists", e)
             null
