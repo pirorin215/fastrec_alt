@@ -26,12 +26,18 @@ class AppSettingsRepository(private val context: Context) {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val SORT_MODE = stringPreferencesKey("sort_mode") // Add this
         val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
+        val GOOGLE_TODO_CREDENTIALS_URI = stringPreferencesKey("google_todo_credentials_uri")
     }
 
     // APIキーの変更を監視するためのFlow
     val apiKeyFlow: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.API_KEY] ?: ""
+        }
+
+    val googleTodoCredentialsUriFlow: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.GOOGLE_TODO_CREDENTIALS_URI] ?: ""
         }
     
     // 更新周期（秒）の変更を監視するためのFlow
@@ -122,6 +128,12 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveSortMode(sortMode: SortMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SORT_MODE] = sortMode.name
+        }
+    }
+
+    suspend fun saveGoogleTodoCredentialsUri(uri: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GOOGLE_TODO_CREDENTIALS_URI] = uri
         }
     }
 
