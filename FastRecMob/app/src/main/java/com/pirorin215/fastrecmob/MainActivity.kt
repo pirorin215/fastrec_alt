@@ -71,6 +71,9 @@ import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 
+import com.pirorin215.fastrecmob.viewModel.TodoViewModel
+import com.pirorin215.fastrecmob.viewModel.TodoViewModelFactory
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,10 +87,14 @@ class MainActivity : ComponentActivity() {
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
+
+            val todoViewModelFactory = TodoViewModelFactory(context.applicationContext as Application)
+            val todoViewModel: TodoViewModel = viewModel(factory = todoViewModelFactory)
+
             val themeMode by viewModel.themeMode.collectAsState()
 
             FastRecMobTheme(themeMode = themeMode) {
-                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel)
+                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel)
             }
         }
     }
@@ -103,7 +110,7 @@ class MainActivity : ComponentActivity() {
 private const val TAG = "BleApp"
 
 @Composable
-fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel) {
+fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel) {
     val context = LocalContext.current
     val activity = (LocalContext.current as? ComponentActivity)
 
@@ -146,13 +153,13 @@ fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewM
     }
 
     // Always show BleControl as permissionsGranted is true
-    BleControl(appSettingsViewModel = appSettingsViewModel)
+    BleControl(appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
-fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
+fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel) {
     val context = LocalContext.current
     val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
     val connectionState by viewModel.connectionState.collectAsState()
@@ -233,7 +240,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
         }
         showTodoScreen -> {
-            TodoScreen(onBack = { showTodoScreen = false })
+            TodoScreen(todoViewModel = todoViewModel, onBack = { showTodoScreen = false })
         }
                 else -> {
             Scaffold(

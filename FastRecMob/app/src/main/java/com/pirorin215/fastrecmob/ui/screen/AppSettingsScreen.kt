@@ -52,7 +52,6 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     val currentTranscriptionCacheLimit by appSettingsViewModel.transcriptionCacheLimit.collectAsState() // Renamed
     val currentFontSize by appSettingsViewModel.transcriptionFontSize.collectAsState()
     val currentThemeMode by appSettingsViewModel.themeMode.collectAsState()
-    val googleTodoCredentialsUri by appSettingsViewModel.googleTodoCredentialsUri.collectAsState()
 
     // TextFieldの状態を管理
     var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
@@ -60,14 +59,6 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
     var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
     var selectedThemeMode by remember(currentThemeMode) { mutableStateOf(currentThemeMode) }
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let {
-            appSettingsViewModel.saveGoogleTodoCredentialsUri(it.toString())
-        }
-    }
 
 
     Scaffold(
@@ -142,24 +133,6 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Google Todo Credentials
-            Button(
-                onClick = { filePickerLauncher.launch("application/json") },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Google Todo Credentials")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Selected file: ${
-                    googleTodoCredentialsUri.takeIf { it.isNotEmpty() }
-                        ?.let { Uri.parse(it).lastPathSegment } ?: "No file selected"
-                }",
-                fontSize = 12.sp
-            )
-
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {

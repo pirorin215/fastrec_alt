@@ -66,22 +66,9 @@ class AppSettingsViewModel(
             initialValue = ThemeMode.SYSTEM // Default to SYSTEM
         )
 
-    val googleTodoCredentialsUri: StateFlow<String> = appSettingsRepository.googleTodoCredentialsUriFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ""
-        )
-
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
-        }
-    }
-
-    fun saveGoogleTodoCredentialsUri(uri: String) {
-        viewModelScope.launch {
-            appSettingsRepository.saveGoogleTodoCredentialsUri(uri)
         }
     }
 

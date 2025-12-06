@@ -1,5 +1,9 @@
 package com.pirorin215.fastrecmob.ui.screen
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,53 +12,70 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.data.TodoItem
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.TodoViewModel
-import org.burnoutcrew.reorderable.ReorderableItem
-import org.burnoutcrew.reorderable.detectReorderAfterLongPress
-import org.burnoutcrew.reorderable.rememberReorderableLazyListState
-import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
     onBack: () -> Unit,
-    todoViewModel: TodoViewModel = viewModel()
+    todoViewModel: TodoViewModel
 ) {
-    val todoItems by remember { mutableStateOf(todoViewModel.todoItems) }
-    val sortMode by todoViewModel.sortMode
+    val account by todoViewModel.account.collectAsState()
+    val todoItems by todoViewModel.todoItems.collectAsState()
+    val isLoading by todoViewModel.isLoading.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
+
+    val signInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.let { intent ->
+                todoViewModel.handleSignInResult(
+                    intent = intent,
+                    onSuccess = { /* Handle success if needed */ },
+                    onFailure = { Log.e("TodoScreen", "Sign in failed", it) }
+                )
+            }
+        } else {
+             Log.e("TodoScreen", "Sign in cancelled or failed. Result code: ${result.resultCode}")
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Todo List") },
+                title = { Text("Google Todo List") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showMenu = !showMenu }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        TodoViewModel.TodoSortMode.entries.forEach { mode ->
+                    if (account != null) {
+                        IconButton(onClick = { todoViewModel.loadTasks() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
+                        IconButton(onClick = { showMenu = !showMenu }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
                             DropdownMenuItem(
-                                text = { Text(mode.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }) },
+                                text = { Text("Sign Out") },
                                 onClick = {
-                                    todoViewModel.setSortMode(mode)
+                                    todoViewModel.signOut()
                                     showMenu = false
                                 }
                             )
@@ -68,43 +89,62 @@ fun TodoScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            AddTodoItemInput(onAddTodo = { todoViewModel.addTodoItem(it) })
-            Spacer(modifier = Modifier.height(16.dp))
-            if (todoItems.isEmpty()) {
-                Text("No todo items yet. Add one above!", modifier = Modifier.align(Alignment.CenterHorizontally))
+            if (account == null) {
+                Button(onClick = { signInLauncher.launch(todoViewModel.googleSignInClient.signInIntent) }) {
+                    Text("Sign in with Google")
+                }
             } else {
-                val reorderableState = rememberReorderableLazyListState(onMove = todoViewModel::moveItem)
-                LazyColumn(
-                    state = reorderableState.listState,
-                    modifier = Modifier
-                        .reorderable(reorderableState)
-                        .detectReorderAfterLongPress(reorderableState)
-                ) {
-                    items(todoItems, key = { it.id }) { todoItem ->
-                        ReorderableItem(reorderableState, key = todoItem.id) { isDragging ->
-                            val elevation = if (isDragging) 8.dp else 0.dp // Example elevation for visual feedback
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                elevation = CardDefaults.cardElevation(defaultElevation = elevation)
-                            ) {
-                                TodoItemRow(
-                                    todoItem = todoItem,
-                                    onToggleCompletion = { todoViewModel.toggleTodoCompletion(todoItem) },
-                                    onRemove = { todoViewModel.removeTodoItem(todoItem) },
-                                    isDragging = isDragging
-                                )
-                            }
-                        }
+                if (isLoading) {
+                    CircularProgressIndicator()
+                } else {
+                    TodoListContent(
+                        todoItems = todoItems,
+                        onAddTodo = { todoViewModel.addTodoItem(it) },
+                        onToggleCompletion = { todoViewModel.toggleTodoCompletion(it) },
+                        onRemove = { todoViewModel.removeTodoItem(it) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TodoListContent(
+    todoItems: List<TodoItem>,
+    onAddTodo: (String) -> Unit,
+    onToggleCompletion: (TodoItem) -> Unit,
+    onRemove: (TodoItem) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        AddTodoItemInput(onAddTodo = onAddTodo)
+        Spacer(modifier = Modifier.height(16.dp))
+        if (todoItems.isEmpty()) {
+            Text("No todo items in 'fastrec' list.", modifier = Modifier.align(Alignment.CenterHorizontally))
+        } else {
+            LazyColumn {
+                items(todoItems, key = { it.id }) { todoItem ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        TodoItemRow(
+                            todoItem = todoItem,
+                            onToggleCompletion = onToggleCompletion,
+                            onRemove = onRemove
+                        )
                     }
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun AddTodoItemInput(onAddTodo: (String) -> Unit) {
@@ -138,34 +178,30 @@ fun AddTodoItemInput(onAddTodo: (String) -> Unit) {
 fun TodoItemRow(
     todoItem: TodoItem,
     onToggleCompletion: (TodoItem) -> Unit,
-    onRemove: (TodoItem) -> Unit,
-    isDragging: Boolean = false
+    onRemove: (TodoItem) -> Unit
 ) {
     val isCompleted by todoItem.isCompleted
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onToggleCompletion(todoItem) }
-            .padding(vertical = 8.dp),
+            .padding(vertical = 8.dp, horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             Checkbox(
                 checked = isCompleted,
                 onCheckedChange = { onToggleCompletion(todoItem) }
             )
+            Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = todoItem.text,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
             )
         }
-        IconButton(onClick = { onRemove(todoItem) }) {
-            Icon(Icons.Default.MoreVert, contentDescription = "Remove Todo")
-            // Ideally, this would be a delete icon or a menu with delete
-            // For simplicity, reusing MoreVert for now.
-        }
+        // IconButton for deletion can be added here if needed
     }
 }
 
@@ -173,6 +209,9 @@ fun TodoItemRow(
 @Composable
 fun PreviewTodoScreen() {
     FastRecMobTheme {
-        TodoScreen(onBack = {})
+        // This preview will only show the initial state (sign-in button)
+        // as we cannot easily create a mock ViewModel with a signed-in state here.
+        val application = LocalContext.current.applicationContext as android.app.Application
+        TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application))
     }
 }

@@ -72,6 +72,9 @@ dependencies {
     // Add this for Task.await() extension function
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
+    // Google Sign-In
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+
     // Google Cloud
     val librariesBomVersion = "26.36.0"
     implementation(platform("com.google.cloud:libraries-bom:$librariesBomVersion"))
