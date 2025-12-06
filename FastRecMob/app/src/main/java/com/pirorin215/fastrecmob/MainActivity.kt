@@ -48,6 +48,7 @@ import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
 import com.pirorin215.fastrecmob.ui.screen.LastKnownLocationScreen
+import com.pirorin215.fastrecmob.ui.screen.TodoScreen
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -170,6 +171,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
     var showLogs by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
+    var showTodoScreen by remember { mutableStateOf(false) }
 
     var showLogDownloadScreen by remember { mutableStateOf(false) }
     var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
@@ -229,6 +231,9 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
         }
         showLastKnownLocationScreen -> {
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
+        }
+        showTodoScreen -> {
+            TodoScreen(onBack = { showTodoScreen = false })
         }
                 else -> {
             Scaffold(
@@ -303,10 +308,17 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel) {
                                         expanded = false
                                     }
                                 )
-                                DropdownMenuItem( // New menu item for App Log
+                                DropdownMenuItem(
                                     text = { Text("アプリログ") },
                                     onClick = {
                                         showAppLogPanel = !showAppLogPanel // Toggle visibility
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Todo リスト") },
+                                    onClick = {
+                                        showTodoScreen = true
                                         expanded = false
                                     }
                                 )
