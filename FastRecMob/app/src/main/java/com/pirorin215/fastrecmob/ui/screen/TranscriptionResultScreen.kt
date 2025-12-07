@@ -14,13 +14,13 @@ import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel // Add this impo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit, onSignInClick: (Intent) -> Unit) {
+fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit) {
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
     val isSelectionMode = selectedFileNames.isNotEmpty()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
 
-    TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier, onSignInClick = onSignInClick)
+    TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier)
 
     if (showDeleteConfirmDialog) {
         AlertDialog(

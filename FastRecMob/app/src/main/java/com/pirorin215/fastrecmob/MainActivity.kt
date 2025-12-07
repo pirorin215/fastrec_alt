@@ -193,6 +193,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
     var showLogDownloadScreen by remember { mutableStateOf(false) }
     var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
     var showAppLogPanel by remember { mutableStateOf(false) } // New state for AppLogCard visibility
+    var showGoogleTasksSyncSettings by remember { mutableStateOf(false) } // New state for GoogleTasksSyncSettingsScreen
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -259,6 +260,14 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
         }
         showLastKnownLocationScreen -> {
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
+        }
+        showGoogleTasksSyncSettings -> {
+            com.pirorin215.fastrecmob.ui.screen.GoogleTasksSyncSettingsScreen(
+                viewModel = viewModel,
+                appSettingsViewModel = appSettingsViewModel,
+                onBack = { showGoogleTasksSyncSettings = false },
+                onSignInClick = onSignInClick
+            )
         }
         else -> {
             Scaffold(
@@ -334,6 +343,13 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Google Tasks 同期設定") },
+                                    onClick = {
+                                        showGoogleTasksSyncSettings = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("アプリログ") },
                                     onClick = {
                                         showAppLogPanel = !showAppLogPanel // Toggle visibility
@@ -370,7 +386,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
                         // TranscriptionResultPanel now takes flexible space
-                        TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { }, onSignInClick = onSignInClick)
+                        TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { })
                     }
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {

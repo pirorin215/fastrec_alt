@@ -35,7 +35,7 @@ import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier, onSignInClick: (Intent) -> Unit) {
+fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier) {
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
@@ -99,8 +99,6 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                     val isSelectionMode = selectedFileNames.isNotEmpty()
                     val transcriptionCount by viewModel.transcriptionCount.collectAsState()
                     val audioFileCount by viewModel.audioFileCount.collectAsState()
-                    val googleAccount by viewModel.account.collectAsState()
-                    val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
 
                     Text(
                         "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
@@ -113,40 +111,12 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                         Icon(Icons.Filled.Add, "手動で文字起こしを追加")
                     }
 
+                    IconButton(onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() }) {
+                        Icon(Icons.Default.Sync, contentDescription = "Google Tasks と同期")
+                    }
+
                     IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
                         Icon(Icons.Default.Close, contentDescription = "Clear Selection")
-                    }
-
-                    IconButton(
-                        onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() },
-                        enabled = googleAccount != null && !isLoadingGoogleTasks
-                    ) {
-                        Icon(Icons.Default.Sync, contentDescription = "Sync with Google Tasks")
-                    }
-
-                    // Google Sign-In/Out Button
-                    if (googleAccount == null) {
-                        Button(
-                            onClick = { onSignInClick(viewModel.googleSignInClient.signInIntent) },
-                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                        ) {
-                            Text("Sign In (Google Tasks)")
-                        }
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                        ) {
-                            Text(
-                                "${googleAccount?.displayName}",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            IconButton(onClick = { viewModel.signOut() }) {
-                                Icon(Icons.Default.Logout, contentDescription = "Sign Out")
-                            }
-                        }
                     }
                     
                     var showSortModeMenu by remember { mutableStateOf(false) }
