@@ -28,7 +28,8 @@ import com.pirorin215.fastrecmob.viewModel.TodoViewModel
 @Composable
 fun TodoScreen(
     onBack: () -> Unit,
-    todoViewModel: TodoViewModel
+    todoViewModel: TodoViewModel,
+    onNavigateToDetail: (String) -> Unit
 ) {
     val account by todoViewModel.account.collectAsState()
     val todoItems by todoViewModel.todoItems.collectAsState()
@@ -104,7 +105,8 @@ fun TodoScreen(
                                             TodoListContent(
                                                 todoItems = todoItems,
                                                 onAddTodo = { todoViewModel.addTodoItem(it) },
-                                                onRemove = { todoViewModel.removeTodoItem(it) }
+                                                onRemove = { todoViewModel.removeTodoItem(it) },
+                                                onNavigateToDetail = onNavigateToDetail
                                             )                }
             }
         }
@@ -115,7 +117,8 @@ fun TodoScreen(
 fun TodoListContent(
     todoItems: List<TodoItem>,
     onAddTodo: (String) -> Unit,
-    onRemove: (TodoItem) -> Unit
+    onRemove: (TodoItem) -> Unit,
+    onNavigateToDetail: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         AddTodoItemInput(onAddTodo = onAddTodo)
@@ -129,6 +132,10 @@ fun TodoListContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
+                            .clickable {
+                                Log.d("TodoScreen", "Todo item clicked: ${todoItem.id}")
+                                onNavigateToDetail(todoItem.id)
+                            } // Add clickable here
                     ) {
                         TodoItemRow(
                             todoItem = todoItem,
@@ -179,7 +186,6 @@ fun TodoItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
             .padding(vertical = 8.dp, horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -203,6 +209,6 @@ fun PreviewTodoScreen() {
         // as we cannot easily create a mock ViewModel with a signed-in state here.
         val application = LocalContext.current.applicationContext as android.app.Application
         val appSettingsRepository = com.pirorin215.fastrecmob.data.AppSettingsRepository(application)
-        TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application, appSettingsRepository))
+        TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application, appSettingsRepository), onNavigateToDetail = {})
     }
 }

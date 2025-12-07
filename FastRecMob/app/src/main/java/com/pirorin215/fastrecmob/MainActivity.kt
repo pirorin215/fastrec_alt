@@ -49,6 +49,7 @@ import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
 import com.pirorin215.fastrecmob.ui.screen.LastKnownLocationScreen
 import com.pirorin215.fastrecmob.ui.screen.TodoScreen
+import com.pirorin215.fastrecmob.ui.screen.TodoDetailBottomSheet
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
 import android.content.Intent // Add this import
@@ -179,6 +180,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
     var showTodoScreen by remember { mutableStateOf(false) }
+    var showTodoDetailBottomSheet by remember { mutableStateOf<String?>(null) } // New state for TodoDetailScreen visibility and todoId
 
     var showLogDownloadScreen by remember { mutableStateOf(false) }
     var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
@@ -240,7 +242,14 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
         }
         showTodoScreen -> {
-            TodoScreen(todoViewModel = todoViewModel, onBack = { showTodoScreen = false })
+            TodoScreen(
+                todoViewModel = todoViewModel,
+                onBack = { showTodoScreen = false },
+                onNavigateToDetail = { todoId ->
+                    showTodoDetailBottomSheet = todoId
+                    Log.d("MainActivity", "Showing TodoDetailBottomSheet with ID: $todoId")
+                }
+            )
         }
                 else -> {
             Scaffold(
@@ -379,6 +388,15 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
                 }
             }
         }
+    }
+
+    // Show TodoDetailBottomSheet if a todoId is available
+    if (showTodoDetailBottomSheet != null) {
+        TodoDetailBottomSheet(
+            todoId = showTodoDetailBottomSheet!!,
+            onDismiss = { showTodoDetailBottomSheet = null },
+            todoViewModel = todoViewModel
+        )
     }
 }
 

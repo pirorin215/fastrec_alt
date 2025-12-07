@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -248,6 +250,16 @@ class TodoViewModel(
     }
     
     fun updateTodoItemText(item: TodoItem, newText: String) { /* TODO */ }
+
+    fun getTodoItemById(id: String): StateFlow<TodoItem?> {
+        return todoItems.map { items ->
+            items.find { it.id == id }
+        }.stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+    }
 
     companion object {
         private const val TAG = "TodoViewModel"
