@@ -50,7 +50,6 @@ import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen // Add this import
 import com.pirorin215.fastrecmob.ui.screen.LastKnownLocationScreen
-import com.pirorin215.fastrecmob.ui.screen.TodoScreen
 
 import kotlinx.coroutines.launch
 import android.annotation.SuppressLint
@@ -74,8 +73,7 @@ import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 
-import com.pirorin215.fastrecmob.viewModel.TodoViewModel
-import com.pirorin215.fastrecmob.viewModel.TodoViewModelFactory
+import androidx.compose.runtime.DisposableEffect
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,9 +88,6 @@ class MainActivity : ComponentActivity() {
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
-
-            val todoViewModelFactory = TodoViewModelFactory(context.applicationContext as Application, appSettingsRepository)
-            val todoViewModel: TodoViewModel = viewModel(factory = todoViewModelFactory)
 
             val themeMode by bleViewModel.themeMode.collectAsState()
 
@@ -109,7 +104,7 @@ class MainActivity : ComponentActivity() {
             }
 
             FastRecMobTheme(themeMode = themeMode) {
-                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel, onSignInClick = { signInIntent -> googleSignInLauncher.launch(signInIntent) })
+                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel, onSignInClick = { signInIntent -> googleSignInLauncher.launch(signInIntent) })
             }
         }
     }
@@ -125,7 +120,7 @@ class MainActivity : ComponentActivity() {
 private const val TAG = "BleApp"
 
 @Composable
-fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel, onSignInClick: (Intent) -> Unit) {
+fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Intent) -> Unit) {
     val context = LocalContext.current
     val activity = (LocalContext.current as? ComponentActivity)
 
@@ -168,13 +163,13 @@ fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewM
     }
 
     // Always show BleControl as permissionsGranted is true
-    BleControl(appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel, onSignInClick = onSignInClick)
+    BleControl(appSettingsViewModel = appSettingsViewModel, onSignInClick = onSignInClick)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
-fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel, onSignInClick: (Intent) -> Unit) {
+fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Intent) -> Unit) {
     val context = LocalContext.current
     val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
     val connectionState by viewModel.connectionState.collectAsState()
@@ -193,7 +188,6 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
     var showLogs by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAppSettings by remember { mutableStateOf(false) }
-    var showTodoScreen by remember { mutableStateOf(false) }
     var showTodoDetailScreen by remember { mutableStateOf<String?>(null) } // New state for TodoDetailScreen visibility and todoId
 
     var showLogDownloadScreen by remember { mutableStateOf(false) }
@@ -265,12 +259,6 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
         }
         showLastKnownLocationScreen -> {
             LastKnownLocationScreen(onBack = { showLastKnownLocationScreen = false })
-        }
-        showTodoScreen -> {
-            TodoScreen(
-                todoViewModel = todoViewModel,
-                onBack = { showTodoScreen = false }
-            )
         }
         else -> {
             Scaffold(
@@ -349,13 +337,6 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
                                     text = { Text("アプリログ") },
                                     onClick = {
                                         showAppLogPanel = !showAppLogPanel // Toggle visibility
-                                        expanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Todo リスト") },
-                                    onClick = {
-                                        showTodoScreen = true
                                         expanded = false
                                     }
                                 )
