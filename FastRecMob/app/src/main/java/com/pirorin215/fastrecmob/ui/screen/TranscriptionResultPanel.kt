@@ -101,8 +101,7 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                         } else {
                             Modifier
                         }
-                    ),
-                contentPadding = PaddingValues(top = 72.dp, bottom = 16.dp)
+                    )
             ) {
                 items(items = localItems, key = { it.fileName }) { result ->
                     ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
@@ -127,14 +126,12 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
         Card(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(8.dp),
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp) // Fixed height
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val isSelectionMode = selectedFileNames.isNotEmpty()

@@ -20,37 +20,7 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: App
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (isSelectionMode) "${selectedFileNames.size} 件選択中" else "文字起こし履歴"
-                    )
-                },
-                navigationIcon = {
-                    if (isSelectionMode) {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel Selection")
-                        }
-                    } else {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                },
-                actions = {
-                    if (isSelectionMode) {
-                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete Selected Items")
-                        }
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.padding(paddingValues), onSignInClick = onSignInClick)
-    }
+    TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier, onSignInClick = onSignInClick)
 
     if (showDeleteConfirmDialog) {
         AlertDialog(

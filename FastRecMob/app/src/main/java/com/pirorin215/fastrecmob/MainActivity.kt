@@ -370,7 +370,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
                         // TranscriptionResultPanel now takes flexible space
-                        TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { /* Handled by Scaffold's navigationIcon */ }, onSignInClick = onSignInClick)
+                        TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { }, onSignInClick = onSignInClick)
                     }
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {
