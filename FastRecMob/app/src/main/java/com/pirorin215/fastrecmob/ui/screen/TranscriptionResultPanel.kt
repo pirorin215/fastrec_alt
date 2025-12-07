@@ -179,16 +179,13 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                         modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
                     ) {
                         Text(
-                            "Signed in as ${googleAccount?.displayName}",
+                            "${googleAccount?.displayName}",
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Button(
-                            onClick = { viewModel.signOut() },
-                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                        ) {
-                            Text("Sign Out")
+                        IconButton(onClick = { viewModel.signOut() }) {
+                            Icon(Icons.Default.Logout, contentDescription = "Sign Out")
                         }
                     }
                 }
