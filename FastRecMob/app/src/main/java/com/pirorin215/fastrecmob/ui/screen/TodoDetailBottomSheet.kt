@@ -53,7 +53,20 @@ fun TodoDetailBottomSheet(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Text: ${todoItem!!.text}", style = MaterialTheme.typography.headlineSmall)
                 Spacer(modifier = Modifier.height(8.dp))
+                if (!todoItem!!.notes.isNullOrBlank()) {
+                    Text("Notes: ${todoItem!!.notes}", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Text("Completed: ${if (todoItem!!.isCompleted.value) "Yes" else "No"}", style = MaterialTheme.typography.bodyLarge)
+                Spacer(modifier = Modifier.height(8.dp))
+                if (!todoItem!!.updated.isNullOrBlank()) {
+                    Text("Last Updated: ${todoItem!!.updated}", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (!todoItem!!.position.isNullOrBlank()) {
+                    Text("Position: ${todoItem!!.position}", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
             Spacer(modifier = Modifier.height(32.dp)) // Extra space for bottom padding
         }

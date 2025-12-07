@@ -44,7 +44,14 @@ data class TaskList(val id: String, val title: String)
 data class TasksResponse(val items: List<Task>? = null)
 
 @Serializable
-data class Task(val id: String? = null, val title: String? = null, val status: String? = null)
+data class Task(
+    val id: String? = null,
+    val title: String? = null,
+    val status: String? = null,
+    val notes: String? = null,
+    val updated: String? = null, // RFC 3339 timestamp
+    val position: String? = null
+)
 
 class TodoViewModel(
     application: Application,
@@ -129,7 +136,10 @@ class TodoViewModel(
                     TodoItem(
                         id = it,
                         text = task.title ?: "",
-                        isCompleted = mutableStateOf(task.status == "completed")
+                        isCompleted = mutableStateOf(task.status == "completed"),
+                        notes = task.notes,
+                        updated = task.updated,
+                        position = task.position
                     )
                 }
             } ?: emptyList()
