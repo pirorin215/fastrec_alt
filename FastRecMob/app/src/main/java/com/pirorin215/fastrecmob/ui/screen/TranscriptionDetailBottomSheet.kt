@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -75,6 +76,7 @@ fun TranscriptionDetailBottomSheet(
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
     )
+    var showGoogleTasksInfo by remember { mutableStateOf(false) } // Moved declaration here
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -101,9 +103,18 @@ fun TranscriptionDetailBottomSheet(
                     )
                 }
 
+
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text("Google Tasks Info")
+                    Switch(
+                        checked = showGoogleTasksInfo,
+                        onCheckedChange = { showGoogleTasksInfo = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+
                     // Retranscribe Button
                     IconButton(
                         onClick = { onRetranscribe(result) }
@@ -153,6 +164,39 @@ fun TranscriptionDetailBottomSheet(
                     }
                 }
             }
+
+            if (showGoogleTasksInfo) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Text("Google Task Information", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    result.googleTaskId?.let {
+                        Text("Task ID: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Completed: ${result.isCompleted}", style = MaterialTheme.typography.bodySmall)
+                    result.googleTaskNotes?.let {
+                        Text("Notes: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    result.googleTaskUpdated?.let {
+                        Text("Updated: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    result.googleTaskPosition?.let {
+                        Text("Position: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    result.googleTaskDue?.let {
+                        Text("Due: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    result.googleTaskWebViewLink?.let {
+                        Text("Web Link: $it", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Synced: ${result.isSyncedWithGoogleTasks}", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
 
             // Editable Text Field
             OutlinedTextField(

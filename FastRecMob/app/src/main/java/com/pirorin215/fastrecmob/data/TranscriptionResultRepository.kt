@@ -23,7 +23,16 @@ data class TranscriptionResult(
     val transcription: String,
     val lastEditedTimestamp: Long = System.currentTimeMillis(),
     val locationData: LocationData? = null,
-    val displayOrder: Int = 0
+    val displayOrder: Int = 0,
+    // New fields for Google Tasks integration
+    val googleTaskId: String? = null,
+    val isCompleted: Boolean = false,
+    val googleTaskNotes: String? = null,
+    val googleTaskUpdated: String? = null, // RFC 3339 timestamp
+    val googleTaskPosition: String? = null,
+    val googleTaskDue: String? = null, // RFC 3339 timestamp
+    val googleTaskWebViewLink: String? = null,
+    val isSyncedWithGoogleTasks: Boolean = false
 ) {
     // Secondary constructor to simplify creation when lastEditedTimestamp is current time
     constructor(
@@ -35,7 +44,16 @@ data class TranscriptionResult(
         transcription = transcription,
         lastEditedTimestamp = System.currentTimeMillis(),
         locationData = locationData,
-        displayOrder = 0
+        displayOrder = 0,
+        // Default values for new Google Tasks fields in secondary constructor
+        googleTaskId = null,
+        isCompleted = false,
+        googleTaskNotes = null,
+        googleTaskUpdated = null,
+        googleTaskPosition = null,
+        googleTaskDue = null,
+        googleTaskWebViewLink = null,
+        isSyncedWithGoogleTasks = false
     )
 }
 
