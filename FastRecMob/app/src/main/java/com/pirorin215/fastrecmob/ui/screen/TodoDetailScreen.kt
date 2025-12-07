@@ -18,99 +18,84 @@ import com.pirorin215.fastrecmob.viewModel.TodoViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoDetailScreen(
-    todoId: String?,
-    onBack: () -> Unit,
-    todoViewModel: TodoViewModel
+    todoItem: TodoItem?,
+    onSave: (TodoItem) -> Unit,
+    onDelete: (TodoItem) -> Unit,
+    onBack: () -> Unit
 ) {
-    val todoItemState = remember(todoId) { todoViewModel.getTodoItemById(todoId ?: "") }.collectAsState(initial = null)
-    val todoItem = todoItemState.value
+    var currentText by remember(todoItem) { mutableStateOf(todoItem?.text ?: "") }
+    var currentNotes by remember(todoItem) { mutableStateOf(todoItem?.notes ?: "") }
+    var currentIsCompleted by remember(todoItem) { mutableStateOf(todoItem?.isCompleted ?: false) }
 
-    var text by remember(todoItem) { mutableStateOf(todoItem?.text ?: "") }
-    var notes by remember(todoItem) { mutableStateOf(todoItem?.notes ?: "") }
-    var isCompleted by remember(todoItem) { mutableStateOf(todoItem?.isCompleted ?: false) }
+    val isNewTodo = todoItem == null || todoItem.id.isEmpty()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(todoItem?.text ?: "New Todo") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (todoId != null && todoItem != null) {
-                        IconButton(onClick = {
-                            val updatedTodo = todoItem.copy(
-                                text = text,
-                                notes = notes,
-                                isCompleted = isCompleted
-                            )
-                            todoViewModel.updateTodoItem(updatedTodo)
-                            onBack()
-                        }) {
-                            Icon(Icons.Default.Check, contentDescription = "Save")
-                        }
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        if (todoItem == null && todoId != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Todo item not found or loading...")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
             }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Text(
+                text = if (isNewTodo) "New Todo" else "Edit Todo",
+                style = MaterialTheme.typography.headlineSmall
+            )
+            IconButton(onClick = {
+                val itemToSave = todoItem?.copy(
+                    text = currentText,
+                    notes = currentNotes,
+                    isCompleted = currentIsCompleted
+                ) ?: TodoItem(text = currentText, notes = currentNotes, isCompleted = currentIsCompleted)
+                onSave(itemToSave)
+            }) {
+                Icon(Icons.Default.Check, contentDescription = "Save")
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = currentText,
+            onValueChange = { currentText = it },
+            label = { Text("Todo Text") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = currentNotes,
+            onValueChange = { currentNotes = it },
+            label = { Text("Notes") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = currentIsCompleted,
+                onCheckedChange = { currentIsCompleted = it }
+            )
+            Text("Completed")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (!isNewTodo) {
+            Button(
+                onClick = { todoItem?.let { onDelete(it) } },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("Todo Text") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isCompleted,
-                        onCheckedChange = { isCompleted = it }
-                    )
-                    Text("Completed")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (todoId == null) {
-                    Button(onClick = {
-                        val newTodo = TodoItem(text = text, notes = notes, isCompleted = isCompleted)
-                        todoViewModel.addDetailedTodoItem(newTodo.text, newTodo.notes, newTodo.isCompleted)
-                        onBack()
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Add New Todo")
-                    }
-                }
+                Text("Delete Todo")
             }
         }
     }

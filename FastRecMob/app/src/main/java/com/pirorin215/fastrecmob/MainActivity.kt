@@ -244,18 +244,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
         showTodoScreen -> {
             TodoScreen(
                 todoViewModel = todoViewModel,
-                onBack = { showTodoScreen = false },
-                onNavigateToDetail = { todoId ->
-                    showTodoDetailScreen = todoId
-                    Log.d("MainActivity", "Showing TodoDetailScreen with ID: $todoId")
-                }
-            )
-        }
-        showTodoDetailScreen != null -> {
-            com.pirorin215.fastrecmob.ui.screen.TodoDetailScreen(
-                todoId = showTodoDetailScreen,
-                onBack = { showTodoDetailScreen = null },
-                todoViewModel = todoViewModel
+                onBack = { showTodoScreen = false }
             )
         }
                 else -> {

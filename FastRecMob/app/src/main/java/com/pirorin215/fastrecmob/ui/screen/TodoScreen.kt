@@ -23,18 +23,24 @@ import androidx.compose.ui.unit.dp
 import com.pirorin215.fastrecmob.data.TodoItem
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.TodoViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
     onBack: () -> Unit,
     todoViewModel: TodoViewModel,
-    onNavigateToDetail: (String) -> Unit
 ) {
     val account by todoViewModel.account.collectAsState()
     val todoItems by todoViewModel.todoItems.collectAsState()
     val isLoading by todoViewModel.isLoading.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
+
+    val sheetState = rememberModalBottomSheetState()
+    var showBottomSheet by remember { mutableStateOf(false) }
+    var selectedTodoItem by remember { mutableStateOf<TodoItem?>(null) }
+
+    val coroutineScope = rememberCoroutineScope()
 
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -102,12 +108,57 @@ fun TodoScreen(
                 if (isLoading) {
                     CircularProgressIndicator()
                 } else {
-                                            TodoListContent(
-                                                todoItems = todoItems,
-                                                onAddTodo = { text -> todoViewModel.addTodoItem(text) },
-                                                onRemove = { todoViewModel.removeTodoItem(it) },
-                                                onItemClick = onNavigateToDetail // Renamed for clarity
-                                            )                }
+                    TodoListContent(
+                        todoItems = todoItems,
+                        onAddTodo = { text -> todoViewModel.addTodoItem(text) },
+                        onRemove = { todoViewModel.removeTodoItem(it) },
+                        onItemClick = { todoItem ->
+                            selectedTodoItem = todoItem
+                            showBottomSheet = true
+                        }
+                    )
+                }
+            }
+        }
+
+        if (showBottomSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showBottomSheet = false },
+                sheetState = sheetState
+            ) {
+                TodoDetailScreen(
+                    todoItem = selectedTodoItem,
+                    onSave = { updatedTodo ->
+                        if (updatedTodo.id.isEmpty()) { // New item
+                            todoViewModel.addDetailedTodoItem(updatedTodo.text, updatedTodo.notes, updatedTodo.isCompleted)
+                        } else { // Existing item
+                            todoViewModel.updateTodoItem(updatedTodo)
+                        }
+                        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+                            if (!sheetState.isVisible) {
+                                showBottomSheet = false
+                                selectedTodoItem = null
+                            }
+                        }
+                    },
+                    onDelete = { todoItemToDelete ->
+                        todoViewModel.removeTodoItem(todoItemToDelete)
+                        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+                            if (!sheetState.isVisible) {
+                                showBottomSheet = false
+                                selectedTodoItem = null
+                            }
+                        }
+                    },
+                    onBack = {
+                        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+                            if (!sheetState.isVisible) {
+                                showBottomSheet = false
+                                selectedTodoItem = null
+                            }
+                        }
+                    }
+                )
             }
         }
     }
@@ -118,7 +169,7 @@ fun TodoListContent(
     todoItems: List<TodoItem>,
     onAddTodo: (String) -> Unit,
     onRemove: (TodoItem) -> Unit,
-    onItemClick: (String) -> Unit
+    onItemClick: (TodoItem) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         AddTodoItemInput(onAddTodo = onAddTodo)
@@ -134,8 +185,8 @@ fun TodoListContent(
                             .padding(vertical = 4.dp)
                             .clickable {
                                 Log.d("TodoScreen", "Todo item clicked: ${todoItem.id}")
-                                onItemClick(todoItem.id) // Use the new onItemClick
-                            } // Add clickable here
+                                onItemClick(todoItem)
+                            }
                     ) {
                         TodoItemRow(
                             todoItem = todoItem,
