@@ -39,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.BleOperation
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
 import com.pirorin215.fastrecmob.viewModel.ApiKeyStatus
@@ -212,7 +213,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
 
     val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
 
-    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_DEVICE_INFO || isLoadingGoogleTasks
+    val isRefreshing = currentOperation == BleOperation.FETCHING_DEVICE_INFO || isLoadingGoogleTasks
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
         onRefresh = { viewModel.syncTranscriptionResultsWithGoogleTasks() }
@@ -384,7 +385,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                             fileTransferState = fileTransferState,
                             downloadProgress = downloadProgress,
                             totalFileSize = currentFileTotalSize,
-                            isBusy = currentOperation != BleViewModel.Operation.IDLE,
+                            isBusy = currentOperation != BleOperation.IDLE,
                             transferKbps = transferKbps,
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )

@@ -3,6 +3,7 @@ package com.pirorin215.fastrecmob.viewModel
 import com.pirorin215.fastrecmob.data.TaskListsResponse
 import com.pirorin215.fastrecmob.data.TaskList
 import com.pirorin215.fastrecmob.data.TasksResponse
+import com.pirorin215.fastrecmob.usecase.GoogleTasksUseCase
 import com.pirorin215.fastrecmob.data.Task
 
 
@@ -20,16 +21,11 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.os.Environment
-import android.provider.MediaStore
-import android.content.ContentValues
-import android.net.Uri
-import java.io.OutputStream
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.app.Application // Add this import
-import android.content.Intent // Add this import
+import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
@@ -41,17 +37,17 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import kotlinx.serialization.builtins.serializer // Add this import
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.io.BufferedReader // Add this import
-import java.io.InputStreamReader // Add this import
-import java.io.OutputStreamWriter // Add this import
-import java.net.HttpURLConnection // Add this import
-import java.net.URL // Add this import
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
-import kotlinx.coroutines.CompletableDeferred // Add this import
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
@@ -66,8 +62,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
-import kotlinx.coroutines.Dispatchers // Add this import
-import kotlinx.coroutines.withContext // Add this import
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
@@ -84,17 +80,12 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 
-sealed class NavigationEvent {
-    object NavigateBack : NavigationEvent()
-}
-// ...
-
 @SuppressLint("MissingPermission")
 class BleViewModel(
-    private val application: Application, // Add Application context for Google Sign-In
+    private val application: Application,
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
-    private val lastKnownLocationRepository: LastKnownLocationRepository, // Add this
+    private val lastKnownLocationRepository: LastKnownLocationRepository,
     private val context: Context
 ) : ViewModel() {
 
@@ -105,11 +96,39 @@ class BleViewModel(
         const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
         const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
         const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
-        const val SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b" // Add this
+        const val SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
         const val MAX_DELETE_RETRIES = 3
         const val DELETE_RETRY_DELAY_MS = 1000L // 1 second
         const val TIME_SYNC_INTERVAL_MS = 300000L // 5 minutes
     }
+
+    // --- UseCase Instances ---
+    private val googleTasksUseCase = GoogleTasksUseCase(application, appSettingsRepository, transcriptionResultRepository, context)
+
+    // --- Exposing UseCase State ---
+    val account: StateFlow<GoogleSignInAccount?> = googleTasksUseCase.account
+    val isLoadingGoogleTasks: StateFlow<Boolean> = googleTasksUseCase.isLoadingGoogleTasks
+    val googleSignInClient: GoogleSignInClient = googleTasksUseCase.googleSignInClient
+
+    // --- Google Tasks Delegated Functions ---
+    fun syncTranscriptionResultsWithGoogleTasks() = viewModelScope.launch {
+        googleTasksUseCase.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
+        transcriptionManager.updateLocalAudioFileCount()
+    }
+
+    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+        googleTasksUseCase.handleSignInResult(intent, {
+            viewModelScope.launch {
+                withContext(Dispatchers.Main) { onSuccess() }
+            }
+        }, onFailure)
+    }
+
+    fun signOut() {
+        googleTasksUseCase.signOut()
+    }
+    // --- End Google Tasks Delegated Functions ---
+
 
     private var timeSyncJob: Job? = null
 
@@ -185,34 +204,27 @@ class BleViewModel(
             initialValue = 0
         )
 
-    private val _audioFileCount = MutableStateFlow(0)
-    val audioFileCount: StateFlow<Int> = _audioFileCount.asStateFlow()
+    private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val locationTracker = com.pirorin215.fastrecmob.LocationTracker(context)
 
-    private fun updateLocalAudioFileCount() {
-        viewModelScope.launch {
-            val audioDir = context.getExternalFilesDir(audioDirName.value)
-            if (audioDir != null && audioDir.exists()) {
-                val count = audioDir.listFiles { _, name ->
-                    name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
-                }?.size ?: 0
-                _audioFileCount.value = count
-                addLog("Updated local audio file count: $count")
-            } else {
-                _audioFileCount.value = 0
-                addLog("Audio directory not found, local audio file count is 0.")
-            }
-        }
+    // --- Transcription Manager ---
+    private val transcriptionManager by lazy {
+        TranscriptionManager(
+            context = context,
+            scope = viewModelScope,
+            appSettingsRepository = appSettingsRepository,
+            transcriptionResultRepository = transcriptionResultRepository,
+            locationTracker = locationTracker,
+            currentForegroundLocationFlow = currentForegroundLocation,
+            audioDirNameFlow = audioDirName,
+            transcriptionCacheLimitFlow = transcriptionCacheLimit,
+            logCallback = { addLog(it) }
+        )
     }
 
-    private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-    private val locationTracker = com.pirorin215.fastrecmob.LocationTracker(context) // Add this
-    private var speechToTextService: SpeechToTextService? = null // Change to nullable var
-
-    private val _transcriptionState = MutableStateFlow("Idle")
-    val transcriptionState: StateFlow<String> = _transcriptionState.asStateFlow()
-
-    private val _transcriptionResult = MutableStateFlow<String?>(null)
-    val transcriptionResult: StateFlow<String?> = _transcriptionResult.asStateFlow()
+    val audioFileCount: StateFlow<Int> get() = transcriptionManager.audioFileCount
+    val transcriptionState: StateFlow<String> get() = transcriptionManager.transcriptionState
+    val transcriptionResult: StateFlow<String?> get() = transcriptionManager.transcriptionResult
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
 
     private val _connectionState = MutableStateFlow("Disconnected")
@@ -226,55 +238,60 @@ class BleViewModel(
 
     private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
     val deviceInfo = _deviceInfo.asStateFlow()
+    
+    // --- Managers ---
+    private val _currentOperation = MutableStateFlow(BleOperation.IDLE)
+    val currentOperation = _currentOperation.asStateFlow()
 
-    private val _deviceSettings = MutableStateFlow(com.pirorin215.fastrecmob.data.DeviceSettings()) // Change to non-nullable and provide default
-    val deviceSettings = _deviceSettings.asStateFlow()
+    private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
+    val navigationEvent = _navigationEvent.asSharedFlow()
 
-    private val _remoteDeviceSettings = MutableStateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?>(null)
-    val remoteDeviceSettings = _remoteDeviceSettings.asStateFlow()
+    private val bleSettingsManager by lazy {
+        BleSettingsManager(
+            scope = viewModelScope,
+            sendCommand = { sendCommand(it) },
+            addLog = { addLog(it) },
+            _currentOperation = _currentOperation,
+            _navigationEvent = _navigationEvent
+        )
+    }
 
-    private val _settingsDiff = MutableStateFlow<String?>(null)
-    val settingsDiff = _settingsDiff.asStateFlow()
+    // --- Settings Delegated Properties ---
+    val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> get() = bleSettingsManager.deviceSettings
+    val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> get() = bleSettingsManager.remoteDeviceSettings
+    val settingsDiff: StateFlow<String?> get() = bleSettingsManager.settingsDiff
 
     private val _fileList = MutableStateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>(emptyList())
     val fileList = _fileList.asStateFlow()
 
-    private val _downloadProgress = MutableStateFlow(0)
-    val downloadProgress = _downloadProgress.asStateFlow()
+    // --- BleFileTransfer Manager ---
+    private val bleFileTransferManager by lazy {
+        BleFileTransferManager(
+            context = context,
+            scope = viewModelScope,
+            repository = repository,
+            transcriptionManager = transcriptionManager,
+            audioDirNameFlow = audioDirName,
+            logCallback = { addLog(it) },
+            sendCommandCallback = { command -> sendCommand(command) },
+            sendAckCallback = { ackValue -> sendAck(ackValue) },
+            _currentOperation = _currentOperation,
+            _fileList = _fileList,
+            _connectionState = _connectionState
+        )
+    }
 
-    private val _currentFileTotalSize = MutableStateFlow(0L)
-    val currentFileTotalSize = _currentFileTotalSize.asStateFlow()
+    val downloadProgress: StateFlow<Int> get() = bleFileTransferManager.downloadProgress
+    val currentFileTotalSize: StateFlow<Long> get() = bleFileTransferManager.currentFileTotalSize
+    val fileTransferState: StateFlow<String> get() = bleFileTransferManager.fileTransferState
+    val transferKbps: StateFlow<Float> get() = bleFileTransferManager.transferKbps
 
-    private val _fileTransferState = MutableStateFlow("Idle")
-    val fileTransferState = _fileTransferState.asStateFlow()
-
-    private val _currentOperation = MutableStateFlow(Operation.IDLE)
-    val currentOperation = _currentOperation.asStateFlow()
-
-    private val _transferKbps = MutableStateFlow(0.0f)
-    val transferKbps = _transferKbps.asStateFlow()
 
     private val _isAutoRefreshEnabled = MutableStateFlow(true)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
 
     private val _selectedFileNames = MutableStateFlow<Set<String>>(emptySet())
     val selectedFileNames: StateFlow<Set<String>> = _selectedFileNames.asStateFlow()
-
-    private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
-    val navigationEvent = _navigationEvent.asSharedFlow()
-
-    // --- Google Tasks Integration Properties ---
-    private val _account = MutableStateFlow<GoogleSignInAccount?>(null)
-    val account: StateFlow<GoogleSignInAccount?> = _account.asStateFlow()
-
-    private val _isLoadingGoogleTasks = MutableStateFlow(false)
-    val isLoadingGoogleTasks: StateFlow<Boolean> = _isLoadingGoogleTasks.asStateFlow()
-
-    val googleSignInClient: GoogleSignInClient
-
-    private var taskListId: String? = null
-    private val tasksScope = "https://www.googleapis.com/auth/tasks"
-    // --- End Google Tasks Integration Properties ---
 
 
     // --- New properties for pre-collected location ---
@@ -285,29 +302,15 @@ class BleViewModel(
 
     // --- Refactored Properties ---
     private val repository: com.pirorin215.fastrecmob.data.BleRepository = com.pirorin215.fastrecmob.data.BleRepository(context)
-    private var currentDownloadingFileName: String? = null
     private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null // Declare this here
     private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null // Add this
 
     private val json = Json { ignoreUnknownKeys = true }
     private val bleMutex = Mutex()
-    private val transcriptionBatchMutex = Mutex()
 
-    enum class Operation {
-        IDLE,
-        FETCHING_DEVICE_INFO,
-        FETCHING_FILE_LIST,
-        FETCHING_SETTINGS,
-        DOWNLOADING_FILE,
-        SENDING_SETTINGS,
-        DELETING_FILE,
-        SENDING_TIME
-    }
-
-    private var responseBuffer = mutableListOf<Byte>()
-    private val transcriptionQueue = mutableListOf<String>()
     private var autoRefreshJob: Job? = null
-    private var _transferStartTime = 0L
+    private var responseBuffer = mutableListOf<Byte>()
+
 
     init {
         // Collect connection state from the repository
@@ -367,7 +370,7 @@ class BleViewModel(
                     addLog("Device is ready for communication.")
                     viewModelScope.launch {
                         bleMutex.withLock { // Acquire lock before sending SET:time
-                            _currentOperation.value = Operation.SENDING_TIME // New operation state
+                            _currentOperation.value = BleOperation.SENDING_TIME // New operation state
                             responseBuffer.clear() // Clear buffer for SET:time response
                             val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                             currentCommandCompletion = timeCompletion // Use common completion for SET:time
@@ -386,7 +389,7 @@ class BleViewModel(
                             } else {
                                 addLog("Initial time synchronization failed or timed out.")
                             }
-                            _currentOperation.value = Operation.IDLE
+                            _currentOperation.value = BleOperation.IDLE
                         }
 
                         // Launch fetches in separate jobs so they don't block the `onReady` handler
@@ -399,7 +402,7 @@ class BleViewModel(
                         timeSyncJob = viewModelScope.launch {
                             while (true) {
                                 delay(TIME_SYNC_INTERVAL_MS)
-                                if (connectionState.value == "Connected" && _currentOperation.value == Operation.IDLE) {
+                                if (connectionState.value == "Connected" && _currentOperation.value == BleOperation.IDLE) {
                                     bleMutex.withLock { // Acquire lock for periodic time sync
                                         val periodicTimestampSec = System.currentTimeMillis() / 1000
                                         val periodicTimeCommand = "SET:time:$periodicTimestampSec"
@@ -425,16 +428,6 @@ class BleViewModel(
             }
         }.launchIn(viewModelScope)
 
-        appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
-            if (apiKey.isNotEmpty()) {
-                speechToTextService = SpeechToTextService(apiKey)
-                addLog("SpeechToTextService initialized with API Key.")
-            } else {
-                speechToTextService = null
-                addLog("SpeechToTextService cleared (API Key not set).")
-            }
-        }.launchIn(viewModelScope)
-
         viewModelScope.launch {
             com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
                 addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
@@ -445,29 +438,6 @@ class BleViewModel(
                 }
             }.launchIn(this)
         }
-        updateLocalAudioFileCount() // Initial call to update count
-
-        // --- Google Tasks Initialization ---
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(tasksScope))
-            .build()
-        googleSignInClient = GoogleSignIn.getClient(application, gso)
-
-        viewModelScope.launch {
-            _account.value = GoogleSignIn.getLastSignedInAccount(application)
-            if (_account.value != null) {
-                // TODO: Load tasks when signed in (will be implemented in loadGoogleTasks)
-                addLog("Signed in to Google Tasks: ${_account.value?.displayName}")
-            }
-
-            // Observe changes to the Google Todo list name and clear the cached taskListId
-            appSettingsRepository.googleTodoListNameFlow.collect {
-                taskListId = null // Clear cached taskListId so it's re-fetched
-                addLog("Google Todo list name changed. Cleared cached taskListId.")
-            }
-        }
-        // --- End Google Tasks Initialization ---
     }
 
     private fun startAutoRefresh() {
@@ -536,366 +506,10 @@ class BleViewModel(
         _logs.value = (_logs.value + message).takeLast(100)
     }
 
-    private suspend fun makeApiRequest(urlString: String, method: String = "GET", body: String? = null): String = withContext(Dispatchers.IO) {
-        val account = _account.value ?: throw IllegalStateException("User not signed in for Google Tasks API.")
-        val token = GoogleAuthUtil.getToken(application, account.account!!, "oauth2:$tasksScope")
-
-        val url = URL(urlString)
-        (url.openConnection() as HttpURLConnection).run {
-            try {
-                requestMethod = method
-                setRequestProperty("Authorization", "Bearer $token")
-                if (method == "POST" || method == "PUT" || method == "PATCH") {
-                    setRequestProperty("Content-Type", "application/json")
-                }
-
-                if (body != null && (method == "POST" || method == "PUT" || method == "PATCH")) {
-                    doOutput = true
-                    OutputStreamWriter(outputStream).use { it.write(body) }
-                }
-
-                val responseCode = responseCode
-                if (responseCode in 200..299) {
-                    // For DELETE, there might be no content
-                    if (responseCode == 204) "" else BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
-                } else {
-                    val error = BufferedReader(InputStreamReader(errorStream)).use { it.readText() }
-                    throw Exception("HTTP Error: $responseCode - $error")
-                }
-            } finally {
-                disconnect()
-            }
-        }
-    }
-
-    private suspend fun getTaskListId(): String? {
-        if (taskListId != null) return taskListId
-
-        val listName = appSettingsRepository.googleTodoListNameFlow.first()
-        if (listName.isBlank()) {
-             addLog("Google Todo List Name is blank. Using '@default'.")
-             taskListId = "@default" // Cache the default
-             return "@default"
-        }
-        return try {
-            val url = "https://www.googleapis.com/tasks/v1/users/@me/lists"
-            val response = makeApiRequest(url)
-            val taskListsResponse = Json { ignoreUnknownKeys = true }.decodeFromString<TaskListsResponse>(response)
-            val foundList = taskListsResponse.items.find { it.title == listName }
-            taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
-            taskListId
-        } catch (e: Exception) {
-            addLog("Error getting task lists: ${e.message}")
-            null
-        }
-    }
-
-    private suspend fun addGoogleTask(title: String, notes: String?, isCompleted: Boolean): Task? {
-        if (_account.value == null || title.isBlank()) return null
-        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
-        val status = if (isCompleted) "completed" else "needsAction"
-        val taskJson = Json { ignoreUnknownKeys = true }.encodeToString(Task.serializer(), Task(title = title, notes = notes, status = status))
-        return try {
-            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks", method = "POST", body = taskJson)
-            addLog("Added new Google Task: $title")
-            Json { ignoreUnknownKeys = true }.decodeFromString<Task>(response)
-        } catch (e: Exception) {
-            addLog("Error adding Google Task '$title': ${e.message}")
-            null
-        }
-    }
-
-    private suspend fun updateGoogleTask(taskId: String, title: String, notes: String?, isCompleted: Boolean): Task? {
-        if (_account.value == null || taskId.isBlank()) return null
-        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
-        val status = if (isCompleted) "completed" else "needsAction"
-        val taskJson = Json { ignoreUnknownKeys = true }.encodeToString(Task.serializer(), Task(id = taskId, title = title, notes = notes, status = status))
-        return try {
-            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "PATCH", body = taskJson)
-            addLog("Updated Google Task: $title (ID: $taskId)")
-            Json { ignoreUnknownKeys = true }.decodeFromString<Task>(response)
-        } catch (e: Exception) {
-            addLog("Error updating Google Task '$title' (ID: $taskId): ${e.message}")
-            null
-        }
-    }
-
-    private suspend fun deleteGoogleTask(taskId: String) {
-        if (_account.value == null || taskId.isBlank()) return
-        val currentTaskListId = taskListId ?: getTaskListId() ?: return
-        try {
-            makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "DELETE")
-            addLog("Deleted Google Task ID: $taskId")
-        } catch (e: Exception) {
-            addLog("Error deleting Google Task ID '$taskId': ${e.message}")
-        }
-    }
-
-    private suspend fun loadGoogleTasks(): List<Task> {
-        if (_account.value == null) {
-            addLog("Not signed in to Google. Cannot load tasks.")
-            return emptyList()
-        }
-        _isLoadingGoogleTasks.value = true
-        try {
-            val currentTaskListId = taskListId ?: getTaskListId()
-            if (currentTaskListId == null) {
-                addLog("No Google task list found. Cannot load tasks.")
-                return emptyList()
-            }
-
-            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
-            val response = makeApiRequest(url)
-
-            val tasksResponse = Json { ignoreUnknownKeys = true }.decodeFromString<TasksResponse>(response)
-            return tasksResponse.items ?: emptyList()
-
-        } catch (e: Exception) {
-            addLog("Error loading Google tasks: ${e.message}")
-            return emptyList()
-        } finally {
-            _isLoadingGoogleTasks.value = false
-        }
-    }
-
-    // New sync function
-    fun syncTranscriptionResultsWithGoogleTasks() = viewModelScope.launch {
-        if (_account.value == null) {
-            addLog("Not signed in to Google. Cannot sync tasks.")
-            return@launch
-        }
-        _isLoadingGoogleTasks.value = true
-        addLog("Starting Google Tasks synchronization...")
-
-        try {
-            val currentLocalResults = transcriptionResultRepository.transcriptionResultsFlow.first().toMutableList() // Get all current value as mutable list from repository
-            val successfullyDeletedLocalFiles = mutableSetOf<String>() // Track files successfully deleted from Google Tasks
-            val updatedLocalResultsAfterDeletionProcessing = mutableListOf<TranscriptionResult>()
-
-            // --- Phase 0: Handle locally soft-deleted tasks (Problem 2) ---
-            val softDeletedLocalResults = currentLocalResults.filter { it.isDeletedLocally && it.googleTaskId != null }
-            val nonSoftDeletedLocalResults = currentLocalResults.filter { !it.isDeletedLocally || it.googleTaskId == null } // Keep non-soft-deleted and local-only items
-
-            for (softDeletedResult in softDeletedLocalResults) {
-                if (softDeletedResult.googleTaskId != null) {
-                    addLog("Attempting to delete Google Task '${softDeletedResult.googleTaskId}' for locally soft-deleted result '${softDeletedResult.fileName}'...")
-                    try {
-                        deleteGoogleTask(softDeletedResult.googleTaskId)
-                        addLog("Successfully deleted Google Task '${softDeletedResult.googleTaskId}'. Permanently removing local result '${softDeletedResult.fileName}'.")
-                        transcriptionResultRepository.permanentlyRemoveResult(softDeletedResult) // Permanent local deletion
-                        successfullyDeletedLocalFiles.add(softDeletedResult.fileName)
-
-                        // Delete associated audio file
-                        val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, softDeletedResult.fileName)
-                        if (audioFile.exists()) {
-                            if (audioFile.delete()) {
-                                addLog("Deleted associated audio file: ${softDeletedResult.fileName}")
-                            } else {
-                                addLog("Failed to delete associated audio file: ${softDeletedResult.fileName}")
-                            }
-                        } else {
-                            addLog("Associated audio file not found for soft-deleted result: ${softDeletedResult.fileName}")
-                        }
-                    } catch (e: Exception) {
-                        addLog("Error deleting Google Task '${softDeletedResult.googleTaskId}' for local result '${softDeletedResult.fileName}': ${e.message}. Keeping local soft-deleted for retry.")
-                        updatedLocalResultsAfterDeletionProcessing.add(softDeletedResult) // Keep in list to retry next sync
-                    }
-                }
-            }
-            // Combine non-soft-deleted results with soft-deleted ones that failed remote deletion
-            updatedLocalResultsAfterDeletionProcessing.addAll(nonSoftDeletedLocalResults)
-
-            // Re-fetch localTranscriptionResults to reflect any permanent deletions from Phase 0
-            val localTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
-
-            val googleTasks = loadGoogleTasks()
-
-            // Filter out local files that were successfully deleted from Google Tasks
-            // This filter is still necessary because localTranscriptionResults might contain
-            // items that were soft-deleted, but their remote deletion failed.
-            val filteredLocalTranscriptionResults = localTranscriptionResults.filter {
-                !successfullyDeletedLocalFiles.contains(it.fileName)
-            }
-
-            // Map for efficient lookup
-            val localMap: MutableMap<String, TranscriptionResult> =
-                filteredLocalTranscriptionResults.associateBy { it.googleTaskId ?: it.fileName }.toMutableMap() // Use fileName if no googleTaskId
-            val googleMap: Map<String, Task> = googleTasks.associateBy { it.id!! } // Assume ID is never null for fetched tasks
-
-            val reconciledTranscriptionResults = mutableListOf<TranscriptionResult>()
-
-            // --- Phase 1: Reconcile local results with Google Tasks ---
-            for (localResult in filteredLocalTranscriptionResults) {
-                if (localResult.googleTaskId == null || !localResult.isSyncedWithGoogleTasks) {
-                    // Case 1: New local result or not yet synced. Add to Google Tasks.
-                    val addedTask = addGoogleTask(
-                        title = localResult.transcription,
-                        notes = localResult.googleTaskNotes,
-                        isCompleted = localResult.isCompleted
-                    )
-                    if (addedTask != null && addedTask.id != null) {
-                        reconciledTranscriptionResults.add(
-                            localResult.copy(
-                                googleTaskId = addedTask.id,
-                                googleTaskNotes = addedTask.notes,
-                                googleTaskUpdated = addedTask.updated,
-                                googleTaskPosition = addedTask.position,
-                                googleTaskDue = addedTask.due,
-                                googleTaskWebViewLink = addedTask.webViewLink,
-                                isCompleted = (addedTask.status == "completed"),
-                                isSyncedWithGoogleTasks = true
-                            )
-                        )
-                        addLog("Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
-                    } else {
-                        addLog("Failed to add local result '${localResult.fileName}' to Google Tasks.")
-                        reconciledTranscriptionResults.add(localResult) // Keep original if failed to sync
-                    }
-                } else {
-                    // Case 2: Existing synced local result. Check for updates/deletions on Google.
-                    val correspondingGoogleTask = googleMap[localResult.googleTaskId]
-                    if (correspondingGoogleTask == null) {
-                        // Corresponding Google Task deleted. Delete local result (Problem 1)
-                        addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Permanently deleting local result and audio file.")
-                        transcriptionResultRepository.permanentlyRemoveResult(localResult) // Permanent local deletion
-
-                        // Delete associated audio file
-                        val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, localResult.fileName)
-                        if (audioFile.exists()) {
-                            if (audioFile.delete()) {
-                                addLog("Deleted associated audio file: ${localResult.fileName}")
-                            } else {
-                                addLog("Failed to delete associated audio file: ${localResult.fileName}")
-                            }
-                        } else {
-                            addLog("Associated audio file not found for remote-deleted result: ${localResult.fileName}")
-                        }
-                        // Do not add to reconciledTranscriptionResults as it's deleted
-                    } else {
-                        // Compare and update if local is newer or needs to be updated based on other criteria
-                        // (e.g., if transcription changed locally, update Google)
-                        val googleTaskUpdateTimestamp = com.pirorin215.fastrecmob.data.FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
-                        val localLastEditedTimestamp = localResult.lastEditedTimestamp
-
-                        if (googleTaskUpdateTimestamp > localLastEditedTimestamp) {
-                            // Google Task is newer, update local result with Google's data
-                            addLog("Google Task '${localResult.googleTaskId}' is newer. Pulling changes to local result '${localResult.fileName}'.")
-                            reconciledTranscriptionResults.add(
-                                localResult.copy(
-                                    transcription = correspondingGoogleTask.title ?: localResult.transcription,
-                                    googleTaskNotes = correspondingGoogleTask.notes,
-                                    googleTaskUpdated = correspondingGoogleTask.updated,
-                                    googleTaskPosition = correspondingGoogleTask.position,
-                                    googleTaskDue = correspondingGoogleTask.due,
-                                    googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
-                                    isCompleted = (correspondingGoogleTask.status == "completed"),
-                                    isSyncedWithGoogleTasks = true
-                                )
-                            )
-                        } else {
-                            // Local result is newer or equally recent. Check for local changes and push to Google.
-                            val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
-                            val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
-                            val localNotesChanged = localResult.googleTaskNotes != correspondingGoogleTask.notes
-
-                            if (localTranscriptionChanged || localCompletionChanged || localNotesChanged) {
-                                addLog("Local result '${localResult.fileName}' is newer or has changes. Updating Google Task '${localResult.googleTaskId}'.")
-                                val updatedTask = updateGoogleTask(
-                                    taskId = localResult.googleTaskId,
-                                    title = localResult.transcription,
-                                    notes = localResult.googleTaskNotes ?: correspondingGoogleTask.notes,
-                                    isCompleted = localResult.isCompleted
-                                )
-                                if (updatedTask != null) {
-                                    reconciledTranscriptionResults.add(
-                                        localResult.copy(
-                                            googleTaskNotes = updatedTask.notes,
-                                            googleTaskUpdated = updatedTask.updated,
-                                            googleTaskPosition = updatedTask.position,
-                                            googleTaskDue = updatedTask.due,
-                                            googleTaskWebViewLink = updatedTask.webViewLink,
-                                            isCompleted = (updatedTask.status == "completed"),
-                                            isSyncedWithGoogleTasks = true
-                                        )
-                                    )
-                                } else {
-                                    addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
-                                    reconciledTranscriptionResults.add(localResult)
-                                }
-                            } else {
-                                // No significant changes in either, or they are identical.
-                                // Ensure local is up-to-date with Google's metadata (like googleTaskUpdated).
-                                reconciledTranscriptionResults.add(
-                                    localResult.copy(
-                                        googleTaskNotes = correspondingGoogleTask.notes,
-                                        googleTaskUpdated = correspondingGoogleTask.updated,
-                                        googleTaskPosition = correspondingGoogleTask.position,
-                                        googleTaskDue = correspondingGoogleTask.due,
-                                        googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
-                                        isCompleted = (correspondingGoogleTask.status == "completed"),
-                                        isSyncedWithGoogleTasks = true
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- Phase 2: Reconcile Google Tasks with local results (for new Google Tasks) ---
-            for (googleTask in googleTasks) {
-                if (!reconciledTranscriptionResults.any { it.googleTaskId == googleTask.id }) { // Check against the reconciled list
-                    // Case 3: New Google Task. Add to local results.
-                    addLog("New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
-                    val newLocalResult = TranscriptionResult(
-                        fileName = "GT_${googleTask.id}_${System.currentTimeMillis()}.txt", // Generate a unique file name
-                        transcription = googleTask.title ?: "",
-                        lastEditedTimestamp = System.currentTimeMillis(),
-                        locationData = null, // Google Tasks doesn't have native location, needs parsing from notes if desired
-                        googleTaskId = googleTask.id,
-                        isCompleted = (googleTask.status == "completed"),
-                        googleTaskNotes = googleTask.notes,
-                        googleTaskUpdated = googleTask.updated,
-                        googleTaskPosition = googleTask.position,
-                        googleTaskDue = googleTask.due,
-                        googleTaskWebViewLink = googleTask.webViewLink,
-                        isSyncedWithGoogleTasks = true
-                    )
-                    reconciledTranscriptionResults.add(newLocalResult)
-                }
-            }
-
-            // Update the TranscriptionResultRepository with the fully reconciled list
-            transcriptionResultRepository.updateResults(reconciledTranscriptionResults.distinctBy { it.fileName })
-            updateLocalAudioFileCount() // Update after any potential file deletions
-
-            addLog("Google Tasks synchronization completed.")
-
-        } catch (e: Exception) {
-            addLog("Error during Google Tasks synchronization: ${e.message}")
-        } finally {
-            _isLoadingGoogleTasks.value = false
-        }
-    }
-
     private fun resetOperationStates() {
         addLog("Resetting all operation states.")
-        _currentOperation.value = Operation.IDLE
-        _fileTransferState.value = "Idle"
-        _downloadProgress.value = 0
-        _currentFileTotalSize.value = 0L
-        _transferKbps.value = 0.0f
-        _transferStartTime = 0L
-        responseBuffer.clear()
-        currentDownloadingFileName = null
-    }
-
-    private fun resetFileTransferMetrics() {
-        _downloadProgress.value = 0
-        _currentFileTotalSize.value = 0L
-        _transferKbps.value = 0.0f
-        _transferStartTime = 0L
-        responseBuffer.clear()
+        _currentOperation.value = BleOperation.IDLE
+        bleFileTransferManager.resetFileTransferMetrics() // Delegate to manager
     }
 
     private fun checkForNewWavFilesAndProcess() {
@@ -920,7 +534,7 @@ class BleViewModel(
                 downloadFile(fileEntry.name)
             } else {
                 // No WAV files to download from device. Now, check the local transcription queue.
-                if (transcriptionQueue.isEmpty()) {
+                if (transcriptionManager.transcriptionQueue.isEmpty()) {
                     // Device is clean AND local queue is empty. We are fully idle.
                     addLog("No files to process on device or locally. Staying connected.")
                 } else {
@@ -936,7 +550,7 @@ class BleViewModel(
         if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
-            Operation.FETCHING_DEVICE_INFO -> {
+            BleOperation.FETCHING_DEVICE_INFO -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
                 if (responseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
                     addLog("FETCHING_DEVICE_INFO: Ignoring unexpected leading fragment: $incomingString")
@@ -962,7 +576,7 @@ class BleViewModel(
                     currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
                 }
             }
-            Operation.FETCHING_FILE_LIST -> {
+            BleOperation.FETCHING_FILE_LIST -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
                 // Handle cases where response might not start with '[' (e.g. empty list or error)
                 if (responseBuffer.isEmpty() && !incomingString.startsWith("[") && !incomingString.startsWith("ERROR:")) {
@@ -995,53 +609,20 @@ class BleViewModel(
                     currentCommandCompletion?.complete(Pair(false, null)) // Signal completion (with error)
                 }
             }
-            Operation.FETCHING_SETTINGS -> {
-                responseBuffer.addAll(value.toList())
-                viewModelScope.launch {
-                    delay(200)
-                    if (_currentOperation.value == Operation.FETCHING_SETTINGS) {
-                        val settingsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                        addLog("Assembled remote settings: $settingsString")
-                        val remoteSettings = com.pirorin215.fastrecmob.data.DeviceSettings.fromIniString(settingsString)
-                        _remoteDeviceSettings.value = remoteSettings
-
-                        val diff = remoteSettings.diff(_deviceSettings.value)
-
-                        if (diff.isNotBlank()) {
-                            _settingsDiff.value = diff
-                            addLog("Settings have differences.")
-                        } else {
-                            _settingsDiff.value = "差分はありません。"
-                            addLog("Settings are identical.")
-                        }
-
-                        _currentOperation.value = Operation.IDLE
-                        responseBuffer.clear()
-                    }
-                }
+            BleOperation.FETCHING_SETTINGS -> {
+                bleSettingsManager.handleResponse(value)
             }
-            Operation.DOWNLOADING_FILE -> {
-                val filePath = handleFileDownloadData(value)
-                if (filePath != null) {
-                    currentCommandCompletion?.complete(Pair(true, filePath))
-                }
+            BleOperation.DOWNLOADING_FILE -> {
+                bleFileTransferManager.handleCharacteristicChanged(
+                    characteristic, value, currentCommandCompletion, currentDeleteCompletion
+                )
             }
-            Operation.DELETING_FILE -> { // Handle response for file deletion
-                val response = value.toString(Charsets.UTF_8).trim()
-                addLog("Received response for file deletion: $response")
-                if (response.startsWith("OK: File")) {
-                    currentDeleteCompletion?.complete(true)
-                    responseBuffer.clear()
-                } else if (response.startsWith("ERROR:")) {
-                    currentDeleteCompletion?.complete(false)
-                    responseBuffer.clear()
-                } else {
-                    addLog("Unexpected response during file deletion: $response")
-                    currentDeleteCompletion?.complete(false) // Treat unexpected as failure
-                    responseBuffer.clear()
-                }
+            BleOperation.DELETING_FILE -> {
+                bleFileTransferManager.handleCharacteristicChanged(
+                    characteristic, value, currentCommandCompletion, currentDeleteCompletion
+                )
             }
-            Operation.SENDING_TIME -> { // Handle response for SET:time
+            BleOperation.SENDING_TIME -> { // Handle response for SET:time
                 val response = value.toString(Charsets.UTF_8).trim()
                 addLog("Received response for SET:time: $response")
                 if (response.startsWith("OK: Time")) {
@@ -1061,153 +642,6 @@ class BleViewModel(
             }
         }
     }
-
-    private fun handleFileDownloadData(value: ByteArray): String? { // Modified to return String?
-        when (_fileTransferState.value) {
-            "WaitingForStart" -> {
-                if (value.contentEquals("START".toByteArray())) {
-                    addLog("Received START signal. Sending START_ACK.")
-                    sendAck("START_ACK".toByteArray(Charsets.UTF_8))
-                    _fileTransferState.value = "Downloading"
-                    _transferStartTime = System.currentTimeMillis()
-                    responseBuffer.clear()
-                    _downloadProgress.value = 0
-                    return null // Not finished yet
-                } else {
-                    addLog("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
-                    currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
-                    return null
-                }
-            }
-            "Downloading" -> {
-                if (value.contentEquals("EOF".toByteArray())) {
-                    addLog("End of file transfer signal received.")
-                    val filePath = saveFile(responseBuffer.toByteArray())
-                    if (filePath != null) {
-                        // currentCommandCompletion is completed in handleCharacteristicChanged now
-                        return filePath // Return the saved file path/URI
-                    } else {
-                        currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
-                        return null
-                    }
-                } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
-                    val errorMessage = value.toString(Charsets.UTF_8)
-                    addLog("Received error during transfer: $errorMessage")
-                    currentCommandCompletion?.complete(Pair(false, null)) // Signal failure
-                    return null
-                } else { // Handle normal data transfer (not EOF or ERROR)
-                    responseBuffer.addAll(value.toList())
-                    _downloadProgress.value = responseBuffer.size
-                    val elapsedTime = (System.currentTimeMillis() - _transferStartTime) / 1000.0f
-                    if (elapsedTime > 0) {
-                        _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
-                    }
-                    sendAck("ACK".toByteArray(Charsets.UTF_8))
-                    return null // Not finished yet
-                }
-            }
-        }
-        return null // Should not be reached
-    }
-
-    private fun sendAck(ackValue: ByteArray) {
-        repository.sendAck(ackValue)
-    }
-
-    private fun saveFile(data: ByteArray): String? {
-        val fileName = currentDownloadingFileName ?: "downloaded_file_${System.currentTimeMillis()}.bin" // Default to .bin for unknown type
-        return try {
-            if (fileName.startsWith("log.", ignoreCase = true)) {
-                // Save log files to the Downloads directory using MediaStore
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain") // Or appropriate mime type for logs
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                    }
-                }
-
-                val resolver = context.contentResolver
-                val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-
-                uri?.let {
-                    var outputStream: OutputStream? = null
-                    try {
-                        outputStream = resolver.openOutputStream(it)
-                        outputStream?.use { stream ->
-                            stream.write(data)
-                        }
-                        addLog("Log file saved successfully to Downloads: $fileName")
-                        return it.toString()
-                    } catch (e: Exception) {
-                        addLog("Error saving log file to MediaStore: ${e.message}")
-                        // If something went wrong, delete the URI from MediaStore
-                        uri.let { u -> resolver.delete(u, null, null) }
-                        throw e // Re-throw to be caught by outer catch block
-                    } finally {
-                        outputStream?.close()
-                    }
-                } ?: run {
-                    throw Exception("Failed to create new MediaStore entry for log file.")
-                }
-            } else {
-                // Save WAV files to the app-specific directory (existing logic)
-                val audioDir = context.getExternalFilesDir(audioDirName.value)
-                if (audioDir != null && !audioDir.exists()) {
-                    audioDir.mkdirs()
-                }
-                val file = File(audioDir, fileName)
-                FileOutputStream(file).use { it.write(data) }
-                addLog("File saved successfully to app-specific directory: ${file.absolutePath}")
-                return file.absolutePath
-            }
-        } catch (e: Exception) {
-            addLog("Error saving file: ${e.message}")
-            _fileTransferState.value = "Error: ${e.message}"
-            null
-        }
-    }
-
-    private suspend fun cleanupTranscriptionResultsAndAudioFiles() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        try {
-            addLog("Running transcription results and audio file cleanup...")
-            val limit = transcriptionCacheLimit.value
-            val currentTranscriptionResults = transcriptionResults.value.sortedBy { it.lastEditedTimestamp } // Oldest first
-
-            if (currentTranscriptionResults.size > limit) {
-                val resultsToDelete = currentTranscriptionResults.take(currentTranscriptionResults.size - limit)
-                addLog("Transcription cache limit ($limit) exceeded. Found ${currentTranscriptionResults.size} results. Deleting oldest ${resultsToDelete.size} results and associated audio files...")
-
-                resultsToDelete.forEach { result ->
-                    // Delete from DataStore
-                    transcriptionResultRepository.removeResult(result)
-                    addLog("Deleted transcription result: ${result.fileName}")
-
-                    // Delete associated audio file
-                    val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-                    if (audioFile.exists()) {
-                        if (audioFile.delete()) {
-                            addLog("Deleted associated audio file: ${result.fileName}")
-                        } else {
-                            addLog("Failed to delete associated audio file: ${result.fileName}")
-                        }
-                    } else {
-                        addLog("Associated audio file not found for: ${result.fileName}")
-                    }
-                }
-                addLog("Cleanup finished. Deleted ${resultsToDelete.size} transcription results and audio files.")
-            } else {
-                addLog("Transcription cache is within limit ($limit). No results or files deleted.")
-            }
-        } catch (e: Exception) {
-            addLog("Error during transcription results and audio file cleanup: ${e.message}")
-        } finally {
-            updateLocalAudioFileCount() // Ensure count is updated after cleanup
-        }
-    }
-
-
-
 
     fun startScan() {
         _logs.value = emptyList()
@@ -1249,57 +683,21 @@ class BleViewModel(
         repository.sendCommand(command)
     }
 
+    private fun sendAck(ackValue: ByteArray) {
+        repository.sendAck(ackValue)
+    }
+
     fun deleteFileOnMicrocontroller(fileName: String) {
         viewModelScope.launch {
-            if (connectionState.value != "Connected") {
-                addLog("Cannot delete file, not connected.")
-                return@launch
-            }
+            val deleteCompletion = CompletableDeferred<Boolean>()
+            currentDeleteCompletion = deleteCompletion // Set the completion for the ViewModel
 
-            bleMutex.withLock {
-                var success = false
-                try {
-                    _currentOperation.value = Operation.DELETING_FILE
-                    for (i in 0..MAX_DELETE_RETRIES) {
-                        addLog("Sending command to delete file: DEL:file:$fileName (Attempt ${i + 1}/${MAX_DELETE_RETRIES + 1})")
-
-                        val deleteCompletion = CompletableDeferred<Boolean>()
-                        currentDeleteCompletion = deleteCompletion
-
-                        sendCommand("DEL:file:$fileName")
-
-                        try {
-                            success = withTimeout(10000L) { // 10 seconds timeout for delete command
-                                deleteCompletion.await()
-                            }
-                        } catch (e: TimeoutCancellationException) {
-                            addLog("DEL:file:$fileName command timed out. Error: ${e.message}")
-                            success = false
-                        }
-
-                        if (success) {
-                            addLog("Successfully deleted file: $fileName.")
-                            // Allow some time for the device to process deletion before fetching the list
-                            delay(1000L)
-                            // fetchFileList will acquire its own lock, so we must exit this one first.
-                            // Launch a new coroutine to avoid blocking this finally block.
-                            viewModelScope.launch { fetchFileList() }
-                            updateLocalAudioFileCount() // Update count after deletion
-                            break // Exit retry loop on success
-                        } else if (i < MAX_DELETE_RETRIES) {
-                            addLog("Failed to delete file: $fileName. Retrying in ${DELETE_RETRY_DELAY_MS}ms...")
-                            delay(DELETE_RETRY_DELAY_MS)
-                        }
-                    }
-                } finally {
-                    if (!success) {
-                        addLog("Failed to delete file: $fileName after all attempts.")
-                    }
-                    _currentOperation.value = Operation.IDLE // Ensure state is IDLE after all attempts
-                    currentDeleteCompletion = null
-                    addLog("deleteFileOnMicrocontroller operation scope finished.")
-                }
-            }
+            bleFileTransferManager.deleteFileOnMicrocontroller(
+                fileName = fileName,
+                bleMutex = bleMutex,
+                currentDeleteCompletion = deleteCompletion,
+                fetchFileListCallback = { fetchFileList() } // Pass a callback to fetch file list
+            )
         }
     }
 
@@ -1311,13 +709,13 @@ class BleViewModel(
             }
 
             bleMutex.withLock {
-                if (_currentOperation.value != Operation.IDLE) {
+                if (_currentOperation.value != BleOperation.IDLE) {
                     addLog("Cannot fetch device info, another operation is in progress: ${_currentOperation.value}")
                     return@withLock
                 }
 
                 try {
-                    _currentOperation.value = Operation.FETCHING_DEVICE_INFO
+                    _currentOperation.value = BleOperation.FETCHING_DEVICE_INFO
                     responseBuffer.clear()
                     addLog("Requesting device info from device...")
 
@@ -1346,7 +744,7 @@ class BleViewModel(
                 } catch (e: Exception) {
                     addLog("An unexpected error occurred during fetchDeviceInfo: ${e.message}")
                 } finally {
-                    _currentOperation.value = Operation.IDLE
+                    _currentOperation.value = BleOperation.IDLE
                     currentCommandCompletion = null
                     addLog("fetchDeviceInfo lock released.")
                 }
@@ -1362,13 +760,13 @@ class BleViewModel(
             }
 
             bleMutex.withLock {
-                if (_currentOperation.value != Operation.IDLE) {
+                if (_currentOperation.value != BleOperation.IDLE) {
                     addLog("Cannot fetch file list, another operation is in progress: ${_currentOperation.value}")
                     return@withLock
                 }
 
                 try {
-                    _currentOperation.value = Operation.FETCHING_FILE_LIST
+                    _currentOperation.value = BleOperation.FETCHING_FILE_LIST
                     responseBuffer.clear()
                     addLog("Requesting file list from device (GET:ls:$extension)...")
 
@@ -1392,7 +790,7 @@ class BleViewModel(
                 } catch (e: Exception) {
                     addLog("An unexpected error occurred during fetchFileList: ${e.message}")
                 } finally {
-                    _currentOperation.value = Operation.IDLE
+                    _currentOperation.value = BleOperation.IDLE
                     currentCommandCompletion = null
                     addLog("fetchFileList lock released.")
                 }
@@ -1401,48 +799,23 @@ class BleViewModel(
     }
 
     fun getSettings() {
-        if (_currentOperation.value != Operation.IDLE || connectionState.value != "Connected") {
-            addLog("Cannot get settings, busy or not connected.")
-            return
-        }
-        _currentOperation.value = Operation.FETCHING_SETTINGS
-        responseBuffer.clear()
-        addLog("Requesting settings from device...")
-        sendCommand("GET:setting_ini")
+        bleSettingsManager.getSettings(connectionState.value)
     }
 
     fun applyRemoteSettings() {
-        _remoteDeviceSettings.value?.let {
-            _deviceSettings.value = it
-            addLog("Applied remote settings to local state.")
-        }
-        dismissSettingsDiff()
+        bleSettingsManager.applyRemoteSettings()
     }
 
     fun dismissSettingsDiff() {
-        _remoteDeviceSettings.value = null
-        _settingsDiff.value = null
+        bleSettingsManager.dismissSettingsDiff()
     }
 
     fun sendSettings() {
-        if (_currentOperation.value != Operation.IDLE || connectionState.value != "Connected") {
-            addLog("Cannot send settings, busy or not connected.")
-            return
-        }
-        val settings = _deviceSettings.value
-        dismissSettingsDiff()
-        _currentOperation.value = Operation.SENDING_SETTINGS
-        val iniString = settings.toIniString()
-        addLog("Sending settings to device:\n$iniString")
-        sendCommand("SET:setting_ini:$iniString")
-        viewModelScope.launch {
-            _navigationEvent.emit(NavigationEvent.NavigateBack)
-        }
+        bleSettingsManager.sendSettings(connectionState.value)
     }
 
     fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
-        dismissSettingsDiff()
-        _deviceSettings.value = updater(_deviceSettings.value)
+        bleSettingsManager.updateSettings(updater)
     }
 
     fun downloadFile(fileName: String) {
@@ -1452,55 +825,18 @@ class BleViewModel(
                 return@launch
             }
 
-            var downloadResult: Pair<Boolean, String?> = Pair(false, null)
-            bleMutex.withLock {
-                if (_currentOperation.value != Operation.IDLE) {
-                    addLog("Cannot download file '$fileName', another operation is in progress: ${_currentOperation.value}")
-                    return@withLock
-                }
+            val operationCompletion = CompletableDeferred<Pair<Boolean, String?>>()
+            currentCommandCompletion = operationCompletion // Set the completion for the ViewModel
 
-                val operationCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-                currentCommandCompletion = operationCompletion
+            // Delegate the core download logic to the BleFileTransferManager
+            // This function handles acquiring mutex, sending command, and receiving data.
+            // It will also complete 'operationCompletion' once the file is downloaded or an error occurs.
+            bleFileTransferManager.downloadFile(fileName, bleMutex, operationCompletion)
 
-                try {
-                    _currentOperation.value = Operation.DOWNLOADING_FILE
-                    _fileTransferState.value = "WaitingForStart"
-                    currentDownloadingFileName = fileName
+            // Await the result from the operationCompletion, which will be completed by
+            // BleFileTransferManager's handleCharacteristicChanged when the download is finished.
+            val (downloadSuccess, savedFilePath) = operationCompletion.await()
 
-                    val fileEntry = _fileList.value.find { it.name == fileName }
-                    val fileSize = fileEntry?.size ?: 0L
-                    _currentFileTotalSize.value = fileSize
-
-                    addLog("Requesting file: $fileName (size: $fileSize bytes)")
-                    sendCommand("GET:file:$fileName")
-
-                    // Generous timeout: 20s base + 1s per 8KB
-                    val timeout = 20000L + (fileSize / 8192L) * 1000L
-                    downloadResult = withTimeoutOrNull(timeout) {
-                        operationCompletion.await()
-                    } ?: Pair(false, null)
-
-                    if (downloadResult.first) {
-                        addLog("File download operation reported success for: $fileName.")
-                    } else {
-                         addLog("File download failed for: $fileName (or timed out)")
-                    }
-                } catch (e: Exception) {
-                    addLog("An unexpected error occurred during downloadFile: ${e.message}")
-                } finally {
-                    if (_currentOperation.value == Operation.DOWNLOADING_FILE) {
-                        _currentOperation.value = Operation.IDLE
-                    }
-                    _fileTransferState.value = "Idle"
-                    currentDownloadingFileName = null
-                    currentCommandCompletion = null
-                    resetFileTransferMetrics()
-                    addLog("downloadFile lock released for $fileName.")
-                }
-            }
-
-            // Lock is released. Now handle post-download tasks.
-            val (downloadSuccess, savedFilePath) = downloadResult
             if (downloadSuccess && savedFilePath != null) {
                 if (fileName.startsWith("log.", ignoreCase = true)) {
                     addLog("Log file '$fileName' downloaded and saved to: $savedFilePath")
@@ -1508,12 +844,13 @@ class BleViewModel(
                 } else if (fileName.endsWith(".wav", ignoreCase = true)) {
                     val file = File(savedFilePath) // Use the directly saved path
                     if (file.exists()) {
-                        transcriptionQueue.add(file.absolutePath)
+                        transcriptionManager.transcriptionQueue.add(file.absolutePath)
                         addLog("Added ${file.name} to transcription queue.")
 
-                        cleanupTranscriptionResultsAndAudioFiles()
-                        updateLocalAudioFileCount()
+                        transcriptionManager.cleanupTranscriptionResultsAndAudioFiles()
+                        transcriptionManager.updateLocalAudioFileCount()
 
+                        // This will be delegated in the next step
                         deleteFileOnMicrocontroller(fileName)
                     } else {
                         addLog("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
@@ -1540,113 +877,17 @@ class BleViewModel(
         }
     }
 
-    private suspend fun doTranscription(filePath: String) {
-        _transcriptionState.value = "Transcribing ${File(filePath).name}"
-        _transcriptionResult.value = null
-        addLog("Starting transcription for $filePath")
-
-        val currentService = speechToTextService
-        val actualFileName = File(filePath).name
-
-        var locationData: LocationData? = null
-        // Try to use pre-collected low-power location
-        locationData = _currentForegroundLocation.value
-
-        if (locationData != null) {
-            addLog("Using pre-collected location for transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
-        } else {
-            // Fallback: Get low power location on-demand if pre-collected is not available
-            addLog("Pre-collected location not available. Attempting on-demand low power location for transcription.")
-            try {
-                locationTracker.getLowPowerLocation().onSuccess {
-                    locationData = it
-                    addLog("Obtained on-demand low power location for transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-                }.onFailure { e ->
-                    addLog("Failed to get on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
-                }
-            } catch (e: SecurityException) {
-                addLog("Location permission not granted for transcription. Proceeding without location data.")
-            } catch (e: IllegalStateException) {
-                addLog("Location services are disabled for transcription. Proceeding without location data.")
-            } catch (e: Exception) {
-                addLog("Unexpected error getting on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
-            }
-        }
-
-        if (currentService == null) {
-            _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
-            addLog("Transcription failed: APIキーが設定されていません。")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", locationData)
-            // Directly await these operations
-            transcriptionResultRepository.addResult(errorResult)
-            addLog("Transcription error result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
-            return
-        }
-
-        val result = currentService.transcribeFile(filePath)
-
-        result.onSuccess { transcription ->
-            _transcriptionResult.value = transcription
-            addLog("Transcription successful for $filePath.")
-            val newResult = TranscriptionResult(actualFileName, transcription, locationData)
-            // Directly await these operations
-            transcriptionResultRepository.addResult(newResult)
-            addLog("Transcription result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
-        }.onFailure { error ->
-            val errorMessage = error.message ?: "不明なエラー"
-            val displayMessage = if (errorMessage.contains("API key authentication failed") || errorMessage.contains("API key is not set")) {
-                "文字起こしエラー: APIキーに問題がある可能性があります。設定画面をご確認ください。詳細: $errorMessage"
-            } else {
-                "文字起こしエラー: $errorMessage"
-            }
-            _transcriptionState.value = "Error: $displayMessage"
-            _transcriptionResult.value = null
-            addLog("Transcription failed for $filePath: $displayMessage")
-            val errorResult = TranscriptionResult(actualFileName, displayMessage, locationData)
-            // Directly await these operations
-            transcriptionResultRepository.addResult(errorResult)
-            addLog("Transcription error result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
-        }
-    }
-
     private fun startBatchTranscription() {
-        if (transcriptionQueue.isEmpty()) {
-            addLog("Transcription queue is empty. Nothing to do.")
-            return
-        }
-
-        viewModelScope.launch {
-            if (!transcriptionBatchMutex.tryLock()) {
-                addLog("Batch transcription already in progress. Skipping.")
-                return@launch
-            }
-            try {
-                addLog("Found ${transcriptionQueue.size} file(s) in queue. Starting batch transcription.")
-                val filesToProcess = transcriptionQueue.toList()
-                transcriptionQueue.clear()
-
-                for (filePath in filesToProcess) {
-                    doTranscription(filePath)
-                }
-                addLog("Batch transcription finished.")
-                _transcriptionState.value = "Idle" // Reset state after batch is done
-                cleanupTranscriptionResultsAndAudioFiles() // Call cleanup after batch transcription
-            } finally {
-                transcriptionBatchMutex.unlock()
-            }
-        }
+        transcriptionManager.startBatchTranscription()
     }
 
     fun resetTranscriptionState() {
-        _transcriptionState.value = "Idle"
-        _transcriptionResult.value = null
+        transcriptionManager.resetTranscriptionState()
     }
 
     override fun onCleared() {
         super.onCleared()
+        transcriptionManager.onCleared()
         lowPowerLocationJob?.cancel() // Cancel low power location updates
         repository.disconnect()
         repository.close()
@@ -1691,7 +932,7 @@ class BleViewModel(
             transcriptionResultRepository.updateResults(updatedListForRepo)
 
             addLog("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
-            updateLocalAudioFileCount() // Update count after deletions
+            transcriptionManager.updateLocalAudioFileCount() // Update count after deletions
         }
     }
 
@@ -1717,7 +958,7 @@ class BleViewModel(
                 if (audioFile.exists()) {
                     if (audioFile.delete()) {
                         addLog("Associated audio file deleted: ${result.fileName}")
-                        updateLocalAudioFileCount()
+                        transcriptionManager.updateLocalAudioFileCount()
                     } else {
                         addLog("Failed to delete associated audio file: ${result.fileName}")
                     }
@@ -1768,88 +1009,10 @@ class BleViewModel(
     }
 
     fun retranscribe(result: TranscriptionResult) {
-        viewModelScope.launch {
-            addLog("Attempting to retranscribe file: ${result.fileName}")
-
-            // 2. Get the audio file path
-            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-            if (!audioFile.exists()) {
-                addLog("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe. Item will not be removed.")
-                return@launch
-            }
-
-            addLog("Audio file found for retranscription: ${audioFile.absolutePath}")
-            // 1. Remove the old result
-            transcriptionResultRepository.removeResult(result)
-            addLog("Removed old transcription result for ${result.fileName} before re-transcribing.")
-
-            // 3. Call doTranscription with the file path
-            doTranscription(audioFile.absolutePath)
-            addLog("Initiated retranscription for ${result.fileName}.")
-        }
+        transcriptionManager.retranscribe(result)
     }
 
     fun addManualTranscription(text: String) {
-        viewModelScope.launch {
-            var locationData: LocationData? = null
-
-            // Try to use pre-collected low-power location
-            locationData = _currentForegroundLocation.value
-
-            if (locationData != null) {
-                addLog("Using pre-collected location for manual transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
-            } else {
-                // Fallback: Get low power location on-demand if pre-collected is not available
-                addLog("Pre-collected location not available. Attempting on-demand low power location for manual transcription.")
-                try {
-                    locationTracker.getLowPowerLocation().onSuccess {
-                        locationData = it
-                        addLog("Obtained on-demand low power location for manual transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-                    }.onFailure { e ->
-                        addLog("Failed to get on-demand low power location for manual transcription: ${e.message}. Proceeding without location data.")
-                    }
-                } catch (e: SecurityException) {
-                    addLog("Location permission not granted for manual transcription. Proceeding without location data.")
-                } catch (e: IllegalStateException) {
-                    addLog("Location services are disabled for manual transcription. Proceeding without location data.")
-                } catch (e: Exception) {
-                    addLog("Unexpected error getting on-demand low power location for manual transcription: ${e.message}. Proceeding without location data.")
-                }
-            }
-
-            val timestamp = System.currentTimeMillis()
-            val manualFileName = "M${com.pirorin215.fastrecmob.data.FileUtil.formatTimestampForFileName(timestamp)}.txt"
-            val newResult = TranscriptionResult(manualFileName, text, locationData)
-
-            transcriptionResultRepository.addResult(newResult)
-            addLog("Manual transcription added: $manualFileName")
-
-            cleanupTranscriptionResultsAndAudioFiles()
-        }
-    }
-
-    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(intent)
-            _account.value = task.getResult(ApiException::class.java)
-            viewModelScope.launch {
-                // TODO: Load tasks after successful sign-in
-                addLog("Google Sign-In successful for: ${_account.value?.displayName}")
-                withContext(Dispatchers.Main) { onSuccess() }
-            }
-        } catch (e: ApiException) {
-            addLog("Google Sign-In failed: ${e.statusCode} - ${e.message}")
-            onFailure(e)
-        }
-    }
-
-    fun signOut() {
-        googleSignInClient.signOut().addOnCompleteListener {
-            _account.value = null
-            // _todoItems.value = emptyList() // No _todoItems here, clear transcription results instead
-            // TODO: Clear google task specific fields from transcription results
-            taskListId = null
-            addLog("Signed out from Google Tasks.")
-        }
+        transcriptionManager.addManualTranscription(text)
     }
 }

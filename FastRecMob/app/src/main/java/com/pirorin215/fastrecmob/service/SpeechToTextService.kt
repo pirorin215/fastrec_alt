@@ -83,24 +83,27 @@ class SpeechToTextService(private val apiKey: String) {
                     .setAudio(audio)
                     .build()
 
-                val response = getClient().recognize(request)
+                var client: SpeechClient? = null
+                try {
+                    client = getClient()
+                    val response = client.recognize(request)
 
-                val transcription = response.resultsList.joinToString("\n") { result ->
-                    result.alternativesList.firstOrNull()?.transcript ?: ""
-                }
+                    val transcription = response.resultsList.joinToString("\n") { result ->
+                        result.alternativesList.firstOrNull()?.transcript ?: ""
+                    }
 
-                if (transcription.isNotBlank()) {
-                    Result.success(transcription)
-                } else {
-                    Result.failure(Exception("Transcription result is empty."))
+                    if (transcription.isNotBlank()) {
+                        Result.success(transcription)
+                    } else {
+                        Result.failure(Exception("Transcription result is empty."))
+                    }
+                } finally {
+                    client?.shutdown()
                 }
 
             } catch (e: Exception) {
                 e.printStackTrace()
                 Result.failure(e)
-            } finally {
-                // ensure the client is shut down after use
-                getClient().shutdown()
             }
         }
     }

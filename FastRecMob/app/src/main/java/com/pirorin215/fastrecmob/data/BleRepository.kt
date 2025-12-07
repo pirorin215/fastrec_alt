@@ -152,7 +152,7 @@ class BleRepository(private val context: Context) {
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             // Pass the raw data up to the ViewModel to handle
-            Log.d(TAG, "Characteristic ${characteristic.uuid} changed, value: ${value.toString(Charsets.UTF_8)}")
+            // Log.d(TAG, "Characteristic ${characteristic.uuid} changed, value: ${value.toString(Charsets.UTF_8)}")
             repositoryScope.launch {
                 _events.emit(BleEvent.CharacteristicChanged(characteristic, value))
             }

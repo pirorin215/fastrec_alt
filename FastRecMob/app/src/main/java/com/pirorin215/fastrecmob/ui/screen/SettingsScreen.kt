@@ -18,7 +18,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pirorin215.fastrecmob.data.DeviceSettings
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
-import com.pirorin215.fastrecmob.viewModel.BleViewModel.Operation
+import com.pirorin215.fastrecmob.viewModel.BleOperation
 import com.pirorin215.fastrecmob.viewModel.NavigationEvent
 
 import androidx.activity.compose.BackHandler
@@ -67,7 +67,7 @@ fun SettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
         }
     ) { paddingValues ->
         Column(modifier = Modifier.padding(paddingValues)) {
-            if (operation == Operation.FETCHING_SETTINGS && settings == null) {
+            if (operation == BleOperation.FETCHING_SETTINGS && settings == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
