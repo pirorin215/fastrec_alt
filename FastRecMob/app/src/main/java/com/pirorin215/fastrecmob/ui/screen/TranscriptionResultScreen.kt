@@ -8,12 +8,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import android.content.Intent // Add this import
 import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel // Add this import
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit) {
+fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, onBack: () -> Unit, onSignInClick: (Intent) -> Unit) {
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
     val isSelectionMode = selectedFileNames.isNotEmpty()
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -48,7 +49,7 @@ fun TranscriptionResultScreen(viewModel: BleViewModel, appSettingsViewModel: App
             )
         }
     ) { paddingValues ->
-        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.padding(paddingValues))
+        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.padding(paddingValues), onSignInClick = onSignInClick)
     }
 
     if (showDeleteConfirmDialog) {

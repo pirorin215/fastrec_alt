@@ -11,6 +11,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.app.Activity // Add this import
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -47,6 +48,7 @@ import com.pirorin215.fastrecmob.data.parseFileEntries
 import com.pirorin215.fastrecmob.ui.screen.SettingsScreen
 import com.pirorin215.fastrecmob.ui.screen.LogDownloadScreen
 import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultPanel
+import com.pirorin215.fastrecmob.ui.screen.TranscriptionResultScreen // Add this import
 import com.pirorin215.fastrecmob.ui.screen.LastKnownLocationScreen
 import com.pirorin215.fastrecmob.ui.screen.TodoScreen
 
@@ -83,8 +85,8 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val appSettingsRepository = AppSettingsRepository(context.applicationContext as Application)
             val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
-            val viewModelFactory = BleViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application)
-            val viewModel: BleViewModel = viewModel(factory = viewModelFactory)
+            val bleViewModelFactory = BleViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application)
+            val bleViewModel: BleViewModel = viewModel(factory = bleViewModelFactory)
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
@@ -92,10 +94,22 @@ class MainActivity : ComponentActivity() {
             val todoViewModelFactory = TodoViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val todoViewModel: TodoViewModel = viewModel(factory = todoViewModelFactory)
 
-            val themeMode by viewModel.themeMode.collectAsState()
+            val themeMode by bleViewModel.themeMode.collectAsState()
+
+            val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                if (result.resultCode == Activity.RESULT_OK) {
+                    val intent = result.data ?: return@rememberLauncherForActivityResult
+                    bleViewModel.handleSignInResult(intent,
+                        onSuccess = { Toast.makeText(context, "Google Sign-In Success!", Toast.LENGTH_SHORT).show() },
+                        onFailure = { e -> Toast.makeText(context, "Google Sign-In Failed: ${e.message}", Toast.LENGTH_LONG).show() }
+                    )
+                } else {
+                    Toast.makeText(context, "Google Sign-In Cancelled.", Toast.LENGTH_SHORT).show()
+                }
+            }
 
             FastRecMobTheme(themeMode = themeMode) {
-                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel)
+                BleApp(modifier = Modifier.fillMaxSize(), appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel, onSignInClick = { signInIntent -> googleSignInLauncher.launch(signInIntent) })
             }
         }
     }
@@ -111,7 +125,7 @@ class MainActivity : ComponentActivity() {
 private const val TAG = "BleApp"
 
 @Composable
-fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel) {
+fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel, onSignInClick: (Intent) -> Unit) {
     val context = LocalContext.current
     val activity = (LocalContext.current as? ComponentActivity)
 
@@ -154,13 +168,13 @@ fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewM
     }
 
     // Always show BleControl as permissionsGranted is true
-    BleControl(appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel)
+    BleControl(appSettingsViewModel = appSettingsViewModel, todoViewModel = todoViewModel, onSignInClick = onSignInClick)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @SuppressLint("MissingPermission")
 @Composable
-fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel) {
+fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoViewModel, onSignInClick: (Intent) -> Unit) {
     val context = LocalContext.current
     val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
     val connectionState by viewModel.connectionState.collectAsState()
@@ -186,9 +200,20 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
     var showLastKnownLocationScreen by remember { mutableStateOf(false) } // New state for LastKnownLocationScreen visibility
     var showAppLogPanel by remember { mutableStateOf(false) } // New state for AppLogCard visibility
 
-
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val intent = result.data ?: return@rememberLauncherForActivityResult
+            viewModel.handleSignInResult(intent,
+                onSuccess = { Toast.makeText(context, "Google Sign-In Success!", Toast.LENGTH_SHORT).show() },
+                onFailure = { e -> Toast.makeText(context, "Google Sign-In Failed: ${e.message}", Toast.LENGTH_LONG).show() }
+            )
+        } else {
+            Toast.makeText(context, "Google Sign-In Cancelled.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_DEVICE_INFO
     val pullRefreshState = rememberPullRefreshState(
@@ -247,7 +272,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
                 onBack = { showTodoScreen = false }
             )
         }
-                else -> {
+        else -> {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -364,7 +389,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, todoViewModel: TodoVi
                             onDownloadClick = { viewModel.downloadFile(it) }
                         )
                         // TranscriptionResultPanel now takes flexible space
-                        TranscriptionResultPanel(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, modifier = Modifier.weight(1f))
+                        TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { /* Handled by Scaffold's navigationIcon */ }, onSignInClick = onSignInClick)
                     }
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {
@@ -616,7 +641,7 @@ class BleViewModelFactory(
         if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
             val transcriptionResultRepository = TranscriptionResultRepository(application)
             @Suppress("UNCHECKED_CAST")
-            return BleViewModel(appSettingsRepository, transcriptionResultRepository, lastKnownLocationRepository, application) as T
+            return BleViewModel(application, appSettingsRepository, transcriptionResultRepository, lastKnownLocationRepository, application) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

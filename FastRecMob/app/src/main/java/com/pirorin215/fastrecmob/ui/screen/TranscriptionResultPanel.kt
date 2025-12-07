@@ -13,8 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import android.content.Intent // Add this import
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,7 +35,7 @@ import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier) {
+fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier, onSignInClick: (Intent) -> Unit) {
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
@@ -131,13 +133,15 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
+                    .height(64.dp) // Fixed height
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val isSelectionMode = selectedFileNames.isNotEmpty()
                 val transcriptionCount by viewModel.transcriptionCount.collectAsState()
                 val audioFileCount by viewModel.audioFileCount.collectAsState()
+                val googleAccount by viewModel.account.collectAsState()
+                val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
 
                 Text(
                     "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
@@ -153,6 +157,42 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                 IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
                     Icon(Icons.Default.Close, contentDescription = "Clear Selection")
                 }
+
+                IconButton(
+                    onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() },
+                    enabled = googleAccount != null && !isLoadingGoogleTasks
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = "Sync with Google Tasks")
+                }
+
+                // Google Sign-In/Out Button
+                if (googleAccount == null) {
+                    Button(
+                        onClick = { onSignInClick(viewModel.googleSignInClient.signInIntent) },
+                        modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                    ) {
+                        Text("Sign In (Google Tasks)")
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                    ) {
+                        Text(
+                            "Signed in as ${googleAccount?.displayName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Button(
+                            onClick = { viewModel.signOut() },
+                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                        ) {
+                            Text("Sign Out")
+                        }
+                    }
+                }
+                
                 var showSortModeMenu by remember { mutableStateOf(false) }
                 IconButton(onClick = { showSortModeMenu = true }) {
                     val icon = when (sortMode) {

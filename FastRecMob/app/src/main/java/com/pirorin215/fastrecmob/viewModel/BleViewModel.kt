@@ -1,5 +1,11 @@
 package com.pirorin215.fastrecmob.viewModel
 
+import com.pirorin215.fastrecmob.data.TaskListsResponse
+import com.pirorin215.fastrecmob.data.TaskList
+import com.pirorin215.fastrecmob.data.TasksResponse
+import com.pirorin215.fastrecmob.data.Task
+
+
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -22,6 +28,8 @@ import java.io.OutputStream
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.app.Application // Add this import
+import android.content.Intent // Add this import
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
@@ -33,9 +41,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.serializer // Add this import
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
+import java.io.BufferedReader // Add this import
+import java.io.InputStreamReader // Add this import
+import java.io.OutputStreamWriter // Add this import
+import java.net.HttpURLConnection // Add this import
+import java.net.URL // Add this import
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred // Add this import
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -51,6 +65,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+
+import kotlinx.coroutines.Dispatchers // Add this import
+import kotlinx.coroutines.withContext // Add this import
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
@@ -59,6 +76,13 @@ import com.pirorin215.fastrecmob.LocationData
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import com.pirorin215.fastrecmob.service.SpeechToTextService
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 
 sealed class NavigationEvent {
     object NavigateBack : NavigationEvent()
@@ -67,6 +91,7 @@ sealed class NavigationEvent {
 
 @SuppressLint("MissingPermission")
 class BleViewModel(
+    private val application: Application, // Add Application context for Google Sign-In
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
     private val lastKnownLocationRepository: LastKnownLocationRepository, // Add this
@@ -101,8 +126,6 @@ class BleViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = 30 // Provide a default
         )
-
-
 
     val transcriptionCacheLimit: StateFlow<Int> = appSettingsRepository.transcriptionCacheLimitFlow
         .stateIn(
@@ -180,8 +203,6 @@ class BleViewModel(
         }
     }
 
-
-
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val locationTracker = com.pirorin215.fastrecmob.LocationTracker(context) // Add this
     private var speechToTextService: SpeechToTextService? = null // Change to nullable var
@@ -240,6 +261,20 @@ class BleViewModel(
 
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
+
+    // --- Google Tasks Integration Properties ---
+    private val _account = MutableStateFlow<GoogleSignInAccount?>(null)
+    val account: StateFlow<GoogleSignInAccount?> = _account.asStateFlow()
+
+    private val _isLoadingGoogleTasks = MutableStateFlow(false)
+    val isLoadingGoogleTasks: StateFlow<Boolean> = _isLoadingGoogleTasks.asStateFlow()
+
+    val googleSignInClient: GoogleSignInClient
+
+    private var taskListId: String? = null
+    private val tasksScope = "https://www.googleapis.com/auth/tasks"
+    // --- End Google Tasks Integration Properties ---
+
 
     // --- New properties for pre-collected location ---
     private val _currentForegroundLocation = MutableStateFlow<LocationData?>(null)
@@ -410,6 +445,28 @@ class BleViewModel(
             }.launchIn(this)
         }
         updateLocalAudioFileCount() // Initial call to update count
+
+        // --- Google Tasks Initialization ---
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(tasksScope))
+            .build()
+        googleSignInClient = GoogleSignIn.getClient(application, gso)
+
+        viewModelScope.launch {
+            _account.value = GoogleSignIn.getLastSignedInAccount(application)
+            if (_account.value != null) {
+                // TODO: Load tasks when signed in (will be implemented in loadGoogleTasks)
+                addLog("Signed in to Google Tasks: ${_account.value?.displayName}")
+            }
+
+            // Observe changes to the Google Todo list name and clear the cached taskListId
+            appSettingsRepository.googleTodoListNameFlow.collect {
+                taskListId = null // Clear cached taskListId so it's re-fetched
+                addLog("Google Todo list name changed. Cleared cached taskListId.")
+            }
+        }
+        // --- End Google Tasks Initialization ---
     }
 
     private fun startAutoRefresh() {
@@ -476,6 +533,268 @@ class BleViewModel(
     private fun addLog(message: String) {
         Log.d(TAG, message)
         _logs.value = (_logs.value + message).takeLast(100)
+    }
+
+    private suspend fun makeApiRequest(urlString: String, method: String = "GET", body: String? = null): String = withContext(Dispatchers.IO) {
+        val account = _account.value ?: throw IllegalStateException("User not signed in for Google Tasks API.")
+        val token = GoogleAuthUtil.getToken(application, account.account!!, "oauth2:$tasksScope")
+
+        val url = URL(urlString)
+        (url.openConnection() as HttpURLConnection).run {
+            try {
+                requestMethod = method
+                setRequestProperty("Authorization", "Bearer $token")
+                if (method == "POST" || method == "PUT" || method == "PATCH") {
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                if (body != null && (method == "POST" || method == "PUT" || method == "PATCH")) {
+                    doOutput = true
+                    OutputStreamWriter(outputStream).use { it.write(body) }
+                }
+
+                val responseCode = responseCode
+                if (responseCode in 200..299) {
+                    // For DELETE, there might be no content
+                    if (responseCode == 204) "" else BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
+                } else {
+                    val error = BufferedReader(InputStreamReader(errorStream)).use { it.readText() }
+                    throw Exception("HTTP Error: $responseCode - $error")
+                }
+            } finally {
+                disconnect()
+            }
+        }
+    }
+
+    private suspend fun getTaskListId(): String? {
+        if (taskListId != null) return taskListId
+
+        val listName = appSettingsRepository.googleTodoListNameFlow.first()
+        if (listName.isBlank()) {
+             addLog("Google Todo List Name is blank. Using '@default'.")
+             taskListId = "@default" // Cache the default
+             return "@default"
+        }
+        return try {
+            val url = "https://www.googleapis.com/tasks/v1/users/@me/lists"
+            val response = makeApiRequest(url)
+            val taskListsResponse = Json { ignoreUnknownKeys = true }.decodeFromString<TaskListsResponse>(response)
+            val foundList = taskListsResponse.items.find { it.title == listName }
+            taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
+            taskListId
+        } catch (e: Exception) {
+            addLog("Error getting task lists: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun addGoogleTask(title: String, notes: String?, isCompleted: Boolean): Task? {
+        if (_account.value == null || title.isBlank()) return null
+        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
+        val status = if (isCompleted) "completed" else "needsAction"
+        val taskJson = Json { ignoreUnknownKeys = true }.encodeToString(Task.serializer(), Task(title = title, notes = notes, status = status))
+        return try {
+            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks", method = "POST", body = taskJson)
+            addLog("Added new Google Task: $title")
+            Json { ignoreUnknownKeys = true }.decodeFromString<Task>(response)
+        } catch (e: Exception) {
+            addLog("Error adding Google Task '$title': ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun updateGoogleTask(taskId: String, title: String, notes: String?, isCompleted: Boolean): Task? {
+        if (_account.value == null || taskId.isBlank()) return null
+        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
+        val status = if (isCompleted) "completed" else "needsAction"
+        val taskJson = Json { ignoreUnknownKeys = true }.encodeToString(Task.serializer(), Task(id = taskId, title = title, notes = notes, status = status))
+        return try {
+            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "PATCH", body = taskJson)
+            addLog("Updated Google Task: $title (ID: $taskId)")
+            Json { ignoreUnknownKeys = true }.decodeFromString<Task>(response)
+        } catch (e: Exception) {
+            addLog("Error updating Google Task '$title' (ID: $taskId): ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun deleteGoogleTask(taskId: String) {
+        if (_account.value == null || taskId.isBlank()) return
+        val currentTaskListId = taskListId ?: getTaskListId() ?: return
+        try {
+            makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "DELETE")
+            addLog("Deleted Google Task ID: $taskId")
+        } catch (e: Exception) {
+            addLog("Error deleting Google Task ID '$taskId': ${e.message}")
+        }
+    }
+
+    private suspend fun loadGoogleTasks(): List<Task> {
+        if (_account.value == null) {
+            addLog("Not signed in to Google. Cannot load tasks.")
+            return emptyList()
+        }
+        _isLoadingGoogleTasks.value = true
+        try {
+            val currentTaskListId = taskListId ?: getTaskListId()
+            if (currentTaskListId == null) {
+                addLog("No Google task list found. Cannot load tasks.")
+                return emptyList()
+            }
+
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
+            val response = makeApiRequest(url)
+
+            val tasksResponse = Json { ignoreUnknownKeys = true }.decodeFromString<TasksResponse>(response)
+            return tasksResponse.items ?: emptyList()
+
+        } catch (e: Exception) {
+            addLog("Error loading Google tasks: ${e.message}")
+            return emptyList()
+        } finally {
+            _isLoadingGoogleTasks.value = false
+        }
+    }
+
+    // New sync function
+    fun syncTranscriptionResultsWithGoogleTasks() = viewModelScope.launch {
+        if (_account.value == null) {
+            addLog("Not signed in to Google. Cannot sync tasks.")
+            return@launch
+        }
+        _isLoadingGoogleTasks.value = true
+        addLog("Starting Google Tasks synchronization...")
+
+        try {
+            val localTranscriptionResults = transcriptionResults.value // Flow, so get current value
+            val googleTasks = loadGoogleTasks()
+
+            // Map for efficient lookup
+            val localMap: MutableMap<String, TranscriptionResult> =
+                localTranscriptionResults.associateBy { it.googleTaskId ?: it.fileName }.toMutableMap() // Use fileName if no googleTaskId
+            val googleMap: Map<String, Task> = googleTasks.associateBy { it.id!! } // Assume ID is never null for fetched tasks
+
+            val updatedTranscriptionResults = mutableListOf<TranscriptionResult>()
+
+            // --- Phase 1: Reconcile local results with Google Tasks ---
+            for (localResult in localTranscriptionResults) {
+                if (localResult.googleTaskId == null || !localResult.isSyncedWithGoogleTasks) {
+                    // Case 1: New local result or not yet synced. Add to Google Tasks.
+                    val addedTask = addGoogleTask(
+                        title = localResult.transcription,
+                        notes = localResult.locationData?.let { "Location: Lat=${it.latitude}, Lng=${it.longitude}" },
+                        isCompleted = localResult.isCompleted
+                    )
+                    if (addedTask != null && addedTask.id != null) {
+                        updatedTranscriptionResults.add(
+                            localResult.copy(
+                                googleTaskId = addedTask.id,
+                                googleTaskNotes = addedTask.notes,
+                                googleTaskUpdated = addedTask.updated,
+                                googleTaskPosition = addedTask.position,
+                                googleTaskDue = addedTask.due,
+                                googleTaskWebViewLink = addedTask.webViewLink,
+                                isCompleted = (addedTask.status == "completed"),
+                                isSyncedWithGoogleTasks = true
+                            )
+                        )
+                        addLog("Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
+                    } else {
+                        addLog("Failed to add local result '${localResult.fileName}' to Google Tasks.")
+                        updatedTranscriptionResults.add(localResult) // Keep original if failed to sync
+                    }
+                } else {
+                    // Case 2: Existing synced local result. Check for updates/deletions on Google.
+                    val correspondingGoogleTask = googleMap[localResult.googleTaskId]
+                    if (correspondingGoogleTask == null) {
+                        // Corresponding Google Task deleted. Delete local result.
+                        // For now, we'll just log and keep local. Full deletion logic will be complex.
+                        addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Keeping local for now.")
+                        updatedTranscriptionResults.add(localResult.copy(isSyncedWithGoogleTasks = false)) // Mark as unsynced
+                    } else {
+                        // Compare and update if local is newer or needs to be updated based on other criteria
+                        // (e.g., if transcription changed locally, update Google)
+                        val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
+                        val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
+
+                        if (localTranscriptionChanged || localCompletionChanged) {
+                            addLog("Local result '${localResult.fileName}' changed. Updating Google Task '${localResult.googleTaskId}'.")
+                            val updatedTask = updateGoogleTask(
+                                taskId = localResult.googleTaskId,
+                                title = localResult.transcription,
+                                notes = localResult.locationData?.let { "Location: Lat=${it.latitude}, Lng=${it.longitude}" } ?: correspondingGoogleTask.notes,
+                                isCompleted = localResult.isCompleted
+                            )
+                            if (updatedTask != null) {
+                                updatedTranscriptionResults.add(
+                                    localResult.copy(
+                                        googleTaskNotes = updatedTask.notes,
+                                        googleTaskUpdated = updatedTask.updated,
+                                        googleTaskPosition = updatedTask.position,
+                                        googleTaskDue = updatedTask.due,
+                                        googleTaskWebViewLink = updatedTask.webViewLink,
+                                        isCompleted = (updatedTask.status == "completed"),
+                                        isSyncedWithGoogleTasks = true
+                                    )
+                                )
+                            } else {
+                                addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
+                                updatedTranscriptionResults.add(localResult)
+                            }
+                        } else {
+                            // No local changes, but Google Task might have been updated.
+                            // Update local result with potentially newer Google Tasks data
+                            updatedTranscriptionResults.add(
+                                localResult.copy(
+                                    googleTaskNotes = correspondingGoogleTask.notes,
+                                    googleTaskUpdated = correspondingGoogleTask.updated,
+                                    googleTaskPosition = correspondingGoogleTask.position,
+                                    googleTaskDue = correspondingGoogleTask.due,
+                                    googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
+                                    isCompleted = (correspondingGoogleTask.status == "completed"),
+                                    isSyncedWithGoogleTasks = true
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // --- Phase 2: Reconcile Google Tasks with local results (for new Google Tasks) ---
+            for (googleTask in googleTasks) {
+                if (!localMap.any { (_, localRes) -> localRes.googleTaskId == googleTask.id }) {
+                    // Case 3: New Google Task. Add to local results.
+                    addLog("New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
+                    val newLocalResult = TranscriptionResult(
+                        fileName = "GT_${googleTask.id}_${System.currentTimeMillis()}.txt", // Generate a unique file name
+                        transcription = googleTask.title ?: "",
+                        lastEditedTimestamp = System.currentTimeMillis(),
+                        locationData = null, // Google Tasks doesn't have native location, needs parsing from notes if desired
+                        googleTaskId = googleTask.id,
+                        isCompleted = (googleTask.status == "completed"),
+                        googleTaskNotes = googleTask.notes,
+                        googleTaskUpdated = googleTask.updated,
+                        googleTaskPosition = googleTask.position,
+                        googleTaskDue = googleTask.due,
+                        googleTaskWebViewLink = googleTask.webViewLink,
+                        isSyncedWithGoogleTasks = true
+                    )
+                    updatedTranscriptionResults.add(newLocalResult)
+                }
+                // Existing Google Tasks that correspond to local results are handled in Phase 1 for updates
+            }
+
+            // Update the TranscriptionResultRepository with the reconciled list
+            transcriptionResultRepository.updateResults(updatedTranscriptionResults.distinctBy { it.fileName })
+
+            addLog("Google Tasks synchronization completed.")
+
+        } catch (e: Exception) {
+            addLog("Error during Google Tasks synchronization: ${e.message}")
+        } finally {
+            _isLoadingGoogleTasks.value = false
+        }
     }
 
     private fun resetOperationStates() {
@@ -1412,6 +1731,31 @@ class BleViewModel(
             addLog("Manual transcription added: $manualFileName")
 
             cleanupTranscriptionResultsAndAudioFiles()
+        }
+    }
+
+    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(intent)
+            _account.value = task.getResult(ApiException::class.java)
+            viewModelScope.launch {
+                // TODO: Load tasks after successful sign-in
+                addLog("Google Sign-In successful for: ${_account.value?.displayName}")
+                withContext(Dispatchers.Main) { onSuccess() }
+            }
+        } catch (e: ApiException) {
+            addLog("Google Sign-In failed: ${e.statusCode} - ${e.message}")
+            onFailure(e)
+        }
+    }
+
+    fun signOut() {
+        googleSignInClient.signOut().addOnCompleteListener {
+            _account.value = null
+            // _todoItems.value = emptyList() // No _todoItems here, clear transcription results instead
+            // TODO: Clear google task specific fields from transcription results
+            taskListId = null
+            addLog("Signed out from Google Tasks.")
         }
     }
 }

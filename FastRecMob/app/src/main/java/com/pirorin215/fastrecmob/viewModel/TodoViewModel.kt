@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -32,28 +31,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import kotlinx.coroutines.flow.first
-
-// Data classes for JSON parsing
-@Serializable
-data class TaskListsResponse(val items: List<TaskList> = emptyList())
-
-@Serializable
-data class TaskList(val id: String, val title: String)
-
-@Serializable
-data class TasksResponse(val items: List<Task>? = null)
-
-@Serializable
-data class Task(
-    val id: String? = null,
-    val title: String? = null,
-    val status: String? = null,
-    val notes: String? = null,
-    val updated: String? = null, // RFC 3339 timestamp
-    val position: String? = null,
-    val due: String? = null, // RFC 3339 timestamp
-    val webViewLink: String? = null
-)
+import com.pirorin215.fastrecmob.data.TaskListsResponse
+import com.pirorin215.fastrecmob.data.TaskList
+import com.pirorin215.fastrecmob.data.TasksResponse
+import com.pirorin215.fastrecmob.data.Task
 
 class TodoViewModel(
     application: Application,
