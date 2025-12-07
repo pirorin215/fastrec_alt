@@ -84,171 +84,172 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (localItems.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("no data")
-            }
-        } else {
-            LazyColumn(
-                state = reorderableState.listState,
+        Column(modifier = Modifier.fillMaxSize()) {
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (sortMode == SortMode.CUSTOM) {
-                            Modifier
-                                .reorderable(reorderableState)
-                                .detectReorderAfterLongPress(reorderableState)
-                        } else {
-                            Modifier
-                        }
-                    )
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
-                items(items = localItems, key = { it.fileName }) { result ->
-                    ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
-                        val elevation = if (isDragging) 12.dp else 0.dp
-                        Surface(shadowElevation = elevation) {
-                            TranscriptionResultItem(
-                                result = result,
-                                fontSize = fontSize,
-                                isSelected = selectedFileNames.contains(result.fileName),
-                                isDragging = isDragging,
-                                onItemClick = { clickedItem -> if (!isDragging) selectedResultForDetail = clickedItem },
-                                onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
-                                sortMode = sortMode
-                            )
-                        }
-                    }
-                    Divider()
-                }
-            }
-        }
-
-        Card(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val isSelectionMode = selectedFileNames.isNotEmpty()
-                val transcriptionCount by viewModel.transcriptionCount.collectAsState()
-                val audioFileCount by viewModel.audioFileCount.collectAsState()
-                val googleAccount by viewModel.account.collectAsState()
-                val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
-
-                Text(
-                    "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
-                )
-
-                IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
-                    Icon(Icons.Filled.Add, "手動で文字起こしを追加")
-                }
-
-                IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear Selection")
-                }
-
-                IconButton(
-                    onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() },
-                    enabled = googleAccount != null && !isLoadingGoogleTasks
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Sync, contentDescription = "Sync with Google Tasks")
-                }
+                    val isSelectionMode = selectedFileNames.isNotEmpty()
+                    val transcriptionCount by viewModel.transcriptionCount.collectAsState()
+                    val audioFileCount by viewModel.audioFileCount.collectAsState()
+                    val googleAccount by viewModel.account.collectAsState()
+                    val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
 
-                // Google Sign-In/Out Button
-                if (googleAccount == null) {
-                    Button(
-                        onClick = { onSignInClick(viewModel.googleSignInClient.signInIntent) },
-                        modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                    ) {
-                        Text("Sign In (Google Tasks)")
+                    Text(
+                        "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
+                        Icon(Icons.Filled.Add, "手動で文字起こしを追加")
                     }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+
+                    IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() },
+                        enabled = googleAccount != null && !isLoadingGoogleTasks
                     ) {
-                        Text(
-                            "${googleAccount?.displayName}",
-                            style = MaterialTheme.typography.labelSmall,
+                        Icon(Icons.Default.Sync, contentDescription = "Sync with Google Tasks")
+                    }
+
+                    // Google Sign-In/Out Button
+                    if (googleAccount == null) {
+                        Button(
+                            onClick = { onSignInClick(viewModel.googleSignInClient.signInIntent) },
                             modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        IconButton(onClick = { viewModel.signOut() }) {
-                            Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                        ) {
+                            Text("Sign In (Google Tasks)")
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                        ) {
+                            Text(
+                                "${googleAccount?.displayName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.wrapContentHeight() // Add wrapContentHeight
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(onClick = { viewModel.signOut() }) {
+                                Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                            }
                         }
                     }
-                }
-                
-                var showSortModeMenu by remember { mutableStateOf(false) }
-                IconButton(onClick = { showSortModeMenu = true }) {
-                    val icon = when (sortMode) {
-                        SortMode.CUSTOM -> Icons.Default.SwapVert
-                        SortMode.TIMESTAMP -> Icons.Default.History
-                        SortMode.CREATION_TIME -> Icons.Default.Schedule
+                    
+                    var showSortModeMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showSortModeMenu = true }) {
+                        val icon = when (sortMode) {
+                            SortMode.CUSTOM -> Icons.Default.SwapVert
+                            SortMode.TIMESTAMP -> Icons.Default.History
+                            SortMode.CREATION_TIME -> Icons.Default.Schedule
+                        }
+                        Icon(icon, contentDescription = "Sort Mode")
                     }
-                    Icon(icon, contentDescription = "Sort Mode")
-                }
-                DropdownMenu(
-                    expanded = showSortModeMenu,
-                    onDismissRequest = { showSortModeMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("編集時刻順") },
-                        onClick = {
-                            appSettingsViewModel.saveSortMode(SortMode.TIMESTAMP)
-                            scope.launch {
-                                reorderableState.listState.animateScrollToItem(0)
-                            }
-                            showSortModeMenu = false
-                        },
-                        leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
-                        trailingIcon = { if (sortMode == SortMode.TIMESTAMP) Icon(Icons.Default.Check, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("作成時刻順") },
-                        onClick = {
-                            appSettingsViewModel.saveSortMode(SortMode.CREATION_TIME)
-                            scope.launch {
-                                reorderableState.listState.animateScrollToItem(0)
-                            }
-                            showSortModeMenu = false
-                        },
-                        leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) },
-                        trailingIcon = { if (sortMode == SortMode.CREATION_TIME) Icon(Icons.Default.Check, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("カスタム順") },
-                        onClick = {
-                            appSettingsViewModel.saveSortMode(SortMode.CUSTOM)
-                            scope.launch {
-                                reorderableState.listState.animateScrollToItem(0)
-                            }
-                            showSortModeMenu = false
-                        },
-                        leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
-                        trailingIcon = { if (sortMode == SortMode.CUSTOM) Icon(Icons.Default.Check, contentDescription = null) }
-                    )
-                }
-                IconButton(onClick = {
-                    if (isSelectionMode) {
-                        showDeleteSelectedConfirmDialog = true
-                    } else {
-                        showDeleteAllConfirmDialog = true
+                    DropdownMenu(
+                        expanded = showSortModeMenu,
+                        onDismissRequest = { showSortModeMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("編集時刻順") },
+                            onClick = {
+                                appSettingsViewModel.saveSortMode(SortMode.TIMESTAMP)
+                                scope.launch {
+                                    reorderableState.listState.animateScrollToItem(0)
+                                }
+                                showSortModeMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
+                            trailingIcon = { if (sortMode == SortMode.TIMESTAMP) Icon(Icons.Default.Check, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("作成時刻順") },
+                            onClick = {
+                                appSettingsViewModel.saveSortMode(SortMode.CREATION_TIME)
+                                scope.launch {
+                                    reorderableState.listState.animateScrollToItem(0)
+                                }
+                                showSortModeMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) },
+                            trailingIcon = { if (sortMode == SortMode.CREATION_TIME) Icon(Icons.Default.Check, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("カスタム順") },
+                            onClick = {
+                                appSettingsViewModel.saveSortMode(SortMode.CUSTOM)
+                                scope.launch {
+                                    reorderableState.listState.animateScrollToItem(0)
+                                }
+                                showSortModeMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
+                            trailingIcon = { if (sortMode == SortMode.CUSTOM) Icon(Icons.Default.Check, contentDescription = null) }
+                        )
                     }
-                }) {
-                    Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
+                    IconButton(onClick = {
+                        if (isSelectionMode) {
+                            showDeleteSelectedConfirmDialog = true
+                        } else {
+                            showDeleteAllConfirmDialog = true
+                        }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
+                    }
                 }
             }
-        }
-
+            Spacer(modifier = Modifier.height(8.dp)) // Add this Spacer for separation
+            if (localItems.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("no data")
+                }
+            } else {
+                LazyColumn(
+                    state = reorderableState.listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (sortMode == SortMode.CUSTOM) {
+                                Modifier
+                                    .reorderable(reorderableState)
+                                    .detectReorderAfterLongPress(reorderableState)
+                            } else {
+                                Modifier
+                            }
+                        )
+                ) {
+                    items(items = localItems, key = { it.fileName }) { result ->
+                        ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
+                            val elevation = if (isDragging) 12.dp else 0.dp
+                            Surface(shadowElevation = elevation) {
+                                TranscriptionResultItem(
+                                    result = result,
+                                    fontSize = fontSize,
+                                    isSelected = selectedFileNames.contains(result.fileName),
+                                    isDragging = isDragging,
+                                    onItemClick = { clickedItem -> if (!isDragging) selectedResultForDetail = clickedItem },
+                                    onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
+                                    sortMode = sortMode
+                                )
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+    }
         selectedResultForDetail?.let { result ->
             TranscriptionDetailBottomSheet(
                 result = result,
