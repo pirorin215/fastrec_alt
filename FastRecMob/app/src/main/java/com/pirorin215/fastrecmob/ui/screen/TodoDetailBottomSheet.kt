@@ -57,6 +57,14 @@ fun TodoDetailBottomSheet(
                     Text("Notes: ${todoItem!!.notes}", style = MaterialTheme.typography.bodyLarge)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
+                if (!todoItem!!.due.isNullOrBlank()) {
+                    Text("Due Date: ${todoItem!!.due}", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (!todoItem!!.webViewLink.isNullOrBlank()) {
+                    Text("Link: ${todoItem!!.webViewLink}", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Text("Completed: ${if (todoItem!!.isCompleted.value) "Yes" else "No"}", style = MaterialTheme.typography.bodyLarge)
                 Spacer(modifier = Modifier.height(8.dp))
                 if (!todoItem!!.updated.isNullOrBlank()) {

@@ -50,7 +50,9 @@ data class Task(
     val status: String? = null,
     val notes: String? = null,
     val updated: String? = null, // RFC 3339 timestamp
-    val position: String? = null
+    val position: String? = null,
+    val due: String? = null, // RFC 3339 timestamp
+    val webViewLink: String? = null
 )
 
 class TodoViewModel(
@@ -139,7 +141,9 @@ class TodoViewModel(
                         isCompleted = mutableStateOf(task.status == "completed"),
                         notes = task.notes,
                         updated = task.updated,
-                        position = task.position
+                        position = task.position,
+                        due = task.due,
+                        webViewLink = task.webViewLink
                     )
                 }
             } ?: emptyList()

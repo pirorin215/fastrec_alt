@@ -12,11 +12,13 @@ data class TodoItem(
     val isCompleted: MutableState<Boolean> = mutableStateOf(false),
     val notes: String? = null,
     val updated: String? = null, // RFC 3339 timestamp
-    val position: String? = null
+    val position: String? = null,
+    val due: String? = null, // RFC 3339 timestamp
+    val webViewLink: String? = null
 ) {
     companion object {
         val Saver: Saver<TodoItem, Any> = listSaver(
-            save = { listOf(it.id, it.text, it.isCompleted.value, it.notes, it.updated, it.position) },
+            save = { listOf(it.id, it.text, it.isCompleted.value, it.notes, it.updated, it.position, it.due, it.webViewLink) },
             restore = {
                 TodoItem(
                     id = it[0] as String,
@@ -24,7 +26,9 @@ data class TodoItem(
                     isCompleted = mutableStateOf(it[2] as Boolean),
                     notes = it[3] as String?,
                     updated = it[4] as String?,
-                    position = it[5] as String?
+                    position = it[5] as String?,
+                    due = it[6] as String?,
+                    webViewLink = it[7] as String?
                 )
             }
         )
