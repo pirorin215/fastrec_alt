@@ -64,13 +64,16 @@ fun TranscriptionDetailBottomSheet(
     audioDirName: String, // New parameter
     onPlay: (TranscriptionResult) -> Unit,
     onDelete: (TranscriptionResult) -> Unit,
-    onSave: (TranscriptionResult, String) -> Unit,
-    onRetranscribe: (TranscriptionResult) -> Unit, // Add this new parameter
+    onSave: (TranscriptionResult, String, String?) -> Unit, // Modified to include note
+    onRetranscribe: (TranscriptionResult) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     var editableText by remember { mutableStateOf(TextFieldValue(result.transcription)) }
-    val isEdited = remember(editableText.text) { editableText.text != result.transcription }
+    var editableNote by remember { mutableStateOf(TextFieldValue(result.googleTaskNotes ?: "")) } // New state for note
+    val isEdited = remember(editableText.text, editableNote.text) { // Updated isEdited logic
+        editableText.text != result.transcription || editableNote.text != (result.googleTaskNotes ?: "")
+    }
     val scrollState = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(
@@ -108,7 +111,6 @@ fun TranscriptionDetailBottomSheet(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Google Tasks Info")
                     Switch(
                         checked = showGoogleTasksInfo,
                         onCheckedChange = { showGoogleTasksInfo = it }
@@ -198,17 +200,31 @@ fun TranscriptionDetailBottomSheet(
             }
 
 
-            // Editable Text Field
+            // Title Text Field (originally "Editable Text Field")
             OutlinedTextField(
                 value = editableText,
                 onValueChange = { editableText = it },
+                label = { Text("タイトル") }, // Added label
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize.sp),
+                singleLine = true, // Made single line
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 600.dp)
                     .padding(vertical = 8.dp)
                     .focusRequester(focusRequester)
             )
+
+            // Note Text Field
+            OutlinedTextField(
+                value = editableNote,
+                onValueChange = { editableNote = it },
+                label = { Text("詳細") }, // Added label
+                textStyle = MaterialTheme.typography.bodyMedium, // Slightly smaller text for note
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp, max = 400.dp) // Adjusted height for note
+                    .padding(vertical = 8.dp)
+            )
+
 
             // Indication of unsaved changes
             if (isEdited) {
@@ -266,7 +282,7 @@ fun TranscriptionDetailBottomSheet(
                 }
                 // Save Button
                 Button(
-                    onClick = { onSave(result, editableText.text) },
+                    onClick = { onSave(result, editableText.text, editableNote.text.ifBlank { null }) }, // Pass editableNote.text
                     enabled = isEdited,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) {
@@ -276,6 +292,7 @@ fun TranscriptionDetailBottomSheet(
                 }
             }
             // Close Button
+
             Button(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),

@@ -210,10 +210,12 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
         }
     }
 
-    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_DEVICE_INFO
+    val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
+
+    val isRefreshing = currentOperation == BleViewModel.Operation.FETCHING_DEVICE_INFO || isLoadingGoogleTasks
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshing,
-        onRefresh = { viewModel.fetchFileList() }
+        onRefresh = { viewModel.syncTranscriptionResultsWithGoogleTasks() }
     )
 
     LaunchedEffect(fileTransferState) {
@@ -349,6 +351,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                                         expanded = false
                                     }
                                 )
+
                                 DropdownMenuItem(
                                     text = { Text("アプリログ") },
                                     onClick = {
@@ -364,7 +367,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
             ) { innerPadding ->
                 val apiKeyStatus by appSettingsViewModel.apiKeyStatus.collectAsState()
 
-                Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                Box(modifier = Modifier.fillMaxSize().padding(innerPadding).pullRefresh(pullRefreshState)) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize(),
@@ -388,6 +391,7 @@ fun BleControl(appSettingsViewModel: AppSettingsViewModel, onSignInClick: (Inten
                         // TranscriptionResultPanel now takes flexible space
                         TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { })
                     }
+                    PullRefreshIndicator(isRefreshing, pullRefreshState, Modifier.align(Alignment.TopCenter))
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {
                         Box(

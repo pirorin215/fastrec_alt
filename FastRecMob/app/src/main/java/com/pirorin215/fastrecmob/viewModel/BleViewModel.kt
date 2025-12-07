@@ -730,7 +730,7 @@ class BleViewModel(
                     // Case 1: New local result or not yet synced. Add to Google Tasks.
                     val addedTask = addGoogleTask(
                         title = localResult.transcription,
-                        notes = localResult.locationData?.let { "Location: Lat=${it.latitude}, Lng=${it.longitude}" },
+                        notes = localResult.googleTaskNotes,
                         isCompleted = localResult.isCompleted
                     )
                     if (addedTask != null && addedTask.id != null) {
@@ -782,7 +782,7 @@ class BleViewModel(
                             val updatedTask = updateGoogleTask(
                                 taskId = localResult.googleTaskId,
                                 title = localResult.transcription,
-                                notes = localResult.locationData?.let { "Location: Lat=${it.latitude}, Lng=${it.longitude}" } ?: correspondingGoogleTask.notes,
+                                notes = localResult.googleTaskNotes ?: correspondingGoogleTask.notes,
                                 isCompleted = localResult.isCompleted
                             )
                             if (updatedTask != null) {
@@ -1706,11 +1706,12 @@ class BleViewModel(
         }
     }
 
-    fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String) {
+    fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) {
         viewModelScope.launch {
-            // Create a new TranscriptionResult with the updated transcription
+            // Create a new TranscriptionResult with the updated transcription and notes
             val updatedResult = originalResult.copy(
                 transcription = newTranscription,
+                googleTaskNotes = newNote, // Update googleTaskNotes
                 lastEditedTimestamp = System.currentTimeMillis()
             )
             // The addResult method now handles updates, so we just call that.

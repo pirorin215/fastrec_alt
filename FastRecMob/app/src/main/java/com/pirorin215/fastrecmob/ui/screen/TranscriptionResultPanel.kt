@@ -107,16 +107,20 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                         modifier = Modifier.weight(1f)
                     )
 
-                    IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
-                        Icon(Icons.Filled.Add, "手動で文字起こしを追加")
+                    if (isSelectionMode) {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                        }
                     }
-
-                    IconButton(onClick = { viewModel.syncTranscriptionResultsWithGoogleTasks() }) {
-                        Icon(Icons.Default.Sync, contentDescription = "Google Tasks と同期")
-                    }
-
-                    IconButton(onClick = { viewModel.clearSelection() }, enabled = isSelectionMode) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear Selection")
+                    
+                    IconButton(onClick = {
+                        if (isSelectionMode) {
+                            showDeleteSelectedConfirmDialog = true
+                        } else {
+                            showDeleteAllConfirmDialog = true
+                        }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
                     }
                     
                     var showSortModeMenu by remember { mutableStateOf(false) }
@@ -169,14 +173,9 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                             trailingIcon = { if (sortMode == SortMode.CUSTOM) Icon(Icons.Default.Check, contentDescription = null) }
                         )
                     }
-                    IconButton(onClick = {
-                        if (isSelectionMode) {
-                            showDeleteSelectedConfirmDialog = true
-                        } else {
-                            showDeleteAllConfirmDialog = true
-                        }
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
+                    
+                    IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
+                        Icon(Icons.Filled.Add, "手動で文字起こしを追加")
                     }
                 }
             }
@@ -247,9 +246,9 @@ fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppS
                         selectedResultForDetail = null
                     }
                 },
-                onSave = { originalResult, newText ->
+                onSave = { originalResult, newText, newNote -> // Added newNote parameter
                     scope.launch {
-                        viewModel.updateTranscriptionResult(originalResult, newText)
+                        viewModel.updateTranscriptionResult(originalResult, newText, newNote) // Passed newNote
                         selectedResultForDetail = null
                     }
                 },
