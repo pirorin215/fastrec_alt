@@ -1,9 +1,13 @@
 package com.pirorin215.fastrecmob.data
 
+import android.content.Context
 import android.os.Environment
 import java.io.File
 import java.text.ParseException
 import java.text.SimpleDateFormat
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeParseException
 import java.util.Date
 import java.util.Locale
 
@@ -72,12 +76,25 @@ object FileUtil {
     }
 
     // ファイル名からダウンロードフォルダ内のFileオブジェクトを取得する
-    fun getAudioFile(context: android.content.Context, dirName: String, fileName: String): File {
+    fun getAudioFile(context: Context, dirName: String, fileName: String): File {
         val audioDir = context.getExternalFilesDir(dirName)
         // audioDirが存在しない場合は作成する
         if (audioDir != null && !audioDir.exists()) {
             audioDir.mkdirs()
         }
         return File(audioDir, fileName)
+    }
+
+    fun parseRfc3339Timestamp(rfc3339String: String?): Long {
+        if (rfc3339String.isNullOrBlank()) return 0L
+        return try {
+            // Google Tasks API returns 'updated' in RFC3339 format, e.g., "2023-10-27T08:00:00.000Z"
+            // OffsetDateTime can parse this directly.
+            val offsetDateTime = OffsetDateTime.parse(rfc3339String)
+            offsetDateTime.toInstant().toEpochMilli()
+        } catch (e: DateTimeParseException) {
+            e.printStackTrace()
+            0L
+        }
     }
 }

@@ -774,38 +774,15 @@ class BleViewModel(
                     } else {
                         // Compare and update if local is newer or needs to be updated based on other criteria
                         // (e.g., if transcription changed locally, update Google)
-                        val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
-                        val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
+                        val googleTaskUpdateTimestamp = com.pirorin215.fastrecmob.data.FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
+                        val localLastEditedTimestamp = localResult.lastEditedTimestamp
 
-                        if (localTranscriptionChanged || localCompletionChanged) {
-                            addLog("Local result '${localResult.fileName}' changed. Updating Google Task '${localResult.googleTaskId}'.")
-                            val updatedTask = updateGoogleTask(
-                                taskId = localResult.googleTaskId,
-                                title = localResult.transcription,
-                                notes = localResult.googleTaskNotes ?: correspondingGoogleTask.notes,
-                                isCompleted = localResult.isCompleted
-                            )
-                            if (updatedTask != null) {
-                                reconciledTranscriptionResults.add(
-                                    localResult.copy(
-                                        googleTaskNotes = updatedTask.notes,
-                                        googleTaskUpdated = updatedTask.updated,
-                                        googleTaskPosition = updatedTask.position,
-                                        googleTaskDue = updatedTask.due,
-                                        googleTaskWebViewLink = updatedTask.webViewLink,
-                                        isCompleted = (updatedTask.status == "completed"),
-                                        isSyncedWithGoogleTasks = true
-                                    )
-                                )
-                            } else {
-                                addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
-                                reconciledTranscriptionResults.add(localResult)
-                            }
-                        } else {
-                            // No local changes, but Google Task might have been updated.
-                            // Update local result with potentially newer Google Tasks data
+                        if (googleTaskUpdateTimestamp > localLastEditedTimestamp) {
+                            // Google Task is newer, update local result with Google's data
+                            addLog("Google Task '${localResult.googleTaskId}' is newer. Pulling changes to local result '${localResult.fileName}'.")
                             reconciledTranscriptionResults.add(
                                 localResult.copy(
+                                    transcription = correspondingGoogleTask.title ?: localResult.transcription,
                                     googleTaskNotes = correspondingGoogleTask.notes,
                                     googleTaskUpdated = correspondingGoogleTask.updated,
                                     googleTaskPosition = correspondingGoogleTask.position,
@@ -815,6 +792,51 @@ class BleViewModel(
                                     isSyncedWithGoogleTasks = true
                                 )
                             )
+                        } else {
+                            // Local result is newer or equally recent. Check for local changes and push to Google.
+                            val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
+                            val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
+                            val localNotesChanged = localResult.googleTaskNotes != correspondingGoogleTask.notes
+
+                            if (localTranscriptionChanged || localCompletionChanged || localNotesChanged) {
+                                addLog("Local result '${localResult.fileName}' is newer or has changes. Updating Google Task '${localResult.googleTaskId}'.")
+                                val updatedTask = updateGoogleTask(
+                                    taskId = localResult.googleTaskId,
+                                    title = localResult.transcription,
+                                    notes = localResult.googleTaskNotes ?: correspondingGoogleTask.notes,
+                                    isCompleted = localResult.isCompleted
+                                )
+                                if (updatedTask != null) {
+                                    reconciledTranscriptionResults.add(
+                                        localResult.copy(
+                                            googleTaskNotes = updatedTask.notes,
+                                            googleTaskUpdated = updatedTask.updated,
+                                            googleTaskPosition = updatedTask.position,
+                                            googleTaskDue = updatedTask.due,
+                                            googleTaskWebViewLink = updatedTask.webViewLink,
+                                            isCompleted = (updatedTask.status == "completed"),
+                                            isSyncedWithGoogleTasks = true
+                                        )
+                                    )
+                                } else {
+                                    addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
+                                    reconciledTranscriptionResults.add(localResult)
+                                }
+                            } else {
+                                // No significant changes in either, or they are identical.
+                                // Ensure local is up-to-date with Google's metadata (like googleTaskUpdated).
+                                reconciledTranscriptionResults.add(
+                                    localResult.copy(
+                                        googleTaskNotes = correspondingGoogleTask.notes,
+                                        googleTaskUpdated = correspondingGoogleTask.updated,
+                                        googleTaskPosition = correspondingGoogleTask.position,
+                                        googleTaskDue = correspondingGoogleTask.due,
+                                        googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
+                                        isCompleted = (correspondingGoogleTask.status == "completed"),
+                                        isSyncedWithGoogleTasks = true
+                                    )
+                                )
+                            }
                         }
                     }
                 }
