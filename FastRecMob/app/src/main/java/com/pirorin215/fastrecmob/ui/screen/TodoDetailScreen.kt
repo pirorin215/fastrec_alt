@@ -90,6 +90,27 @@ fun TodoDetailScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         if (!isNewTodo) {
+            todoItem?.id?.let {
+                Text("ID: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            todoItem?.updated?.let {
+                Text("Updated: ${formatRfc3339Timestamp(it)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            todoItem?.position?.let {
+                Text("Position: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            todoItem?.due?.let {
+                Text("Due: ${formatRfc3339Timestamp(it)}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            todoItem?.webViewLink?.let {
+                Text("Web Link: $it", style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             Button(
                 onClick = { todoItem?.let { onDelete(it) } },
                 modifier = Modifier.fillMaxWidth(),
@@ -101,15 +122,13 @@ fun TodoDetailScreen(
     }
 }
 
-/*
-@Preview(showBackground = true)
-@Composable
-fun PreviewTodoDetailScreen() {
-    FastRecMobTheme {
-        TodoDetailScreen(todoId = null, onBack = {}, todoViewModel = object : TodoViewModel(
-            application = android.app.Application(),
-            appSettingsRepository = com.pirorin215.fastrecmob.data.AppSettingsRepository(android.app.Application())
-        ) {})
+private fun formatRfc3339Timestamp(timestamp: String): String {
+    return try {
+        // Example format: 2024-03-04T10:30:00.000Z
+        val parser = java.time.format.DateTimeFormatter.ISO_DATE_TIME
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        java.time.OffsetDateTime.parse(timestamp, parser).format(formatter)
+    } catch (e: Exception) {
+        timestamp // Return original if parsing fails
     }
 }
-*/

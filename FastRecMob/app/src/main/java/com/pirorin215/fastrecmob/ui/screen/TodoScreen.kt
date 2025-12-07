@@ -241,14 +241,46 @@ fun TodoItemRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f)) { // Use Column to stack text fields
             Text(
                 text = todoItem.text,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
             )
+            todoItem.updated?.let {
+                Text(
+                    text = "Updated: ${formatRfc3339Timestamp(it)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            todoItem.id.let {
+                Text(
+                    text = "ID: $it",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            todoItem.position?.let {
+                Text(
+                    text = "Position: $it",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         // IconButton for deletion can be added here if needed
+    }
+}
+
+private fun formatRfc3339Timestamp(timestamp: String): String {
+    return try {
+        // Example format: 2024-03-04T10:30:00.000Z
+        val parser = java.time.format.DateTimeFormatter.ISO_DATE_TIME
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        java.time.OffsetDateTime.parse(timestamp, parser).format(formatter)
+    } catch (e: Exception) {
+        timestamp // Return original if parsing fails
     }
 }
 
