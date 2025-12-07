@@ -163,6 +163,7 @@ class BleViewModel(
         )
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
+        .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
         .combine(sortMode) { list: List<TranscriptionResult>, mode: com.pirorin215.fastrecmob.data.SortMode ->
             when (mode) {
                 com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.lastEditedTimestamp }
@@ -667,18 +668,64 @@ class BleViewModel(
         addLog("Starting Google Tasks synchronization...")
 
         try {
-            val localTranscriptionResults = transcriptionResults.value // Flow, so get current value
+            val currentLocalResults = transcriptionResultRepository.transcriptionResultsFlow.first().toMutableList() // Get all current value as mutable list from repository
+            val successfullyDeletedLocalFiles = mutableSetOf<String>() // Track files successfully deleted from Google Tasks
+            val updatedLocalResultsAfterDeletionProcessing = mutableListOf<TranscriptionResult>()
+
+            // --- Phase 0: Handle locally soft-deleted tasks (Problem 2) ---
+            val softDeletedLocalResults = currentLocalResults.filter { it.isDeletedLocally && it.googleTaskId != null }
+            val nonSoftDeletedLocalResults = currentLocalResults.filter { !it.isDeletedLocally || it.googleTaskId == null } // Keep non-soft-deleted and local-only items
+
+            for (softDeletedResult in softDeletedLocalResults) {
+                if (softDeletedResult.googleTaskId != null) {
+                    addLog("Attempting to delete Google Task '${softDeletedResult.googleTaskId}' for locally soft-deleted result '${softDeletedResult.fileName}'...")
+                    try {
+                        deleteGoogleTask(softDeletedResult.googleTaskId)
+                        addLog("Successfully deleted Google Task '${softDeletedResult.googleTaskId}'. Permanently removing local result '${softDeletedResult.fileName}'.")
+                        transcriptionResultRepository.permanentlyRemoveResult(softDeletedResult) // Permanent local deletion
+                        successfullyDeletedLocalFiles.add(softDeletedResult.fileName)
+
+                        // Delete associated audio file
+                        val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, softDeletedResult.fileName)
+                        if (audioFile.exists()) {
+                            if (audioFile.delete()) {
+                                addLog("Deleted associated audio file: ${softDeletedResult.fileName}")
+                            } else {
+                                addLog("Failed to delete associated audio file: ${softDeletedResult.fileName}")
+                            }
+                        } else {
+                            addLog("Associated audio file not found for soft-deleted result: ${softDeletedResult.fileName}")
+                        }
+                    } catch (e: Exception) {
+                        addLog("Error deleting Google Task '${softDeletedResult.googleTaskId}' for local result '${softDeletedResult.fileName}': ${e.message}. Keeping local soft-deleted for retry.")
+                        updatedLocalResultsAfterDeletionProcessing.add(softDeletedResult) // Keep in list to retry next sync
+                    }
+                }
+            }
+            // Combine non-soft-deleted results with soft-deleted ones that failed remote deletion
+            updatedLocalResultsAfterDeletionProcessing.addAll(nonSoftDeletedLocalResults)
+
+            // Re-fetch localTranscriptionResults to reflect any permanent deletions from Phase 0
+            val localTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
+
             val googleTasks = loadGoogleTasks()
+
+            // Filter out local files that were successfully deleted from Google Tasks
+            // This filter is still necessary because localTranscriptionResults might contain
+            // items that were soft-deleted, but their remote deletion failed.
+            val filteredLocalTranscriptionResults = localTranscriptionResults.filter {
+                !successfullyDeletedLocalFiles.contains(it.fileName)
+            }
 
             // Map for efficient lookup
             val localMap: MutableMap<String, TranscriptionResult> =
-                localTranscriptionResults.associateBy { it.googleTaskId ?: it.fileName }.toMutableMap() // Use fileName if no googleTaskId
+                filteredLocalTranscriptionResults.associateBy { it.googleTaskId ?: it.fileName }.toMutableMap() // Use fileName if no googleTaskId
             val googleMap: Map<String, Task> = googleTasks.associateBy { it.id!! } // Assume ID is never null for fetched tasks
 
-            val updatedTranscriptionResults = mutableListOf<TranscriptionResult>()
+            val reconciledTranscriptionResults = mutableListOf<TranscriptionResult>()
 
             // --- Phase 1: Reconcile local results with Google Tasks ---
-            for (localResult in localTranscriptionResults) {
+            for (localResult in filteredLocalTranscriptionResults) {
                 if (localResult.googleTaskId == null || !localResult.isSyncedWithGoogleTasks) {
                     // Case 1: New local result or not yet synced. Add to Google Tasks.
                     val addedTask = addGoogleTask(
@@ -687,7 +734,7 @@ class BleViewModel(
                         isCompleted = localResult.isCompleted
                     )
                     if (addedTask != null && addedTask.id != null) {
-                        updatedTranscriptionResults.add(
+                        reconciledTranscriptionResults.add(
                             localResult.copy(
                                 googleTaskId = addedTask.id,
                                 googleTaskNotes = addedTask.notes,
@@ -702,16 +749,28 @@ class BleViewModel(
                         addLog("Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
                     } else {
                         addLog("Failed to add local result '${localResult.fileName}' to Google Tasks.")
-                        updatedTranscriptionResults.add(localResult) // Keep original if failed to sync
+                        reconciledTranscriptionResults.add(localResult) // Keep original if failed to sync
                     }
                 } else {
                     // Case 2: Existing synced local result. Check for updates/deletions on Google.
                     val correspondingGoogleTask = googleMap[localResult.googleTaskId]
                     if (correspondingGoogleTask == null) {
-                        // Corresponding Google Task deleted. Delete local result.
-                        // For now, we'll just log and keep local. Full deletion logic will be complex.
-                        addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Keeping local for now.")
-                        updatedTranscriptionResults.add(localResult.copy(isSyncedWithGoogleTasks = false)) // Mark as unsynced
+                        // Corresponding Google Task deleted. Delete local result (Problem 1)
+                        addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Permanently deleting local result and audio file.")
+                        transcriptionResultRepository.permanentlyRemoveResult(localResult) // Permanent local deletion
+
+                        // Delete associated audio file
+                        val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, localResult.fileName)
+                        if (audioFile.exists()) {
+                            if (audioFile.delete()) {
+                                addLog("Deleted associated audio file: ${localResult.fileName}")
+                            } else {
+                                addLog("Failed to delete associated audio file: ${localResult.fileName}")
+                            }
+                        } else {
+                            addLog("Associated audio file not found for remote-deleted result: ${localResult.fileName}")
+                        }
+                        // Do not add to reconciledTranscriptionResults as it's deleted
                     } else {
                         // Compare and update if local is newer or needs to be updated based on other criteria
                         // (e.g., if transcription changed locally, update Google)
@@ -727,7 +786,7 @@ class BleViewModel(
                                 isCompleted = localResult.isCompleted
                             )
                             if (updatedTask != null) {
-                                updatedTranscriptionResults.add(
+                                reconciledTranscriptionResults.add(
                                     localResult.copy(
                                         googleTaskNotes = updatedTask.notes,
                                         googleTaskUpdated = updatedTask.updated,
@@ -740,12 +799,12 @@ class BleViewModel(
                                 )
                             } else {
                                 addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
-                                updatedTranscriptionResults.add(localResult)
+                                reconciledTranscriptionResults.add(localResult)
                             }
                         } else {
                             // No local changes, but Google Task might have been updated.
                             // Update local result with potentially newer Google Tasks data
-                            updatedTranscriptionResults.add(
+                            reconciledTranscriptionResults.add(
                                 localResult.copy(
                                     googleTaskNotes = correspondingGoogleTask.notes,
                                     googleTaskUpdated = correspondingGoogleTask.updated,
@@ -763,7 +822,7 @@ class BleViewModel(
 
             // --- Phase 2: Reconcile Google Tasks with local results (for new Google Tasks) ---
             for (googleTask in googleTasks) {
-                if (!localMap.any { (_, localRes) -> localRes.googleTaskId == googleTask.id }) {
+                if (!reconciledTranscriptionResults.any { it.googleTaskId == googleTask.id }) { // Check against the reconciled list
                     // Case 3: New Google Task. Add to local results.
                     addLog("New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
                     val newLocalResult = TranscriptionResult(
@@ -780,13 +839,13 @@ class BleViewModel(
                         googleTaskWebViewLink = googleTask.webViewLink,
                         isSyncedWithGoogleTasks = true
                     )
-                    updatedTranscriptionResults.add(newLocalResult)
+                    reconciledTranscriptionResults.add(newLocalResult)
                 }
-                // Existing Google Tasks that correspond to local results are handled in Phase 1 for updates
             }
 
-            // Update the TranscriptionResultRepository with the reconciled list
-            transcriptionResultRepository.updateResults(updatedTranscriptionResults.distinctBy { it.fileName })
+            // Update the TranscriptionResultRepository with the fully reconciled list
+            transcriptionResultRepository.updateResults(reconciledTranscriptionResults.distinctBy { it.fileName })
+            updateLocalAudioFileCount() // Update after any potential file deletions
 
             addLog("Google Tasks synchronization completed.")
 
@@ -1584,28 +1643,33 @@ class BleViewModel(
 
     fun clearTranscriptionResults() {
         viewModelScope.launch {
-            // First, clear all results from the repository (DataStore)
-            transcriptionResultRepository.clearResults()
-            addLog("All transcription results cleared from DataStore.")
+            addLog("Starting clear all transcription results...")
+            val currentTranscriptionResults = transcriptionResults.value
 
-            // Then, delete all associated audio files
-            val audioDir = context.getExternalFilesDir(audioDirName.value)
-            if (audioDir != null && audioDir.exists()) {
-                val audioFiles = audioDir.listFiles { _, name ->
-                    // Only delete files matching the expected naming convention
-                    name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
-                }
-                audioFiles?.forEach { file ->
-                    if (file.delete()) {
-                        addLog("Deleted audio file during clear all: ${file.name}")
-                    } else {
-                        addLog("Failed to delete audio file during clear all: ${file.name}")
+            val updatedListForRepo = mutableListOf<TranscriptionResult>()
+
+            // Process existing results
+            currentTranscriptionResults.forEach { result ->
+                if (result.googleTaskId == null) {
+                    // Local-only item: permanently delete now
+                    transcriptionResultRepository.permanentlyRemoveResult(result) // This will remove it from the DataStore
+                    val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+                    if (audioFile.exists()) {
+                        if (audioFile.delete()) {
+                            addLog("Deleted local-only audio file during clear all: ${result.fileName}")
+                        } else {
+                            addLog("Failed to delete local-only audio file during clear all: ${result.fileName}")
+                        }
                     }
+                } else {
+                    // Synced item: soft delete (mark for remote deletion during next sync)
+                    updatedListForRepo.add(result.copy(isDeletedLocally = true))
                 }
-                updateLocalAudioFileCount() // Update count after all deletions
-            } else {
-                addLog("Audio directory not found, no files to clear.")
             }
+            transcriptionResultRepository.updateResults(updatedListForRepo)
+
+            addLog("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
+            updateLocalAudioFileCount() // Update count after deletions
         }
     }
 
@@ -1617,21 +1681,27 @@ class BleViewModel(
     // 特定の文字起こし結果を削除する関数
     fun removeTranscriptionResult(result: TranscriptionResult) {
         viewModelScope.launch {
-            // First, delete from the repository (DataStore)
-            transcriptionResultRepository.removeResult(result)
-            addLog("Transcription result removed from DataStore: ${result.fileName}")
-
-            // Then, delete the associated audio file
-            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-            if (audioFile.exists()) {
-                if (audioFile.delete()) {
-                    addLog("Associated audio file deleted: ${result.fileName}")
-                    updateLocalAudioFileCount() // Update count after deletion
-                } else {
-                    addLog("Failed to delete associated audio file: ${result.fileName}")
-                }
+            if (result.googleTaskId != null) {
+                // If synced with Google Tasks, perform a soft delete locally.
+                // Actual deletion from Google Tasks and permanent local deletion will happen during sync.
+                transcriptionResultRepository.removeResult(result) // This now sets isDeletedLocally = true
+                addLog("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
             } else {
-                addLog("Associated audio file not found: ${result.fileName}")
+                // If not synced with Google Tasks, permanently delete locally and its audio file immediately.
+                transcriptionResultRepository.permanentlyRemoveResult(result)
+                addLog("Permanently deleted local-only transcription result: ${result.fileName}")
+
+                val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+                if (audioFile.exists()) {
+                    if (audioFile.delete()) {
+                        addLog("Associated audio file deleted: ${result.fileName}")
+                        updateLocalAudioFileCount()
+                    } else {
+                        addLog("Failed to delete associated audio file: ${result.fileName}")
+                    }
+                } else {
+                    addLog("Associated audio file not found for local-only result: ${result.fileName}")
+                }
             }
         }
     }

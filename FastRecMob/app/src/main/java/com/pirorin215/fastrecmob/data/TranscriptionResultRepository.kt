@@ -32,7 +32,8 @@ data class TranscriptionResult(
     val googleTaskPosition: String? = null,
     val googleTaskDue: String? = null, // RFC 3339 timestamp
     val googleTaskWebViewLink: String? = null,
-    val isSyncedWithGoogleTasks: Boolean = false
+    val isSyncedWithGoogleTasks: Boolean = false,
+    val isDeletedLocally: Boolean = false // New field for soft deletion
 ) {
     // Secondary constructor to simplify creation when lastEditedTimestamp is current time
     constructor(
@@ -53,7 +54,8 @@ data class TranscriptionResult(
         googleTaskPosition = null,
         googleTaskDue = null,
         googleTaskWebViewLink = null,
-        isSyncedWithGoogleTasks = false
+        isSyncedWithGoogleTasks = false,
+        isDeletedLocally = false // Default for new field
     )
 }
 
@@ -125,8 +127,8 @@ class TranscriptionResultRepository(private val context: Context) {
         }
     }
 
-    // 特定の文字起こし結果を削除するsuspend関数
-    suspend fun removeResult(result: TranscriptionResult) {
+    // 特定の文字起こし結果を永久に削除するsuspend関数
+    suspend fun permanentlyRemoveResult(result: TranscriptionResult) {
         context.transcriptionDataStore.edit { preferences ->
             val currentList = transcriptionResultsFlow.first()
             val listAfterRemoval = currentList.filter { it.fileName != result.fileName }
@@ -136,5 +138,12 @@ class TranscriptionResultRepository(private val context: Context) {
             }
             preferences[PreferencesKeys.TRANSCRIPTION_RESULTS] = json.encodeToString(updatedList)
         }
+    }
+
+    // 特定の文字起こし結果を論理削除するsuspend関数 (isDeletedLocallyをtrueに設定)
+    suspend fun removeResult(result: TranscriptionResult) {
+        // 論理削除フラグを設定して結果を更新
+        val softDeletedResult = result.copy(isDeletedLocally = true)
+        addResult(softDeletedResult)
     }
 }
