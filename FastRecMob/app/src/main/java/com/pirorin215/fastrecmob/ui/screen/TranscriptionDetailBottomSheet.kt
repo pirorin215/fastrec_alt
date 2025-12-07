@@ -118,13 +118,15 @@ fun TranscriptionDetailBottomSheet(
                     Spacer(Modifier.width(8.dp))
 
                     // Retranscribe Button
-                    IconButton(
-                        onClick = { onRetranscribe(result) }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh, // Using Refresh icon for re-transcribe
-                            contentDescription = "Retranscribe"
-                        )
+                    if (audioFileExists) { // Conditionally display the button
+                        IconButton(
+                            onClick = { onRetranscribe(result) }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh, // Using Refresh icon for re-transcribe
+                                contentDescription = "Retranscribe"
+                            )
+                        }
                     }
 
 

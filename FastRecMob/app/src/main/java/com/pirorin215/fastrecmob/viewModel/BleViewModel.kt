@@ -1771,20 +1771,21 @@ class BleViewModel(
         viewModelScope.launch {
             addLog("Attempting to retranscribe file: ${result.fileName}")
 
+            // 2. Get the audio file path
+            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
+            if (!audioFile.exists()) {
+                addLog("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe. Item will not be removed.")
+                return@launch
+            }
+
+            addLog("Audio file found for retranscription: ${audioFile.absolutePath}")
             // 1. Remove the old result
             transcriptionResultRepository.removeResult(result)
             addLog("Removed old transcription result for ${result.fileName} before re-transcribing.")
 
-            // 2. Get the audio file path
-            val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-            if (audioFile.exists()) {
-                addLog("Audio file found for retranscription: ${audioFile.absolutePath}")
-                // 3. Call doTranscription with the file path
-                doTranscription(audioFile.absolutePath)
-                addLog("Initiated retranscription for ${result.fileName}.")
-            } else {
-                addLog("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe.")
-            }
+            // 3. Call doTranscription with the file path
+            doTranscription(audioFile.absolutePath)
+            addLog("Initiated retranscription for ${result.fileName}.")
         }
     }
 
