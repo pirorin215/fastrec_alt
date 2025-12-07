@@ -9,7 +9,7 @@ import java.util.UUID
 data class TodoItem(
     val id: String = UUID.randomUUID().toString(),
     val text: String,
-    val isCompleted: MutableState<Boolean> = mutableStateOf(false),
+    val isCompleted: Boolean = false,
     val notes: String? = null,
     val updated: String? = null, // RFC 3339 timestamp
     val position: String? = null,
@@ -18,12 +18,12 @@ data class TodoItem(
 ) {
     companion object {
         val Saver: Saver<TodoItem, Any> = listSaver(
-            save = { listOf(it.id, it.text, it.isCompleted.value, it.notes, it.updated, it.position, it.due, it.webViewLink) },
+            save = { listOf(it.id, it.text, it.isCompleted, it.notes, it.updated, it.position, it.due, it.webViewLink) },
             restore = {
                 TodoItem(
                     id = it[0] as String,
                     text = it[1] as String,
-                    isCompleted = mutableStateOf(it[2] as Boolean),
+                    isCompleted = it[2] as Boolean,
                     notes = it[3] as String?,
                     updated = it[4] as String?,
                     position = it[5] as String?,

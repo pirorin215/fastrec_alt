@@ -138,7 +138,7 @@ class TodoViewModel(
                     TodoItem(
                         id = it,
                         text = task.title ?: "",
-                        isCompleted = mutableStateOf(task.status == "completed"),
+                        isCompleted = (task.status == "completed"),
                         notes = task.notes,
                         updated = task.updated,
                         position = task.position,
@@ -156,41 +156,25 @@ class TodoViewModel(
         }
     }
 
-    fun addTodoItem(text: String) = viewModelScope.launch {
-        if (_account.value == null || text.isBlank()) return@launch
-        _isLoading.value = true
-        try {
-            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
-            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
-            val taskJson = json.encodeToString(Task.serializer(), Task(title = text, status = "needsAction"))
-            makeApiRequest(url, "POST", taskJson)
-            loadTasks() // Refresh list
-        } catch (e: Exception) {
-            Log.e(TAG, "Error adding task", e)
-            _isLoading.value = false
-        }
-    }
-    
     fun toggleTodoCompletion(item: TodoItem) = viewModelScope.launch {
         if (_account.value == null) return@launch
         try {
             val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
-            val newStatus = if (item.isCompleted.value) "needsAction" else "completed"
+            val newStatus = if (item.isCompleted) "needsAction" else "completed"
             val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
             val taskJson = json.encodeToString(Task.serializer(), Task(id = item.id, status = newStatus))
             makeApiRequest(url, "PATCH", taskJson)
-            
+
             // Update UI optimistically
-            val updatedItems = _todoItems.value.map {
+            _todoItems.value = _todoItems.value.map {
                 if (it.id == item.id) {
-                    it.apply { isCompleted.value = !it.isCompleted.value }
+                    item.copy(isCompleted = !item.isCompleted) // Create a new immutable TodoItem
                 } else {
                     it
                 }
             }
-            _todoItems.value = updatedItems
         } catch (e: Exception) {
-             Log.e(TAG, "Error updating task", e)
+            Log.e(TAG, "Error updating task completion", e)
         }
     }
 
@@ -207,6 +191,46 @@ class TodoViewModel(
             Log.e(TAG, "Error deleting task", e)
         }
     }
+
+    fun updateTodoItem(item: TodoItem) = viewModelScope.launch {
+        if (_account.value == null || item.id == null) return@launch
+        try {
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
+            val status = if (item.isCompleted) "completed" else "needsAction"
+            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/${item.id}"
+            val taskJson = json.encodeToString(Task.serializer(), Task(
+                id = item.id,
+                title = item.text,
+                notes = item.notes,
+                status = status
+            ))
+            makeApiRequest(url, "PATCH", taskJson)
+
+            // Optimistically update the local list
+            _todoItems.value = _todoItems.value.map {
+                if (it.id == item.id) item else it
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating task", e)
+        }
+    }
+
+    fun addDetailedTodoItem(text: String, notes: String? = null, isCompleted: Boolean = false) = viewModelScope.launch {
+        if (_account.value == null || text.isBlank()) return@launch
+        _isLoading.value = true
+        try {
+            val currentTaskListId = taskListId ?: getTaskListId() ?: return@launch
+            val status = if (isCompleted) "completed" else "needsAction"
+            val taskJson = json.encodeToString(Task.serializer(), Task(title = text, notes = notes, status = status))
+            makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks", method = "POST", body = taskJson)
+            loadTasks() // Refresh list
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding task", e)
+            _isLoading.value = false
+        }
+    }
+
+    fun addTodoItem(text: String) = addDetailedTodoItem(text, null, false)
 
 
     private suspend fun getTaskListId(): String? {
@@ -263,7 +287,7 @@ class TodoViewModel(
         }
     }
     
-    fun updateTodoItemText(item: TodoItem, newText: String) { /* TODO */ }
+
 
     fun getTodoItemById(id: String): StateFlow<TodoItem?> {
         return todoItems.map { items ->

@@ -104,9 +104,9 @@ fun TodoScreen(
                 } else {
                                             TodoListContent(
                                                 todoItems = todoItems,
-                                                onAddTodo = { todoViewModel.addTodoItem(it) },
+                                                onAddTodo = { text -> todoViewModel.addTodoItem(text) },
                                                 onRemove = { todoViewModel.removeTodoItem(it) },
-                                                onNavigateToDetail = onNavigateToDetail
+                                                onItemClick = onNavigateToDetail // Renamed for clarity
                                             )                }
             }
         }
@@ -118,7 +118,7 @@ fun TodoListContent(
     todoItems: List<TodoItem>,
     onAddTodo: (String) -> Unit,
     onRemove: (TodoItem) -> Unit,
-    onNavigateToDetail: (String) -> Unit
+    onItemClick: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         AddTodoItemInput(onAddTodo = onAddTodo)
@@ -134,7 +134,7 @@ fun TodoListContent(
                             .padding(vertical = 4.dp)
                             .clickable {
                                 Log.d("TodoScreen", "Todo item clicked: ${todoItem.id}")
-                                onNavigateToDetail(todoItem.id)
+                                onItemClick(todoItem.id) // Use the new onItemClick
                             } // Add clickable here
                     ) {
                         TodoItemRow(
@@ -182,7 +182,7 @@ fun TodoItemRow(
     todoItem: TodoItem,
     onRemove: (TodoItem) -> Unit
 ) {
-    val isCompleted by todoItem.isCompleted
+    val isCompleted = todoItem.isCompleted
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -201,6 +201,7 @@ fun TodoItemRow(
     }
 }
 
+/*
 @Preview(showBackground = true)
 @Composable
 fun PreviewTodoScreen() {
@@ -212,3 +213,4 @@ fun PreviewTodoScreen() {
         TodoScreen(onBack = {}, todoViewModel = TodoViewModel(application, appSettingsRepository), onNavigateToDetail = {})
     }
 }
+*/
