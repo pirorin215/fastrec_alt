@@ -101,13 +101,11 @@ fun TodoScreen(
                 if (isLoading) {
                     CircularProgressIndicator()
                 } else {
-                    TodoListContent(
-                        todoItems = todoItems,
-                        onAddTodo = { todoViewModel.addTodoItem(it) },
-                        onToggleCompletion = { todoViewModel.toggleTodoCompletion(it) },
-                        onRemove = { todoViewModel.removeTodoItem(it) }
-                    )
-                }
+                                            TodoListContent(
+                                                todoItems = todoItems,
+                                                onAddTodo = { todoViewModel.addTodoItem(it) },
+                                                onRemove = { todoViewModel.removeTodoItem(it) }
+                                            )                }
             }
         }
     }
@@ -117,7 +115,6 @@ fun TodoScreen(
 fun TodoListContent(
     todoItems: List<TodoItem>,
     onAddTodo: (String) -> Unit,
-    onToggleCompletion: (TodoItem) -> Unit,
     onRemove: (TodoItem) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -135,7 +132,6 @@ fun TodoListContent(
                     ) {
                         TodoItemRow(
                             todoItem = todoItem,
-                            onToggleCompletion = onToggleCompletion,
                             onRemove = onRemove
                         )
                     }
@@ -177,24 +173,18 @@ fun AddTodoItemInput(onAddTodo: (String) -> Unit) {
 @Composable
 fun TodoItemRow(
     todoItem: TodoItem,
-    onToggleCompletion: (TodoItem) -> Unit,
     onRemove: (TodoItem) -> Unit
 ) {
     val isCompleted by todoItem.isCompleted
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggleCompletion(todoItem) }
+            .clickable { }
             .padding(vertical = 8.dp, horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Checkbox(
-                checked = isCompleted,
-                onCheckedChange = { onToggleCompletion(todoItem) }
-            )
-            Spacer(modifier = Modifier.width(16.dp))
             Text(
                 text = todoItem.text,
                 style = MaterialTheme.typography.bodyLarge,
