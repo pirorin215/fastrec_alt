@@ -175,15 +175,4 @@ class AppSettingsViewModel(
     }
 }
 
-class AppSettingsViewModelFactory(
-    private val application: Application,
-    private val appSettingsRepository: AppSettingsRepository
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(AppSettingsViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return AppSettingsViewModel(appSettingsRepository, application) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
-    }
-}
+

@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -23,28 +24,28 @@ import java.io.FileOutputStream
 import java.io.OutputStream
 import java.util.UUID
 
-class BleFileTransferManager(
+class FileTransferManager(
     private val context: Context,
     private val scope: CoroutineScope,
     private val repository: BleRepository,
     private val transcriptionManager: TranscriptionManager,
     private val audioDirNameFlow: StateFlow<String>,
+    private val bleMutex: Mutex,
     private val logCallback: (String) -> Unit,
-    private val sendCommandCallback: (String) -> Unit, // Callback to send command via BleViewModel
-    private val sendAckCallback: (ByteArray) -> Unit, // Callback to send ACK via BleViewModel
-    private val _currentOperation: MutableStateFlow<BleOperation>, // Current operation state
-    private val _fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>, // File list from BleViewModel
-    private val _connectionState: StateFlow<String> // Connection state from BleViewModel
+    private val sendCommandCallback: (String) -> Unit,
+    private val sendAckCallback: (ByteArray) -> Unit,
+    private val _currentOperation: MutableStateFlow<BleOperation>,
+    private val _fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>,
+    private val _connectionState: StateFlow<String>,
+    private val fetchFileListCallback: suspend () -> Unit
 ) {
 
-    // Constants from BleViewModel.Companion
     companion object {
         const val MAX_DELETE_RETRIES = 3
-        const val DELETE_RETRY_DELAY_MS = 1000L // 1 second
-        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab" // Used in handleCharacteristicChanged
+        const val DELETE_RETRY_DELAY_MS = 1000L
+        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
     }
 
-    // State properties from BleViewModel
     private val _downloadProgress = MutableStateFlow(0)
     val downloadProgress: StateFlow<Int> = _downloadProgress.asStateFlow()
 
@@ -60,8 +61,9 @@ class BleFileTransferManager(
     private var currentDownloadingFileName: String? = null
     private var _transferStartTime = 0L
     private var responseBuffer = mutableListOf<Byte>()
+    private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null
+    private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null
 
-    // Methods
     fun resetFileTransferMetrics() {
         _downloadProgress.value = 0
         _currentFileTotalSize.value = 0L
@@ -86,24 +88,12 @@ class BleFileTransferManager(
                 val uri: Uri? = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
 
                 uri?.let {
-                    var outputStream: OutputStream? = null
-                    try {
-                        outputStream = resolver.openOutputStream(it)
-                        outputStream?.use { stream ->
-                            stream.write(data)
-                        }
-                        logCallback("Log file saved successfully to Downloads: $fileName")
-                        return it.toString()
-                    } catch (e: Exception) {
-                        logCallback("Error saving log file to MediaStore: ${e.message}")
-                        uri.let { u -> resolver.delete(u, null, null) }
-                        throw e
-                    } finally {
-                        outputStream?.close()
+                    resolver.openOutputStream(it)?.use { stream ->
+                        stream.write(data)
                     }
-                } ?: run {
-                    throw Exception("Failed to create new MediaStore entry for log file.")
-                }
+                    logCallback("Log file saved successfully to Downloads: $fileName")
+                    return it.toString()
+                } ?: throw Exception("Failed to create new MediaStore entry for log file.")
             } else {
                 val audioDir = context.getExternalFilesDir(audioDirNameFlow.value)
                 if (audioDir != null && !audioDir.exists()) {
@@ -121,18 +111,15 @@ class BleFileTransferManager(
         }
     }
 
-    // This method will be called from BleViewModel's handleCharacteristicChanged
     fun handleCharacteristicChanged(
         characteristic: android.bluetooth.BluetoothGattCharacteristic,
-        value: ByteArray,
-        currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>?,
-        currentDeleteCompletion: CompletableDeferred<Boolean>?
+        value: ByteArray
     ) {
         if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
             BleOperation.DOWNLOADING_FILE -> {
-                val filePath = handleFileDownloadDataInternal(value, currentCommandCompletion)
+                val filePath = handleFileDownloadDataInternal(value)
                 if (filePath != null) {
                     currentCommandCompletion?.complete(Pair(true, filePath))
                 }
@@ -142,23 +129,18 @@ class BleFileTransferManager(
                 logCallback("Received response for file deletion: $response")
                 if (response.startsWith("OK: File")) {
                     currentDeleteCompletion?.complete(true)
-                    responseBuffer.clear()
-                } else if (response.startsWith("ERROR:")) {
-                    currentDeleteCompletion?.complete(false)
-                    responseBuffer.clear()
                 } else {
-                    logCallback("Unexpected response during file deletion: $response")
+                    logCallback("Unexpected or error response during file deletion: $response")
                     currentDeleteCompletion?.complete(false)
-                    responseBuffer.clear()
                 }
             }
             else -> {
-                // Not handled by file transfer manager, let BleViewModel handle it or ignore
+                // Not for us
             }
         }
     }
 
-    private fun handleFileDownloadDataInternal(value: ByteArray, currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>?): String? {
+    private fun handleFileDownloadDataInternal(value: ByteArray): String? {
         when (_fileTransferState.value) {
             "WaitingForStart" -> {
                 if (value.contentEquals("START".toByteArray())) {
@@ -168,28 +150,19 @@ class BleFileTransferManager(
                     _transferStartTime = System.currentTimeMillis()
                     responseBuffer.clear()
                     _downloadProgress.value = 0
-                    return null
                 } else {
                     logCallback("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
                     currentCommandCompletion?.complete(Pair(false, null))
-                    return null
                 }
             }
             "Downloading" -> {
                 if (value.contentEquals("EOF".toByteArray())) {
                     logCallback("End of file transfer signal received.")
-                    val filePath = saveFile(responseBuffer.toByteArray())
-                    if (filePath != null) {
-                        return filePath
-                    } else {
-                        currentCommandCompletion?.complete(Pair(false, null))
-                        return null
-                    }
+                    return saveFile(responseBuffer.toByteArray())
                 } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
                     val errorMessage = value.toString(Charsets.UTF_8)
                     logCallback("Received error during transfer: $errorMessage")
                     currentCommandCompletion?.complete(Pair(false, null))
-                    return null
                 } else {
                     responseBuffer.addAll(value.toList())
                     _downloadProgress.value = responseBuffer.size
@@ -198,122 +171,120 @@ class BleFileTransferManager(
                         _transferKbps.value = (responseBuffer.size / 1024.0f) / elapsedTime
                     }
                     sendAckCallback("ACK".toByteArray(Charsets.UTF_8))
-                    return null
                 }
             }
         }
         return null
     }
 
-    suspend fun downloadFile(
-        fileName: String,
-        bleMutex: Mutex,
-        currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? // Pass this from ViewModel
-    ) {
-        if (_connectionState.value != "Connected") {
-            logCallback("Cannot download file, not connected.")
-            return
-        }
-
-        var downloadResult: Pair<Boolean, String?> = Pair(false, null)
-        bleMutex.withLock {
-            if (_currentOperation.value != BleOperation.IDLE) {
-                logCallback("Cannot download file '$fileName', another operation is in progress: ${_currentOperation.value}")
-                return
+    fun downloadFileAndProcess(fileName: String) {
+        scope.launch {
+            if (_connectionState.value != "Connected") {
+                logCallback("Cannot download file, not connected.")
+                return@launch
             }
 
-            try {
-                _currentOperation.value = BleOperation.DOWNLOADING_FILE
-                _fileTransferState.value = "WaitingForStart"
-                this.currentDownloadingFileName = fileName
+            var downloadResult: Pair<Boolean, String?>? = null
 
-                val fileEntry = _fileList.value.find { it.name == fileName }
-                val fileSize = fileEntry?.size ?: 0L
-                _currentFileTotalSize.value = fileSize
-
-                logCallback("Requesting file: $fileName (size: $fileSize bytes)")
-                sendCommandCallback("GET:file:$fileName")
-
-                val timeout = 20000L + (fileSize / 8192L) * 1000L
-                downloadResult = withTimeoutOrNull(timeout) {
-                    currentCommandCompletion?.await() // Await the completion from characteristic changed
-                } ?: Pair(false, null)
-
-                if (downloadResult.first) {
-                    logCallback("File download operation reported success for: $fileName.")
-                } else {
-                    logCallback("File download failed for: $fileName (or timed out)")
+            bleMutex.withLock {
+                if (_currentOperation.value != BleOperation.IDLE) {
+                    logCallback("Cannot download file '$fileName', another operation is in progress: ${_currentOperation.value}")
+                    return@withLock
                 }
-            } catch (e: Exception) {
-                logCallback("An unexpected error occurred during downloadFile: ${e.message}")
-            } finally {
-                if (_currentOperation.value == BleOperation.DOWNLOADING_FILE) {
+
+                try {
+                    _currentOperation.value = BleOperation.DOWNLOADING_FILE
+                    _fileTransferState.value = "WaitingForStart"
+                    currentDownloadingFileName = fileName
+                    currentCommandCompletion = CompletableDeferred()
+
+                    val fileEntry = _fileList.value.find { it.name == fileName }
+                    val fileSize = fileEntry?.size ?: 0L
+                    _currentFileTotalSize.value = fileSize
+
+                    logCallback("Requesting file: $fileName (size: $fileSize bytes)")
+                    sendCommandCallback("GET:file:$fileName")
+
+                    val timeout = 20000L + (fileSize / 1024L) * 100L // Adjusted timeout
+                    downloadResult = withTimeoutOrNull(timeout) {
+                        currentCommandCompletion!!.await()
+                    }
+
+                    if (downloadResult?.first != true) {
+                        logCallback("File download failed for: $fileName (or timed out)")
+                    }
+                } catch (e: Exception) {
+                    logCallback("An unexpected error occurred during downloadFile: ${e.message}")
+                    downloadResult = Pair(false, null)
+                } finally {
                     _currentOperation.value = BleOperation.IDLE
-                }
-                _fileTransferState.value = "Idle"
-                this.currentDownloadingFileName = null
-                resetFileTransferMetrics()
-                logCallback("downloadFile lock released for $fileName.")
-            }
-        }
-
-        val (downloadSuccess, savedFilePath) = downloadResult
-        if (downloadSuccess && savedFilePath != null) {
-            if (fileName.startsWith("log.", ignoreCase = true)) {
-                logCallback("Log file '$fileName' downloaded and saved to: $savedFilePath")
-            } else if (fileName.endsWith(".wav", ignoreCase = true)) {
-                val file = File(savedFilePath)
-                if (file.exists()) {
-                    transcriptionManager.transcriptionQueue.add(file.absolutePath)
-                    logCallback("Added ${file.name} to transcription queue.")
-
-                    transcriptionManager.cleanupTranscriptionResultsAndAudioFiles()
-                    transcriptionManager.updateLocalAudioFileCount()
-                    
-                    logCallback("Post-download deletion of $fileName delegated to ViewModel.")
-                } else {
-                    logCallback("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
+                    _fileTransferState.value = "Idle"
+                    currentDownloadingFileName = null
+                    resetFileTransferMetrics()
+                    logCallback("downloadFile lock released for $fileName.")
                 }
             }
-        } else {
-            logCallback("Error: File '$fileName' download failed or saved path is null.")
+
+            val (downloadSuccess, savedFilePath) = downloadResult ?: Pair(false, null)
+            if (downloadSuccess && savedFilePath != null) {
+                if (fileName.startsWith("log.", ignoreCase = true)) {
+                    logCallback("Log file '$fileName' downloaded and saved to: $savedFilePath")
+                } else if (fileName.endsWith(".wav", ignoreCase = true)) {
+                    val file = File(savedFilePath)
+                    if (file.exists()) {
+                        transcriptionManager.transcriptionQueue.add(file.absolutePath)
+                        logCallback("Added ${file.name} to transcription queue.")
+
+                        transcriptionManager.cleanupTranscriptionResultsAndAudioFiles()
+                        transcriptionManager.updateLocalAudioFileCount()
+
+                        // Automatically delete the file from the microcontroller after successful download and queuing
+                        deleteFileAndRefresh(fileName)
+                    } else {
+                        logCallback("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
+                    }
+                }
+            } else {
+                logCallback("Error: File '$fileName' download failed or saved path is null.")
+            }
         }
     }
 
-    suspend fun deleteFileOnMicrocontroller(
-        fileName: String,
-        bleMutex: Mutex,
-        currentDeleteCompletion: CompletableDeferred<Boolean>?, // Pass this from ViewModel
-        fetchFileListCallback: suspend () -> Unit // Callback to BleViewModel to fetch file list
-    ) {
+
+    private suspend fun deleteFileAndRefresh(fileName: String) {
         if (_connectionState.value != "Connected") {
             logCallback("Cannot delete file, not connected.")
             return
         }
 
         bleMutex.withLock {
+            if (_currentOperation.value != BleOperation.IDLE) {
+                logCallback("Cannot delete file '$fileName', another operation is in progress: ${_currentOperation.value}")
+                return@withLock
+            }
+
             var success = false
             try {
                 _currentOperation.value = BleOperation.DELETING_FILE
                 for (i in 0..MAX_DELETE_RETRIES) {
+                    currentDeleteCompletion = CompletableDeferred()
                     logCallback("Sending command to delete file: DEL:file:$fileName (Attempt ${i + 1}/${MAX_DELETE_RETRIES + 1})")
 
                     sendCommandCallback("DEL:file:$fileName")
 
-                    try {
-                        success = withTimeout(10000L) {
-                            currentDeleteCompletion?.await()
-                        } ?: false
+                    success = try {
+                        withTimeout(10000L) {
+                            currentDeleteCompletion!!.await()
+                        }
                     } catch (e: TimeoutCancellationException) {
                         logCallback("DEL:file:$fileName command timed out. Error: ${e.message}")
-                        success = false
+                        false
                     }
 
                     if (success) {
                         logCallback("Successfully deleted file: $fileName.")
-                        // Allow some time for the device to process deletion before fetching the list
-                        delay(1000L)
-                        fetchFileListCallback() // Call back to ViewModel to fetch file list
+                        delay(500L) // Give device time to process
+                        fetchFileListCallback()
                         transcriptionManager.updateLocalAudioFileCount()
                         break
                     } else if (i < MAX_DELETE_RETRIES) {
@@ -326,7 +297,7 @@ class BleFileTransferManager(
                     logCallback("Failed to delete file: $fileName after all attempts.")
                 }
                 _currentOperation.value = BleOperation.IDLE
-                logCallback("deleteFileOnMicrocontroller operation scope finished.")
+                logCallback("deleteFileOnMicrocontroller operation scope finished for $fileName.")
             }
         }
     }

@@ -10,57 +10,33 @@ import com.pirorin215.fastrecmob.data.Task
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.os.Build
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.app.Application
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.Json
 import java.io.File
-import java.io.FileOutputStream
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -68,17 +44,12 @@ import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.LocationData
+import com.pirorin215.fastrecmob.LocationTracker
 
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
-import com.pirorin215.fastrecmob.service.SpeechToTextService
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.Scope
 
 @SuppressLint("MissingPermission")
 class BleViewModel(
@@ -86,7 +57,10 @@ class BleViewModel(
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
     private val lastKnownLocationRepository: LastKnownLocationRepository,
-    private val context: Context
+    private val context: Context,
+    private val repository: com.pirorin215.fastrecmob.data.BleRepository,
+    private val connectionStateFlow: StateFlow<String>,
+    private val onDeviceReadyEvent: SharedFlow<Unit>
 ) : ViewModel() {
 
     companion object {
@@ -201,31 +175,7 @@ class BleViewModel(
             initialValue = 0
         )
 
-    private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-    private val locationTracker = com.pirorin215.fastrecmob.LocationTracker(context)
 
-    // --- Transcription Manager ---
-    private val transcriptionManager by lazy {
-        TranscriptionManager(
-            context = context,
-            scope = viewModelScope,
-            appSettingsRepository = appSettingsRepository,
-            transcriptionResultRepository = transcriptionResultRepository,
-            locationTracker = locationTracker,
-            currentForegroundLocationFlow = currentForegroundLocation,
-            audioDirNameFlow = audioDirName,
-            transcriptionCacheLimitFlow = transcriptionCacheLimit,
-            logCallback = { addLog(it) }
-        )
-    }
-
-    val audioFileCount: StateFlow<Int> get() = transcriptionManager.audioFileCount
-    val transcriptionState: StateFlow<String> get() = transcriptionManager.transcriptionState
-    val transcriptionResult: StateFlow<String?> get() = transcriptionManager.transcriptionResult
-    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
-
-    private val _connectionState = MutableStateFlow("Disconnected")
-    val connectionState = _connectionState.asStateFlow()
 
     private val _receivedData = MutableStateFlow("")
     val receivedData = _receivedData.asStateFlow()
@@ -240,20 +190,42 @@ class BleViewModel(
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
     val navigationEvent = _navigationEvent.asSharedFlow()
 
+    // --- BLE Infrastructure ---
+
+
+
+    // --- Location Monitor ---
+    private val locationMonitor by lazy {
+        LocationMonitor(context, viewModelScope, lastKnownLocationRepository) { addLog(it) }
+    }
+
+    // --- Transcription Manager ---
+    private val transcriptionManager by lazy {
+        TranscriptionManager(
+            context = context,
+            scope = viewModelScope,
+            appSettingsRepository = appSettingsRepository,
+            transcriptionResultRepository = transcriptionResultRepository,
+            currentForegroundLocationFlow = locationMonitor.currentForegroundLocation,
+            audioDirNameFlow = audioDirName,
+            transcriptionCacheLimitFlow = transcriptionCacheLimit,
+            logCallback = { addLog(it) }
+        )
+    }
+
     // --- Managers ---
     private val bleDeviceManager by lazy {
         BleDeviceManager(
             scope = viewModelScope,
             context = context,
-            sendCommand = { sendCommand(it) },
+            sendCommand = { command -> sendCommand(command) }, // Use the lambda form for sendCommand
             addLog = { addLog(it) },
             _currentOperation = _currentOperation,
             bleMutex = bleMutex,
-            locationTracker = locationTracker,
-            lastKnownLocationRepository = lastKnownLocationRepository,
             onFileListUpdated = { checkForNewWavFilesAndProcess() }
         )
     }
+
 
     private val bleSettingsManager by lazy {
         BleSettingsManager(
@@ -265,201 +237,101 @@ class BleViewModel(
         )
     }
 
+    private val bleAutoRefresher by lazy {
+        BleAutoRefresher(
+            scope = viewModelScope,
+            refreshIntervalSecondsFlow = refreshIntervalSeconds,
+            onRefresh = {
+                // The mutex in fetchFileList now handles concurrency, so we can call it directly.
+                // It will wait if another operation is in progress.
+                fetchFileList()
+
+            },
+            logCallback = { addLog(it) }
+        )
+    }
+
+    private val bleSelectionManager by lazy {
+        BleSelectionManager(
+            logCallback = { addLog(it) }
+        )
+    }
+
+    val audioFileCount: StateFlow<Int> get() = transcriptionManager.audioFileCount
+    val transcriptionState: StateFlow<String> get() = transcriptionManager.transcriptionState
+    val transcriptionResult: StateFlow<String?> get() = transcriptionManager.transcriptionResult
+
+
     // --- Delegated Properties ---
-    val deviceInfo: StateFlow<DeviceInfoResponse?> get() = bleDeviceManager.deviceInfo
+
     val fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>> get() = bleDeviceManager.fileList
     
     val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> get() = bleSettingsManager.deviceSettings
     val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> get() = bleSettingsManager.remoteDeviceSettings
     val settingsDiff: StateFlow<String?> get() = bleSettingsManager.settingsDiff
 
+    val isAutoRefreshEnabled: StateFlow<Boolean> get() = bleAutoRefresher.isAutoRefreshEnabled
+    val selectedFileNames: StateFlow<Set<String>> get() = bleSelectionManager.selectedFileNames
+
 
     // --- BleFileTransfer Manager ---
-    private val bleFileTransferManager by lazy {
-        BleFileTransferManager(
+    private val fileTransferManager by lazy {
+        FileTransferManager(
             context = context,
             scope = viewModelScope,
             repository = repository,
             transcriptionManager = transcriptionManager,
             audioDirNameFlow = audioDirName,
+            bleMutex = bleMutex,
             logCallback = { addLog(it) },
             sendCommandCallback = { command -> sendCommand(command) },
             sendAckCallback = { ackValue -> sendAck(ackValue) },
             _currentOperation = _currentOperation,
             _fileList = bleDeviceManager.fileList, // Use manager's file list
-            _connectionState = _connectionState
+
+            _connectionState = connectionStateFlow,
+            fetchFileListCallback = { fetchFileList() }
         )
     }
 
-    val downloadProgress: StateFlow<Int> get() = bleFileTransferManager.downloadProgress
-    val currentFileTotalSize: StateFlow<Long> get() = bleFileTransferManager.currentFileTotalSize
-    val fileTransferState: StateFlow<String> get() = bleFileTransferManager.fileTransferState
-    val transferKbps: StateFlow<Float> get() = bleFileTransferManager.transferKbps
+    val downloadProgress: StateFlow<Int> get() = fileTransferManager.downloadProgress
+    val currentFileTotalSize: StateFlow<Long> get() = fileTransferManager.currentFileTotalSize
+    val fileTransferState: StateFlow<String> get() = fileTransferManager.fileTransferState
+    val transferKbps: StateFlow<Float> get() = fileTransferManager.transferKbps
 
 
-    private val _isAutoRefreshEnabled = MutableStateFlow(true)
-    val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
+    // --- Location Monitor Delegation ---
+    val currentForegroundLocation: StateFlow<LocationData?> = locationMonitor.currentForegroundLocation
+    fun startLowPowerLocationUpdates() = locationMonitor.startLowPowerLocationUpdates()
+    fun stopLowPowerLocationUpdates() = locationMonitor.stopLowPowerLocationUpdates()
 
-    private val _selectedFileNames = MutableStateFlow<Set<String>>(emptySet())
-    val selectedFileNames: StateFlow<Set<String>> = _selectedFileNames.asStateFlow()
-
-
-    // --- New properties for pre-collected location ---
-    private val _currentForegroundLocation = MutableStateFlow<LocationData?>(null)
-    val currentForegroundLocation: StateFlow<LocationData?> = _currentForegroundLocation.asStateFlow()
-    private var lowPowerLocationJob: Job? = null
-    // --- End new properties ---
 
     // --- Refactored Properties ---
-    private val repository: com.pirorin215.fastrecmob.data.BleRepository = com.pirorin215.fastrecmob.data.BleRepository(context)
-    private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null // Still used by download?
-    private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null 
-
-    private var autoRefreshJob: Job? = null
-
 
     init {
-        // Collect connection state from the repository
-        repository.connectionState.onEach { state ->
-            when(state) {
-                is com.pirorin215.fastrecmob.data.ConnectionState.Pairing -> {
-                    _connectionState.value = "Pairing..."
-                    addLog("Pairing with device...")
-                }
-                is com.pirorin215.fastrecmob.data.ConnectionState.Paired -> {
-                    _connectionState.value = "Paired"
-                    addLog("Device paired. Connecting...")
-                }
-                is com.pirorin215.fastrecmob.data.ConnectionState.Connected -> {
-                    _connectionState.value = "Connected"
-                    addLog("Successfully connected to ${state.device.address}")
-                    // Request MTU after connection
-                    repository.requestMtu(517)
-                }
-                is com.pirorin215.fastrecmob.data.ConnectionState.Disconnected -> {
-                    _connectionState.value = "Disconnected"
-                    addLog("Disconnected. Handling reconnection based on app foreground state.")
-                    resetOperationStates()
-                    bleDeviceManager.stopTimeSyncJob()
-                }
-                is com.pirorin215.fastrecmob.data.ConnectionState.Error -> {
-                    addLog("Connection Error: ${state.message}. Forcibly disconnecting and cleaning up before recovery.")
-
-                    // 状態をリセットし、GATT接続を完全に閉じる
-                    resetOperationStates()
-                    repository.disconnect() // Ensure disconnection
-                    repository.close()      // Close the GATT client to prevent inconsistent state
-
-                    _connectionState.value = "Disconnected" // 状態をUIに反映
-
-                    bleDeviceManager.stopTimeSyncJob()
-
-                    // BLEスタックが安定するのを待ってから再接続を開始する
-                    viewModelScope.launch {
-                        delay(500L) // 500ms待機
-                        addLog("Attempting to recover after error...")
-                        restartScan(forceScan = true)
-                    }
-                }
+        // Observe onDeviceReadyEvent to trigger actions after characteristics are available
+        onDeviceReadyEvent
+            .onEach {
+                addLog("Device ready event received. Triggering initial fetchFileList.")
+                fetchFileList()
             }
-        }.launchIn(viewModelScope)
+            .launchIn(viewModelScope)
 
-        // Collect events from the repository
+        // Collect characteristic changes from the repository (this stays in the ViewModel)
         repository.events.onEach { event ->
             when(event) {
-                is com.pirorin215.fastrecmob.data.BleEvent.MtuChanged -> {
-                    addLog("MTU changed to ${event.mtu}")
-                }
-                is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
-                    addLog("Device is ready for communication.")
-                    viewModelScope.launch {
-                        bleDeviceManager.onDeviceReady()
-                        if (_isAutoRefreshEnabled.value) {
-                            startAutoRefresh()
-                        }
-                    }
-                }
                 is com.pirorin215.fastrecmob.data.BleEvent.CharacteristicChanged -> {
                     handleCharacteristicChanged(event.characteristic, event.value)
                 }
-                else -> {
-                    // Other events can be handled here if needed
-                }
+                // Other events are handled by the connection manager
+                else -> {}
             }
         }.launchIn(viewModelScope)
-
-        viewModelScope.launch {
-            com.pirorin215.fastrecmob.BleScanServiceManager.deviceFoundFlow.onEach { device ->
-                addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
-                if (_connectionState.value == "Disconnected") {
-                    connectToDevice(device)
-                } else {
-                    addLog("Already connected or connecting. Skipping new connection attempt.")
-                }
-            }.launchIn(this)
-        }
-    }
-
-    private fun startAutoRefresh() {
-        stopAutoRefresh()
-        autoRefreshJob = viewModelScope.launch {
-            while (true) {
-                // Use the value from the StateFlow, converting seconds to milliseconds
-                val intervalMs = (refreshIntervalSeconds.value * 1000L).coerceAtLeast(5000L) // Ensure minimum 5s
-                delay(intervalMs)
-                // The mutex in fetchFileList now handles concurrency, so we can call it directly.
-                // It will wait if another operation is in progress.
-                fetchFileList()
-                fetchDeviceInfo()
-            }
-        }
-    }
-
-    private fun stopAutoRefresh() {
-        autoRefreshJob?.cancel()
-        autoRefreshJob = null
     }
 
     fun setAutoRefresh(enabled: Boolean) {
-        _isAutoRefreshEnabled.value = enabled
-        if (enabled) {
-            addLog("Auto-refresh enabled.")
-            fetchFileList()
-            startAutoRefresh()
-        } else {
-            addLog("Auto-refresh disabled.")
-            stopAutoRefresh()
-        }
+        bleAutoRefresher.setAutoRefresh(enabled)
     }
-
-    // --- Low Power Location Updates ---
-    fun startLowPowerLocationUpdates() {
-        if (lowPowerLocationJob?.isActive == true) {
-            addLog("Low power location updates already active.")
-            return
-        }
-        addLog("Starting low power location updates.")
-        lowPowerLocationJob = viewModelScope.launch {
-            while (true) {
-                locationTracker.getLowPowerLocation().onSuccess { locationData ->
-                    _currentForegroundLocation.value = locationData
-                    addLog("Pre-collected low power location: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
-                }.onFailure { e ->
-                    _currentForegroundLocation.value = null // Clear stale location on failure
-                    addLog("Failed to pre-collect low power location: ${e.message}")
-                }
-                delay(30000L) // Update every 30 seconds
-            }
-        }
-    }
-
-    fun stopLowPowerLocationUpdates() {
-        lowPowerLocationJob?.cancel()
-        lowPowerLocationJob = null
-        _currentForegroundLocation.value = null // Clear location when stopping
-        addLog("Stopped low power location updates.")
-    }
-    // --- End Low Power Location Updates ---
 
     private fun addLog(message: String) {
         Log.d(TAG, message)
@@ -469,15 +341,12 @@ class BleViewModel(
     private fun resetOperationStates() {
         addLog("Resetting all operation states.")
         _currentOperation.value = BleOperation.IDLE
-        bleFileTransferManager.resetFileTransferMetrics() // Delegate to manager
+        fileTransferManager.resetFileTransferMetrics() // Delegate to manager
     }
 
     private fun checkForNewWavFilesAndProcess() {
         viewModelScope.launch {
-            if (_connectionState.value != "Connected") { // Only check connection here
-                addLog("Not connected, skipping new file check.")
-                return@launch
-            }
+
 
             val currentWavFilesOnMicrocontroller = bleDeviceManager.fileList.value.filter { it.name.endsWith(".wav", ignoreCase = true) }
             val transcribedFileNames = transcriptionResults.value.map { it.fileName }.toSet()
@@ -510,21 +379,14 @@ class BleViewModel(
         if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
-            BleOperation.FETCHING_DEVICE_INFO, BleOperation.FETCHING_FILE_LIST, BleOperation.SENDING_TIME -> {
+            BleOperation.FETCHING_FILE_LIST -> {
                 bleDeviceManager.handleResponse(value)
             }
             BleOperation.FETCHING_SETTINGS -> {
                 bleSettingsManager.handleResponse(value)
             }
-            BleOperation.DOWNLOADING_FILE -> {
-                bleFileTransferManager.handleCharacteristicChanged(
-                    characteristic, value, currentCommandCompletion, currentDeleteCompletion
-                )
-            }
-            BleOperation.DELETING_FILE -> {
-                bleFileTransferManager.handleCharacteristicChanged(
-                    characteristic, value, currentCommandCompletion, currentDeleteCompletion
-                )
+            BleOperation.DOWNLOADING_FILE, BleOperation.DELETING_FILE -> {
+                fileTransferManager.handleCharacteristicChanged(characteristic, value)
             }
             else -> {
                 addLog("Received data in unexpected state (${_currentOperation.value}): ${value.toString(Charsets.UTF_8)}")
@@ -532,40 +394,7 @@ class BleViewModel(
         }
     }
 
-    fun startScan() {
-        _logs.value = emptyList()
-        addLog("Manual scan button pressed. Waiting for service to find device.")
-        // サービスがデバイスを見つけたら、BleScanServiceManager経由でここにイベントが来る
-        // Note: The actual scan is handled by BleScanService
-    }
 
-    fun restartScan(forceScan: Boolean = false) {
-        if (!forceScan && _connectionState.value != "Disconnected") {
-            addLog("Not restarting scan, already connected or connecting. (forceScan=false)")
-            return
-        }
-
-        addLog("Attempting to reconnect or scan...")
-        // 1. Try to connect to a bonded device first
-        val bondedDevices = bluetoothAdapter?.bondedDevices
-        val bondedFastRecDevice = bondedDevices?.find { it.name.equals(DEVICE_NAME, ignoreCase = true) }
-
-        if (bondedFastRecDevice != null) {
-            addLog("Found bonded device '${bondedFastRecDevice.name}'. Attempting direct connection.")
-            connectToDevice(bondedFastRecDevice)
-        } else {
-            // 2. If no bonded device is found, start a new scan
-            addLog("No bonded device found. Requesting a new scan from the service.")
-            viewModelScope.launch {
-                com.pirorin215.fastrecmob.BleScanServiceManager.emitRestartScan()
-            }
-        }
-    }
-
-    private fun connectToDevice(device: BluetoothDevice) {
-        addLog("Connecting to device ${device.address}")
-        repository.connect(device)
-    }
 
     fun sendCommand(command: String) {
         addLog("Sending command: $command")
@@ -576,34 +405,16 @@ class BleViewModel(
         repository.sendAck(ackValue)
     }
 
-    fun deleteFileOnMicrocontroller(fileName: String) {
-        viewModelScope.launch {
-            val deleteCompletion = CompletableDeferred<Boolean>()
-            currentDeleteCompletion = deleteCompletion // Set the completion for the ViewModel
 
-            bleFileTransferManager.deleteFileOnMicrocontroller(
-                fileName = fileName,
-                bleMutex = bleMutex,
-                currentDeleteCompletion = deleteCompletion,
-                fetchFileListCallback = { fetchFileList() } // Pass a callback to fetch file list
-            )
-        }
-    }
-
-    fun fetchDeviceInfo() {
-        viewModelScope.launch {
-            bleDeviceManager.fetchDeviceInfo(connectionState.value)
-        }
-    }
 
     fun fetchFileList(extension: String = "wav") {
         viewModelScope.launch {
-            bleDeviceManager.fetchFileList(connectionState.value, extension)
+            bleDeviceManager.fetchFileList(connectionStateFlow.value, extension)
         }
     }
 
     fun getSettings() {
-        bleSettingsManager.getSettings(connectionState.value)
+        bleSettingsManager.getSettings(connectionStateFlow.value)
     }
 
     fun applyRemoteSettings() {
@@ -615,7 +426,7 @@ class BleViewModel(
     }
 
     fun sendSettings() {
-        bleSettingsManager.sendSettings(connectionState.value)
+        bleSettingsManager.sendSettings(connectionStateFlow.value)
     }
 
     fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
@@ -623,63 +434,10 @@ class BleViewModel(
     }
 
     fun downloadFile(fileName: String) {
-        viewModelScope.launch {
-            if (connectionState.value != "Connected") {
-                addLog("Cannot download file, not connected.")
-                return@launch
-            }
-
-            val operationCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-            currentCommandCompletion = operationCompletion // Set the completion for the ViewModel
-
-            // Delegate the core download logic to the BleFileTransferManager
-            // This function handles acquiring mutex, sending command, and receiving data.
-            // It will also complete 'operationCompletion' once the file is downloaded or an error occurs.
-            bleFileTransferManager.downloadFile(fileName, bleMutex, operationCompletion)
-
-            // Await the result from the operationCompletion, which will be completed by
-            // BleFileTransferManager's handleCharacteristicChanged when the download is finished.
-            val (downloadSuccess, savedFilePath) = operationCompletion.await()
-
-            if (downloadSuccess && savedFilePath != null) {
-                if (fileName.startsWith("log.", ignoreCase = true)) {
-                    addLog("Log file '$fileName' downloaded and saved to: $savedFilePath")
-                    // No further processing for log files (no transcription, cleanup, or deletion from microcontroller)
-                } else if (fileName.endsWith(".wav", ignoreCase = true)) {
-                    val file = File(savedFilePath) // Use the directly saved path
-                    if (file.exists()) {
-                        transcriptionManager.transcriptionQueue.add(file.absolutePath)
-                        addLog("Added ${file.name} to transcription queue.")
-
-                        transcriptionManager.cleanupTranscriptionResultsAndAudioFiles()
-                        transcriptionManager.updateLocalAudioFileCount()
-
-                        // This will be delegated in the next step
-                        deleteFileOnMicrocontroller(fileName)
-                    } else {
-                        addLog("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
-                    }
-                }
-            } else {
-                addLog("Error: File '$fileName' download failed or saved path is null.")
-            }
-        }
+        fileTransferManager.downloadFileAndProcess(fileName)
     }
     
-    fun disconnect() {
-        addLog("Disconnecting from device")
-        resetOperationStates()
-        repository.disconnect()
-    }
 
-    fun forceReconnectBle() {
-        addLog("Force reconnect requested. Disconnecting and attempting to restart scan.")
-        viewModelScope.launch {
-            disconnect()
-            delay(500L) // Give a short delay for the stack to clear
-            restartScan(forceScan = true)
-        }
-    }
 
     private fun startBatchTranscription() {
         transcriptionManager.startBatchTranscription()
@@ -692,52 +450,17 @@ class BleViewModel(
     override fun onCleared() {
         super.onCleared()
         transcriptionManager.onCleared()
-        lowPowerLocationJob?.cancel() // Cancel low power location updates
-        repository.disconnect()
-        repository.close()
+        locationMonitor.onCleared()
+
         addLog("ViewModel cleared, resources released.")
     }
 
     fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
-        viewModelScope.launch {
-            val updatedList = reorderedList.mapIndexed { index, result ->
-                result.copy(displayOrder = index)
-            }
-            transcriptionResultRepository.updateResults(updatedList)
-            addLog("Transcription results order updated.")
-        }
+        transcriptionManager.updateDisplayOrder(reorderedList)
     }
 
     fun clearTranscriptionResults() {
-        viewModelScope.launch {
-            addLog("Starting clear all transcription results...")
-            val currentTranscriptionResults = transcriptionResults.value
-
-            val updatedListForRepo = mutableListOf<TranscriptionResult>()
-
-            // Process existing results
-            currentTranscriptionResults.forEach { result ->
-                if (result.googleTaskId == null) {
-                    // Local-only item: permanently delete now
-                    transcriptionResultRepository.permanentlyRemoveResult(result) // This will remove it from the DataStore
-                    val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-                    if (audioFile.exists()) {
-                        if (audioFile.delete()) {
-                            addLog("Deleted local-only audio file during clear all: ${result.fileName}")
-                        } else {
-                            addLog("Failed to delete local-only audio file during clear all: ${result.fileName}")
-                        }
-                    }
-                } else {
-                    // Synced item: soft delete (mark for remote deletion during next sync)
-                    updatedListForRepo.add(result.copy(isDeletedLocally = true))
-                }
-            }
-            transcriptionResultRepository.updateResults(updatedListForRepo)
-
-            addLog("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
-            transcriptionManager.updateLocalAudioFileCount() // Update count after deletions
-        }
+        transcriptionManager.clearTranscriptionResults()
     }
 
     fun clearLogs() {
@@ -747,68 +470,24 @@ class BleViewModel(
 
     // 特定の文字起こし結果を削除する関数
     fun removeTranscriptionResult(result: TranscriptionResult) {
-        viewModelScope.launch {
-            if (result.googleTaskId != null) {
-                // If synced with Google Tasks, perform a soft delete locally.
-                // Actual deletion from Google Tasks and permanent local deletion will happen during sync.
-                transcriptionResultRepository.removeResult(result) // This now sets isDeletedLocally = true
-                addLog("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
-            } else {
-                // If not synced with Google Tasks, permanently delete locally and its audio file immediately.
-                transcriptionResultRepository.permanentlyRemoveResult(result)
-                addLog("Permanently deleted local-only transcription result: ${result.fileName}")
-
-                val audioFile = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(context, audioDirName.value, result.fileName)
-                if (audioFile.exists()) {
-                    if (audioFile.delete()) {
-                        addLog("Associated audio file deleted: ${result.fileName}")
-                        transcriptionManager.updateLocalAudioFileCount()
-                    } else {
-                        addLog("Failed to delete associated audio file: ${result.fileName}")
-                    }
-                } else {
-                    addLog("Associated audio file not found for local-only result: ${result.fileName}")
-                }
-            }
-        }
+        transcriptionManager.removeTranscriptionResult(result)
     }
 
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) {
-        viewModelScope.launch {
-            // Create a new TranscriptionResult with the updated transcription and notes
-            val updatedResult = originalResult.copy(
-                transcription = newTranscription,
-                googleTaskNotes = newNote, // Update googleTaskNotes
-                lastEditedTimestamp = System.currentTimeMillis()
-            )
-            // The addResult method now handles updates, so we just call that.
-            transcriptionResultRepository.addResult(updatedResult)
-            addLog("Transcription result for ${originalResult.fileName} updated.")
-        }
+        transcriptionManager.updateTranscriptionResult(originalResult, newTranscription, newNote)
     }
 
     fun toggleSelection(fileName: String) {
-        _selectedFileNames.value = if (_selectedFileNames.value.contains(fileName)) {
-            _selectedFileNames.value - fileName
-        } else {
-            _selectedFileNames.value + fileName
-        }
-        addLog("Toggled selection for $fileName. Current selections: ${_selectedFileNames.value.size}")
+        bleSelectionManager.toggleSelection(fileName)
     }
 
     fun clearSelection() {
-        _selectedFileNames.value = emptySet()
-        addLog("Cleared selection.")
+        bleSelectionManager.clearSelection()
     }
 
     fun removeTranscriptionResults(fileNames: Set<String>) {
-        viewModelScope.launch {
-            val resultsToRemove = transcriptionResults.value.filter { fileNames.contains(it.fileName) }
-            resultsToRemove.forEach { result ->
-                removeTranscriptionResult(result) // Use the existing single delete function
-            }
-            clearSelection() // Clear selection after deletion
-            addLog("Removed ${resultsToRemove.size} selected transcription results.")
+        transcriptionManager.removeTranscriptionResults(fileNames) {
+            bleSelectionManager.clearSelection()
         }
     }
 

@@ -3,9 +3,7 @@ package com.pirorin215.fastrecmob.viewModel
 import android.content.Context
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
 import com.pirorin215.fastrecmob.data.FileEntry
-import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.data.parseFileEntries
-import com.pirorin215.fastrecmob.LocationTracker
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -25,8 +23,6 @@ class BleDeviceManager(
     private val addLog: (String) -> Unit,
     private val _currentOperation: MutableStateFlow<BleOperation>,
     private val bleMutex: Mutex,
-    private val locationTracker: LocationTracker,
-    private val lastKnownLocationRepository: LastKnownLocationRepository,
     private val onFileListUpdated: () -> Unit // Callback to trigger checking for new files
 ) {
     private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
@@ -71,7 +67,6 @@ class BleDeviceManager(
 
         // Fetch Info and List
         fetchDeviceInfo()
-        fetchFileList()
 
         // Start Periodic Time Sync
         startTimeSyncJob()
@@ -126,7 +121,7 @@ class BleDeviceManager(
         timeSyncJob = null
     }
 
-    suspend fun fetchDeviceInfo(connectionState: String = "Connected") {
+    suspend fun fetchDeviceInfo(connectionState: String = "Connected", onInfoReceived: suspend () -> Unit = {}) {
         if (connectionState != "Connected") {
             addLog("Cannot fetch device info, not connected.")
             return
@@ -154,14 +149,7 @@ class BleDeviceManager(
 
                 if (success) {
                     addLog("GET:info command completed successfully.")
-                    scope.launch {
-                        locationTracker.getCurrentLocation().onSuccess { locationData ->
-                            lastKnownLocationRepository.saveLastKnownLocation(locationData)
-                            addLog("Saved last known location on GET:info success.")
-                        }.onFailure { e ->
-                            addLog("Failed to get/save location: ${e.message}")
-                        }
-                    }
+                    scope.launch { onInfoReceived() }
                 } else {
                     addLog("GET:info command failed or timed out.")
                 }

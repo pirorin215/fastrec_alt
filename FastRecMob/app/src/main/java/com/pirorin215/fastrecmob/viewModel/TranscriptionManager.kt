@@ -6,7 +6,6 @@ import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import com.pirorin215.fastrecmob.service.SpeechToTextService
-import com.pirorin215.fastrecmob.LocationTracker
 import com.pirorin215.fastrecmob.data.FileUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +26,6 @@ class TranscriptionManager(
     private val scope: CoroutineScope,
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
-    private val locationTracker: LocationTracker,
     private val currentForegroundLocationFlow: StateFlow<LocationData?>,
     private val audioDirNameFlow: StateFlow<String>,
     private val transcriptionCacheLimitFlow: StateFlow<Int>,
@@ -95,22 +93,7 @@ class TranscriptionManager(
         if (locationData != null) {
             logCallback("Using pre-collected location for transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
         } else {
-            // Fallback: Get low power location on-demand if pre-collected is not available
-            logCallback("Pre-collected location not available. Attempting on-demand low power location for transcription.")
-            try {
-                locationTracker.getLowPowerLocation().onSuccess {
-                    locationData = it
-                    logCallback("Obtained on-demand low power location for transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-                }.onFailure { e ->
-                    logCallback("Failed to get on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
-                }
-            } catch (e: SecurityException) {
-                logCallback("Location permission not granted for transcription. Proceeding without location data.")
-            } catch (e: IllegalStateException) {
-                logCallback("Location services are disabled for transcription. Proceeding without location data.")
-            } catch (e: Exception) {
-                logCallback("Unexpected error getting on-demand low power location for transcription: ${e.message}. Proceeding without location data.")
-            }
+            logCallback("Pre-collected location not available. Proceeding without location data.")
         }
 
         if (currentService == null) {
@@ -245,17 +228,7 @@ class TranscriptionManager(
             if (locationData != null) {
                 logCallback("Using pre-collected location for manual transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
             } else {
-                 logCallback("Pre-collected location not available. Attempting on-demand low power location for manual transcription.")
-                try {
-                    locationTracker.getLowPowerLocation().onSuccess {
-                        locationData = it
-                         logCallback("Obtained on-demand low power location for manual transcription: Lat=${it.latitude}, Lng=${it.longitude}")
-                    }.onFailure { e ->
-                         logCallback("Failed to get on-demand low power location for manual transcription: ${e.message}. Proceeding without location data.")
-                    }
-                } catch (e: Exception) {
-                     logCallback("Unexpected error getting location: ${e.message}")
-                }
+                 logCallback("Pre-collected location not available for manual transcription. Proceeding without location data.")
             }
 
             val timestamp = System.currentTimeMillis()
@@ -266,6 +239,102 @@ class TranscriptionManager(
             logCallback("Manual transcription added: $manualFileName")
 
             cleanupTranscriptionResultsAndAudioFiles()
+        }
+    }
+
+    fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
+        scope.launch {
+            val updatedList = reorderedList.mapIndexed { index, result ->
+                result.copy(displayOrder = index)
+            }
+            transcriptionResultRepository.updateResults(updatedList)
+            logCallback("Transcription results order updated.")
+        }
+    }
+
+    fun clearTranscriptionResults() {
+        scope.launch {
+            logCallback("Starting clear all transcription results...")
+            val currentTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
+
+            val updatedListForRepo = mutableListOf<TranscriptionResult>()
+
+            // Process existing results
+            currentTranscriptionResults.forEach { result ->
+                if (result.googleTaskId == null) {
+                    // Local-only item: permanently delete now
+                    transcriptionResultRepository.permanentlyRemoveResult(result) // This will remove it from the DataStore
+                    val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
+                    if (audioFile.exists()) {
+                        if (audioFile.delete()) {
+                            logCallback("Deleted local-only audio file during clear all: ${result.fileName}")
+                        } else {
+                            logCallback("Failed to delete local-only audio file during clear all: ${result.fileName}")
+                        }
+                    }
+                } else {
+                    // Synced item: soft delete (mark for remote deletion during next sync)
+                    updatedListForRepo.add(result.copy(isDeletedLocally = true))
+                }
+            }
+            transcriptionResultRepository.updateResults(updatedListForRepo)
+
+            logCallback("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
+            updateLocalAudioFileCount() // Update count after deletions
+        }
+    }
+
+    fun removeTranscriptionResult(result: TranscriptionResult) {
+        scope.launch {
+            if (result.googleTaskId != null) {
+                // If synced with Google Tasks, perform a soft delete locally.
+                // Actual deletion from Google Tasks and permanent local deletion will happen during sync.
+                transcriptionResultRepository.removeResult(result) // This now sets isDeletedLocally = true
+                logCallback("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
+            } else {
+                // If not synced with Google Tasks, permanently delete locally and its audio file immediately.
+                transcriptionResultRepository.permanentlyRemoveResult(result)
+                logCallback("Permanently deleted local-only transcription result: ${result.fileName}")
+
+                val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
+                if (audioFile.exists()) {
+                    if (audioFile.delete()) {
+                        logCallback("Associated audio file deleted: ${result.fileName}")
+                        updateLocalAudioFileCount()
+                    } else {
+                        logCallback("Failed to delete associated audio file: ${result.fileName}")
+                    }
+                } else {
+                    logCallback("Associated audio file not found for local-only result: ${result.fileName}")
+                }
+            }
+        }
+    }
+
+    fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) {
+        scope.launch {
+            // Create a new TranscriptionResult with the updated transcription and notes
+            val updatedResult = originalResult.copy(
+                transcription = newTranscription,
+                googleTaskNotes = newNote, // Update googleTaskNotes
+                lastEditedTimestamp = System.currentTimeMillis()
+            )
+            // The addResult method now handles updates, so we just call that.
+            transcriptionResultRepository.addResult(updatedResult)
+            logCallback("Transcription result for ${originalResult.fileName} updated.")
+        }
+    }
+
+    fun removeTranscriptionResults(fileNames: Set<String>, clearSelectionCallback: () -> Unit) {
+        scope.launch {
+            // We need to fetch the current results to filter
+            val currentResults = transcriptionResultRepository.transcriptionResultsFlow.first()
+            val resultsToRemove = currentResults.filter { fileNames.contains(it.fileName) }
+            resultsToRemove.forEach { result ->
+                removeTranscriptionResult(result) // Use the existing single delete function
+            }
+            clearSelectionCallback() // Clear selection after deletion
+            logCallback("Removed ${resultsToRemove.size} selected transcription results.")
         }
     }
 
