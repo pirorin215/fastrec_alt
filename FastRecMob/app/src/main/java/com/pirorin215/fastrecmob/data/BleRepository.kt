@@ -45,6 +45,14 @@ sealed class BleEvent {
 @SuppressLint("MissingPermission")
 class BleRepository(private val context: Context) {
 
+    companion object {
+        const val SERVICE_UUID_STRING = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+        const val COMMAND_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+        const val ACK_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+        const val CCCD_UUID_STRING = "00002902-0000-1000-8000-00805f9b34fb"
+    }
+
     private val TAG = "BleRepository"
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -103,15 +111,15 @@ class BleRepository(private val context: Context) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d(TAG, "Services discovered successfully.")
                 // Store characteristics
-                val service = gatt.getService(UUID.fromString(BleViewModel.SERVICE_UUID))
+                val service = gatt.getService(UUID.fromString(SERVICE_UUID_STRING))
                 if (service == null) {
-                    Log.e(TAG, "Custom service (${BleViewModel.SERVICE_UUID}) not found.")
+                    Log.e(TAG, "Custom service (${SERVICE_UUID_STRING}) not found.")
                     disconnect()
                     return
                 }
-                commandCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.COMMAND_UUID_STRING))
-                ackCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.ACK_UUID_STRING))
-                val responseCharacteristic = service.getCharacteristic(UUID.fromString(BleViewModel.RESPONSE_UUID_STRING))
+                commandCharacteristic = service.getCharacteristic(UUID.fromString(COMMAND_UUID_STRING))
+                ackCharacteristic = service.getCharacteristic(UUID.fromString(ACK_UUID_STRING))
+                val responseCharacteristic = service.getCharacteristic(UUID.fromString(RESPONSE_UUID_STRING))
 
                 if (commandCharacteristic == null || ackCharacteristic == null || responseCharacteristic == null) {
                     Log.e(TAG, "One or more required characteristics not found.")
@@ -121,7 +129,7 @@ class BleRepository(private val context: Context) {
 
                 // Enable notifications for the response characteristic
                 gatt.setCharacteristicNotification(responseCharacteristic, true)
-                val descriptor = responseCharacteristic.getDescriptor(UUID.fromString(BleViewModel.CCCD_UUID_STRING))
+                val descriptor = responseCharacteristic.getDescriptor(UUID.fromString(CCCD_UUID_STRING))
                 if (descriptor != null) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)

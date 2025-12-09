@@ -21,27 +21,27 @@ import androidx.core.app.NotificationCompat
 import com.pirorin215.fastrecmob.MainActivity
 import com.pirorin215.fastrecmob.R // リソースファイルが必要になります
 import com.pirorin215.fastrecmob.BleScanServiceManager
-import com.pirorin215.fastrecmob.viewModel.BleViewModel // Add this import
-import android.os.ParcelUuid // Add this import
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class BleScanService : Service() {
 
+    companion object {
+        const val DEVICE_NAME = "fastrec"
+        const val NOTIFICATION_ID = 1 // Moved here
+    }
+
     private val TAG = "BleScanService"
     private val CHANNEL_ID = "BleScanServiceChannel"
-    private val NOTIFICATION_ID = 1
+    private val SCAN_TIMEOUT_MS = 30000L // 30秒のスキャンタイムアウト
 
     private lateinit var bluetoothManager: BluetoothManager
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanJob: Job? = null
-
-    private val DEVICE_NAME = "fastrec" // BleViewModelと共通
-    private val SCAN_TIMEOUT_MS = 30000L // 30秒のスキャンタイムアウト
 
     private val scanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER) // バッテリー消費を抑える
@@ -52,7 +52,7 @@ class BleScanService : Service() {
         .build()
 
     private val scanFilter = ScanFilter.Builder()
-        .setDeviceName(BleViewModel.DEVICE_NAME)
+        .setDeviceName(DEVICE_NAME)
         .build()
 
     override fun onCreate() {
@@ -117,8 +117,8 @@ class BleScanService : Service() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             Log.d(TAG, "ScanResult: Device found - ${result.device.name} (${result.device.address}), RSSI: ${result.rssi}")
-            if (result.device.name == BleViewModel.DEVICE_NAME) {
-                Log.d(TAG, "Target device '${BleViewModel.DEVICE_NAME}' found! Signaling BleViewModel to connect.")
+            if (result.device.name == DEVICE_NAME) {
+                Log.d(TAG, "Target device '${DEVICE_NAME}' found! Signaling BleViewModel to connect.")
                 // Stop scanning to allow the ViewModel to handle the connection.
                 // The ViewModel will be responsible for restarting the scan later.
                 stopBleScan()
@@ -133,8 +133,8 @@ class BleScanService : Service() {
             Log.d(TAG, "onBatchScanResults: ${results.size} devices found.")
             // バッチスキャン結果の中からターゲットデバイスを探す
             results.forEach { result ->
-                if (result.device.name == BleViewModel.DEVICE_NAME) {
-                    Log.d(TAG, "Target device '${BleViewModel.DEVICE_NAME}' found in batch! Signaling BleViewModel to connect.")
+                if (result.device.name == DEVICE_NAME) {
+                    Log.d(TAG, "Target device '${DEVICE_NAME}' found in batch! Signaling BleViewModel to connect.")
                     // Do NOT stop scan here; continue scanning for automatic re-detection
                     CoroutineScope(Dispatchers.IO).launch {
                         BleScanServiceManager.emitDeviceFound(result.device)

@@ -35,9 +35,8 @@ class FileTransferManager(
     private val sendCommandCallback: (String) -> Unit,
     private val sendAckCallback: (ByteArray) -> Unit,
     private val _currentOperation: MutableStateFlow<BleOperation>,
-    private val _fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>>,
-    private val _connectionState: StateFlow<String>,
-    private val fetchFileListCallback: suspend () -> Unit
+    private val bleDeviceManager: BleDeviceManager, // Modified
+    private val _connectionState: StateFlow<String>
 ) {
 
     companion object {
@@ -198,7 +197,7 @@ class FileTransferManager(
                     currentDownloadingFileName = fileName
                     currentCommandCompletion = CompletableDeferred()
 
-                    val fileEntry = _fileList.value.find { it.name == fileName }
+                    val fileEntry = bleDeviceManager.fileList.value.find { it.name == fileName }
                     val fileSize = fileEntry?.size ?: 0L
                     _currentFileTotalSize.value = fileSize
 
@@ -232,14 +231,14 @@ class FileTransferManager(
                 } else if (fileName.endsWith(".wav", ignoreCase = true)) {
                     val file = File(savedFilePath)
                     if (file.exists()) {
-                        transcriptionManager.transcriptionQueue.add(file.absolutePath)
-                        logCallback("Added ${file.name} to transcription queue.")
+                        transcriptionManager.addPendingTranscription(file.name)
+                        logCallback("Created pending transcription record for ${file.name}.")
 
-                        transcriptionManager.cleanupTranscriptionResultsAndAudioFiles()
+                        scope.launch { transcriptionManager.cleanupTranscriptionResultsAndAudioFiles() }
                         transcriptionManager.updateLocalAudioFileCount()
 
                         // Automatically delete the file from the microcontroller after successful download and queuing
-                        deleteFileAndRefresh(fileName)
+                        deleteFileAndUpdateList(fileName)
                     } else {
                         logCallback("Error: Downloaded WAV file not found at ${file.absolutePath}. Cannot queue or delete.")
                     }
@@ -251,8 +250,12 @@ class FileTransferManager(
     }
 
 
-    private suspend fun deleteFileAndRefresh(fileName: String) {
+    private suspend fun deleteFileAndUpdateList(fileName: String) {
         if (_connectionState.value != "Connected") {
+            // If not connected, we cannot delete the file from the device.
+            // However, we should still remove it from the local list if the download was successful,
+            // assuming the intention is to process it and then treat it as "done".
+            // For now, we only log and return, as deleting without connection is not possible.
             logCallback("Cannot delete file, not connected.")
             return
         }
@@ -283,8 +286,8 @@ class FileTransferManager(
 
                     if (success) {
                         logCallback("Successfully deleted file: $fileName.")
-                        delay(500L) // Give device time to process
-                        fetchFileListCallback()
+                        // Instead of re-fetching the list, remove it from the local state
+                        bleDeviceManager.removeFileFromList(fileName)
                         transcriptionManager.updateLocalAudioFileCount()
                         break
                     } else if (i < MAX_DELETE_RETRIES) {
@@ -297,7 +300,7 @@ class FileTransferManager(
                     logCallback("Failed to delete file: $fileName after all attempts.")
                 }
                 _currentOperation.value = BleOperation.IDLE
-                logCallback("deleteFileOnMicrocontroller operation scope finished for $fileName.")
+                logCallback("deleteFileAndUpdateList operation scope finished for $fileName.")
             }
         }
     }

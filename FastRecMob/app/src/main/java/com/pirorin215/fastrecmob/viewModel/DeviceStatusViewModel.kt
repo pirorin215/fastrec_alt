@@ -8,7 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.pirorin215.fastrecmob.data.BleRepository
 import com.pirorin215.fastrecmob.data.ConnectionState
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.data.BleRepository.Companion.RESPONSE_UUID_STRING // Corrected import for RESPONSE_UUID_STRING
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -86,9 +86,12 @@ class DeviceStatusViewModel(
             },
             onReady = {
                 viewModelScope.launch {
-                    bleDeviceManager.onDeviceReady()
+                    val timeSyncSuccess = bleDeviceManager.syncTime(_connectionState.value)
+                    if (timeSyncSuccess) {
+                        bleDeviceManager.startTimeSyncJob() // Start periodic sync
+                        bleDeviceManager.fetchDeviceInfo(_connectionState.value)
+                    }
                     _onDeviceReadyEvent.emit(Unit) // Emit event when device is ready
-                    // Auto-refresh is handled by BleViewModel for now
                 }
             }
         )
@@ -136,11 +139,7 @@ class DeviceStatusViewModel(
 
     fun fetchDeviceInfo() {
         viewModelScope.launch {
-            bleDeviceManager.fetchDeviceInfo(
-                connectionState = connectionState.value,
-                                onInfoReceived = { /* no parameters */ }
-                            )
-
+            bleDeviceManager.fetchDeviceInfo(connectionState = connectionState.value)
         }
     }
 
@@ -150,7 +149,7 @@ class DeviceStatusViewModel(
     }
 
     private fun handleCharacteristicChanged(characteristic: android.bluetooth.BluetoothGattCharacteristic, value: ByteArray) {
-        if (characteristic.uuid.toString() != BleViewModel.RESPONSE_UUID_STRING) return
+        if (characteristic.uuid.toString() != RESPONSE_UUID_STRING) return
 
         when (_currentOperation.value) {
             BleOperation.FETCHING_DEVICE_INFO, BleOperation.SENDING_TIME -> { // SENDING_TIME also updates device info

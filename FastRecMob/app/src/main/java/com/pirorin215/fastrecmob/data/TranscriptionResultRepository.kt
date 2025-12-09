@@ -33,7 +33,8 @@ data class TranscriptionResult(
     val googleTaskDue: String? = null, // RFC 3339 timestamp
     val googleTaskWebViewLink: String? = null,
     val isSyncedWithGoogleTasks: Boolean = false,
-    val isDeletedLocally: Boolean = false // New field for soft deletion
+    val isDeletedLocally: Boolean = false, // New field for soft deletion
+    val transcriptionStatus: String = "COMPLETED" // PENDING, COMPLETED, FAILED
 ) {
     // Secondary constructor to simplify creation when lastEditedTimestamp is current time
     constructor(
@@ -55,7 +56,8 @@ data class TranscriptionResult(
         googleTaskDue = null,
         googleTaskWebViewLink = null,
         isSyncedWithGoogleTasks = false,
-        isDeletedLocally = false // Default for new field
+        isDeletedLocally = false, // Default for new field
+        transcriptionStatus = "COMPLETED"
     )
 }
 

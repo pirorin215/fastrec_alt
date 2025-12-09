@@ -40,76 +40,72 @@ class BleDeviceManager(
         const val TIME_SYNC_INTERVAL_MS = 300000L // 5 minutes
     }
 
-    suspend fun onDeviceReady() {
-        // Initial Time Sync
-        bleMutex.withLock {
-            _currentOperation.value = BleOperation.SENDING_TIME
-            responseBuffer.clear()
-            val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-            currentCommandCompletion = timeCompletion
-
-            val currentTimestampSec = System.currentTimeMillis() / 1000
-            val timeCommand = "SET:time:$currentTimestampSec"
-            addLog("Sending initial time synchronization command: $timeCommand")
-            sendCommand(timeCommand)
-
-            val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) {
-                timeCompletion.await()
-            } ?: Pair(false, null)
-
-            if (timeSyncSuccess) {
-                addLog("Initial time synchronization successful.")
-            } else {
-                addLog("Initial time synchronization failed or timed out.")
-            }
-            _currentOperation.value = BleOperation.IDLE
+    suspend fun syncTime(connectionState: String): Boolean {
+        if (connectionState != "Connected") {
+            addLog("Cannot sync time, not connected.")
+            return false
         }
 
-        // Fetch Info and List
-        fetchDeviceInfo()
+        return bleMutex.withLock {
+            if (_currentOperation.value != BleOperation.IDLE) {
+                addLog("Cannot sync time, busy: ${_currentOperation.value}")
+                return@withLock false
+            }
 
-        // Start Periodic Time Sync
-        startTimeSyncJob()
+            try {
+                _currentOperation.value = BleOperation.SENDING_TIME
+                responseBuffer.clear()
+                val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
+                currentCommandCompletion = timeCompletion
+
+                val currentTimestampSec = System.currentTimeMillis() / 1000
+                val timeCommand = "SET:time:$currentTimestampSec"
+                addLog("Sending time synchronization command: $timeCommand")
+                sendCommand(timeCommand)
+
+                val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) {
+                    timeCompletion.await()
+                } ?: Pair(false, "Timeout")
+
+                if (timeSyncSuccess) {
+                    addLog("Time synchronization successful.")
+                } else {
+                    addLog("Time synchronization failed or timed out.")
+                }
+                timeSyncSuccess
+            } catch (e: Exception) {
+                addLog("Error during time sync: ${e.message}")
+                false
+            } finally {
+                _currentOperation.value = BleOperation.IDLE
+                currentCommandCompletion = null
+            }
+        }
     }
 
-    private fun startTimeSyncJob() {
+
+    fun startTimeSyncJob() {
         timeSyncJob?.cancel()
         timeSyncJob = scope.launch {
             while (true) {
                 delay(TIME_SYNC_INTERVAL_MS)
                 if (_currentOperation.value == BleOperation.IDLE) {
-                    // We need to check connection state too, but Manager doesn't know it directly?
-                    // We can assume if we are running, we want to try.
-                    // Or we should pass connectionState provider.
-                    // For now, let's try to acquire lock.
+                    // Using tryLock to avoid waiting if another operation is in progress
                     if (bleMutex.tryLock()) {
-                         try {
-                             if (_currentOperation.value == BleOperation.IDLE) {
-                                 val periodicTimestampSec = System.currentTimeMillis() / 1000
-                                 val periodicTimeCommand = "SET:time:$periodicTimestampSec"
-                                 addLog("Sending periodic time synchronization command: $periodicTimeCommand")
-                                 sendCommand(periodicTimeCommand)
-                                 // Note: We don't wait for response here to block. 
-                                 // But technically we should set SENDING_TIME to handle response.
-                                 // The original code used withLock and sent command, but didn't wait?
-                                 // Original:
-                                 /*
-                                    bleMutex.withLock {
-                                        val periodicTimestampSec = ...
-                                        sendCommand(...)
-                                    }
-                                 */
-                                 // It didn't set _currentOperation = SENDING_TIME! 
-                                 // It just sent it. If a response comes, it would be handled?
-                                 // If response comes and IDLE, it might be logged as unexpected.
-                                 // But periodic sync response might be ignored.
-                                 // Let's keep it simple.
-                             }
-                         } finally {
-                             bleMutex.unlock()
-                         }
+                        try {
+                            if (_currentOperation.value == BleOperation.IDLE) {
+                                val periodicTimestampSec = System.currentTimeMillis() / 1000
+                                val periodicTimeCommand = "SET:time:$periodicTimestampSec"
+                                addLog("Sending periodic time synchronization command: $periodicTimeCommand")
+                                sendCommand(periodicTimeCommand)
+                                // This is a best-effort periodic sync, so we don't wait for the response.
+                                // The device will either get it or not. The main sync is more important.
+                            }
+                        } finally {
+                            bleMutex.unlock()
+                        }
                     } else {
-                        addLog("Skipping periodic time sync: busy.")
+                        addLog("Skipping periodic time sync: another operation is in progress.")
                     }
                 }
             }
@@ -121,16 +117,16 @@ class BleDeviceManager(
         timeSyncJob = null
     }
 
-    suspend fun fetchDeviceInfo(connectionState: String = "Connected", onInfoReceived: suspend () -> Unit = {}) {
+    suspend fun fetchDeviceInfo(connectionState: String): Boolean {
         if (connectionState != "Connected") {
             addLog("Cannot fetch device info, not connected.")
-            return
+            return false
         }
 
-        bleMutex.withLock {
+        return bleMutex.withLock {
             if (_currentOperation.value != BleOperation.IDLE) {
                 addLog("Cannot fetch device info, busy: ${_currentOperation.value}")
-                return@withLock
+                return@withLock false
             }
 
             try {
@@ -145,16 +141,17 @@ class BleDeviceManager(
 
                 val (success, _) = withTimeoutOrNull(15000L) {
                     commandCompletion.await()
-                } ?: Pair(false, null)
+                } ?: Pair(false, "Timeout")
 
                 if (success) {
                     addLog("GET:info command completed successfully.")
-                    scope.launch { onInfoReceived() }
                 } else {
                     addLog("GET:info command failed or timed out.")
                 }
+                success
             } catch (e: Exception) {
                 addLog("Error fetchDeviceInfo: ${e.message}")
+                false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
                 currentCommandCompletion = null
@@ -162,16 +159,16 @@ class BleDeviceManager(
         }
     }
 
-    suspend fun fetchFileList(connectionState: String = "Connected", extension: String = "wav") {
+    suspend fun fetchFileList(connectionState: String, extension: String = "wav"): Boolean {
         if (connectionState != "Connected") {
             addLog("Cannot fetch file list, not connected.")
-            return
+            return false
         }
 
-        bleMutex.withLock {
+        return bleMutex.withLock {
             if (_currentOperation.value != BleOperation.IDLE) {
                 addLog("Cannot fetch file list, busy: ${_currentOperation.value}")
-                return@withLock
+                return@withLock false
             }
 
             try {
@@ -186,7 +183,7 @@ class BleDeviceManager(
 
                 val (success, _) = withTimeoutOrNull(15000L) {
                     commandCompletion.await()
-                } ?: Pair(false, null)
+                } ?: Pair(false, "Timeout")
 
                 if (success) {
                     addLog("GET:ls:$extension completed.")
@@ -196,8 +193,10 @@ class BleDeviceManager(
                 } else {
                     addLog("GET:ls:$extension failed or timed out.")
                 }
+                success
             } catch (e: Exception) {
                 addLog("Error fetchFileList: ${e.message}")
+                false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
                 currentCommandCompletion = null
@@ -205,9 +204,14 @@ class BleDeviceManager(
         }
     }
 
+
+    fun removeFileFromList(fileName: String) {
+        _fileList.value = _fileList.value.filterNot { it.name == fileName }
+        addLog("Removed '$fileName' from local file list.")
+        onFileListUpdated() // Callback to trigger checking for new files
+    }
+
     fun handleResponse(value: ByteArray) {
-        // Dispatch based on _currentOperation.value
-        // Logic copied from BleViewModel
         when (_currentOperation.value) {
             BleOperation.FETCHING_DEVICE_INFO -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
@@ -216,7 +220,7 @@ class BleDeviceManager(
                 }
                 responseBuffer.addAll(value.toList())
                 val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                
+
                 if (currentBufferAsString.trim().endsWith("}")) {
                     try {
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
@@ -225,25 +229,25 @@ class BleDeviceManager(
                         currentCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         addLog("Error parsing DeviceInfo: ${e.message}")
-                        currentCommandCompletion?.complete(Pair(false, null))
+                        currentCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
                     addLog("Error response GET:info: $currentBufferAsString")
-                    currentCommandCompletion?.complete(Pair(false, null))
+                    currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
             }
             BleOperation.FETCHING_FILE_LIST -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
                 if (responseBuffer.isEmpty() && !incomingString.startsWith("[") && !incomingString.startsWith("ERROR:")) {
                     if (incomingString == "[]") {
-                         _fileList.value = emptyList()
-                         currentCommandCompletion?.complete(Pair(true, null))
+                        _fileList.value = emptyList()
+                        currentCommandCompletion?.complete(Pair(true, null))
                     }
                     return
                 }
                 responseBuffer.addAll(value.toList())
                 val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                
+
                 if (currentBufferAsString.trim().endsWith("]")) {
                     try {
                         _fileList.value = parseFileEntries(currentBufferAsString)
@@ -251,12 +255,12 @@ class BleDeviceManager(
                         currentCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         addLog("Error parsing FileList: ${e.message}")
-                        currentCommandCompletion?.complete(Pair(false, null))
+                        currentCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
                     addLog("Error response GET:ls: $currentBufferAsString")
                     _fileList.value = emptyList()
-                    currentCommandCompletion?.complete(Pair(false, null))
+                    currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
             }
             BleOperation.SENDING_TIME -> {
@@ -265,26 +269,18 @@ class BleDeviceManager(
                     currentCommandCompletion?.complete(Pair(true, null))
                     responseBuffer.clear()
                 } else if (response.startsWith("ERROR:")) {
-                    currentCommandCompletion?.complete(Pair(false, null))
+                    currentCommandCompletion?.complete(Pair(false, response))
                     responseBuffer.clear()
                 } else {
-                     // Wait for more? or fail? Original failed.
-                     // But we should accumulate if fragmented? 
-                     // Time response is usually short.
-                     // Original code:
-                     /*
-                    } else {
-                        addLog("Unexpected response during SET:time: $response")
-                        currentCommandCompletion?.complete(Pair(false, null)) 
-                        responseBuffer.clear()
-                    }
-                     */
-                     // It assumes full packet.
-                     currentCommandCompletion?.complete(Pair(false, null))
-                     responseBuffer.clear()
+                    addLog("Unexpected response during SET:time: $response")
+                    // Don't complete here, maybe the message is fragmented.
+                    // Timeout will handle the failure.
                 }
             }
-            else -> {}
+            else -> {
+                // This can happen if a response from a previous operation arrives late.
+                // addLog("handleResponse called in non-listening state: ${_currentOperation.value}")
+            }
         }
     }
 }

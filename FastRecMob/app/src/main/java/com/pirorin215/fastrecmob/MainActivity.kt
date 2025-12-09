@@ -1,5 +1,7 @@
 package com.pirorin215.fastrecmob
 
+import com.pirorin215.fastrecmob.viewModel.BleViewModel
+
 import android.Manifest
 import android.app.Application
 import android.app.Activity
@@ -25,7 +27,6 @@ import com.pirorin215.fastrecmob.ui.screen.MainScreen
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
 import com.pirorin215.fastrecmob.viewModel.BleViewModelFactory
 import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel
 import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModelFactory

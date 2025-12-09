@@ -9,6 +9,8 @@ import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 
+import com.pirorin215.fastrecmob.viewModel.BleViewModel
+
 class BleViewModelFactory(
     private val appSettingsRepository: AppSettingsRepository,
     private val lastKnownLocationRepository: LastKnownLocationRepository,

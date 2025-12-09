@@ -33,8 +33,6 @@ class TranscriptionManager(
 ) {
 
     private var speechToTextService: SpeechToTextService? = null
-    private val transcriptionBatchMutex = Mutex()
-    val transcriptionQueue = mutableListOf<String>()
 
     private val _transcriptionState = MutableStateFlow("Idle")
     val transcriptionState: StateFlow<String> = _transcriptionState.asStateFlow()
@@ -78,31 +76,32 @@ class TranscriptionManager(
         }
     }
 
-    suspend fun doTranscription(filePath: String) {
+    private val transcriptionMutex = Mutex()
+
+    suspend fun doTranscription(resultToProcess: TranscriptionResult) {
+        val filePath = FileUtil.getAudioFile(context, audioDirNameFlow.value, resultToProcess.fileName).absolutePath
         _transcriptionState.value = "Transcribing ${File(filePath).name}"
-        _transcriptionResult.value = null
         logCallback("Starting transcription for $filePath")
 
         val currentService = speechToTextService
-        val actualFileName = File(filePath).name
-
-        var locationData: LocationData? = null
-        // Try to use pre-collected low-power location
-        locationData = currentForegroundLocationFlow.value
-
+        val locationData = currentForegroundLocationFlow.value
         if (locationData != null) {
-            logCallback("Using pre-collected location for transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
+            logCallback("Using pre-collected location for transcription: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
         } else {
             logCallback("Pre-collected location not available. Proceeding without location data.")
         }
 
         if (currentService == null) {
-            _transcriptionState.value = "Error: APIキーが設定されていません。設定画面で入力してください。"
-            logCallback("Transcription failed: APIキーが設定されていません。")
-            val errorResult = TranscriptionResult(actualFileName, "文字起こしエラー: APIキーが設定されていません。設定画面で入力してください。", locationData)
+            val errorMessage = "APIキーが設定されていません。設定画面で入力してください。"
+            _transcriptionState.value = "Error: $errorMessage"
+            logCallback("Transcription failed: $errorMessage")
+            val errorResult = resultToProcess.copy(
+                transcription = "文字起こしエラー: $errorMessage",
+                locationData = locationData ?: resultToProcess.locationData,
+                transcriptionStatus = "FAILED"
+            )
             transcriptionResultRepository.addResult(errorResult)
-            logCallback("Transcription error result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
+            logCallback("Transcription error result saved for ${resultToProcess.fileName}.")
             return
         }
 
@@ -111,10 +110,13 @@ class TranscriptionManager(
         result.onSuccess { transcription ->
             _transcriptionResult.value = transcription
             logCallback("Transcription successful for $filePath.")
-            val newResult = TranscriptionResult(actualFileName, transcription, locationData)
+            val newResult = resultToProcess.copy(
+                transcription = transcription,
+                locationData = locationData ?: resultToProcess.locationData,
+                transcriptionStatus = "COMPLETED"
+            )
             transcriptionResultRepository.addResult(newResult)
-            logCallback("Transcription result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
+            logCallback("Transcription result saved for ${resultToProcess.fileName}.")
         }.onFailure { error ->
             val errorMessage = error.message ?: "不明なエラー"
             val displayMessage = if (errorMessage.contains("API key authentication failed") || errorMessage.contains("API key is not set")) {
@@ -125,37 +127,40 @@ class TranscriptionManager(
             _transcriptionState.value = "Error: $displayMessage"
             _transcriptionResult.value = null
             logCallback("Transcription failed for $filePath: $displayMessage")
-            val errorResult = TranscriptionResult(actualFileName, displayMessage, locationData)
+            val errorResult = resultToProcess.copy(
+                transcription = displayMessage,
+                locationData = locationData ?: resultToProcess.locationData,
+                transcriptionStatus = "FAILED"
+            )
             transcriptionResultRepository.addResult(errorResult)
-            logCallback("Transcription error result saved for $actualFileName.")
-            cleanupTranscriptionResultsAndAudioFiles()
+            logCallback("Transcription error result saved for ${resultToProcess.fileName}.")
         }
     }
 
-    fun startBatchTranscription() {
-        if (transcriptionQueue.isEmpty()) {
-            logCallback("Transcription queue is empty. Nothing to do.")
-            return
-        }
-
+    fun processPendingTranscriptions() {
         scope.launch {
-            if (!transcriptionBatchMutex.tryLock()) {
-                logCallback("Batch transcription already in progress. Skipping.")
+            if (!transcriptionMutex.tryLock()) {
+                logCallback("Transcription processing already in progress. Skipping.")
                 return@launch
             }
             try {
-                logCallback("Found ${transcriptionQueue.size} file(s) in queue. Starting batch transcription.")
-                val filesToProcess = transcriptionQueue.toList()
-                transcriptionQueue.clear()
+                val pendingResults = transcriptionResultRepository.transcriptionResultsFlow.first()
+                    .filter { it.transcriptionStatus == "PENDING" }
 
-                for (filePath in filesToProcess) {
-                    doTranscription(filePath)
+                if (pendingResults.isEmpty()) {
+                    logCallback("No pending transcriptions to process.")
+                    return@launch
                 }
-                logCallback("Batch transcription finished.")
-                _transcriptionState.value = "Idle" // Reset state after batch is done
-                cleanupTranscriptionResultsAndAudioFiles() // Call cleanup after batch transcription
+
+                logCallback("Found ${pendingResults.size} pending transcription(s). Starting processing.")
+                for (result in pendingResults) {
+                    doTranscription(result)
+                }
+                logCallback("Pending transcription processing finished.")
+                _transcriptionState.value = "Idle"
             } finally {
-                transcriptionBatchMutex.unlock()
+                transcriptionMutex.unlock()
+                cleanupTranscriptionResultsAndAudioFiles() // Call cleanup after batch transcription
             }
         }
     }
@@ -209,16 +214,40 @@ class TranscriptionManager(
             val audioDirName = audioDirNameFlow.value
             val audioFile = FileUtil.getAudioFile(context, audioDirName, result.fileName)
             if (!audioFile.exists()) {
-                logCallback("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe. Item will not be removed.")
+                logCallback("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe.")
+                // Optionally update status to FAILED here if desired
+                val updatedResult = result.copy(transcriptionStatus = "FAILED", transcription = "Audio file not found.")
+                transcriptionResultRepository.addResult(updatedResult)
                 return@launch
             }
 
-            logCallback("Audio file found for retranscription: ${audioFile.absolutePath}")
-            transcriptionResultRepository.removeResult(result)
-            logCallback("Removed old transcription result for ${result.fileName} before re-transcribing.")
+            logCallback("Marking ${result.fileName} as PENDING for retranscription.")
+            val pendingResult = result.copy(transcriptionStatus = "PENDING")
+            transcriptionResultRepository.addResult(pendingResult)
 
-            doTranscription(audioFile.absolutePath)
-            logCallback("Initiated retranscription for ${result.fileName}.")
+            // Immediately trigger processing
+            processPendingTranscriptions()
+        }
+    }
+
+    fun addPendingTranscription(fileName: String) {
+        scope.launch {
+            logCallback("Creating pending transcription record for $fileName")
+            // Check if a result for this file already exists to avoid duplicates
+            val existing = transcriptionResultRepository.transcriptionResultsFlow.first().find { it.fileName == fileName }
+            if (existing != null) {
+                logCallback("Transcription record for $fileName already exists. Skipping creation.")
+                return@launch
+            }
+
+            val newResult = TranscriptionResult(
+                fileName = fileName,
+                transcription = "", // Empty transcription initially
+                locationData = null, // Location will be fetched during transcription
+                transcriptionStatus = "PENDING"
+            )
+            transcriptionResultRepository.addResult(newResult)
+            logCallback("Pending transcription for $fileName saved.")
         }
     }
 
@@ -238,7 +267,7 @@ class TranscriptionManager(
             transcriptionResultRepository.addResult(newResult)
             logCallback("Manual transcription added: $manualFileName")
 
-            cleanupTranscriptionResultsAndAudioFiles()
+            scope.launch { cleanupTranscriptionResultsAndAudioFiles() }
         }
     }
 
