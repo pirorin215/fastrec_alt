@@ -25,11 +25,16 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
+import kotlinx.coroutines.CoroutineScope
+import com.pirorin215.fastrecmob.viewModel.LogManager
+
 class GoogleTasksUseCase(
     private val application: Application,
     private val appSettingsRepository: AppSettingsRepository,
     private val transcriptionResultRepository: TranscriptionResultRepository,
-    private val context: Context
+    private val context: Context,
+    private val scope: CoroutineScope, // Added CoroutineScope
+    private val logManager: LogManager // Added LogManager
 ) {
     private val _account = MutableStateFlow<GoogleSignInAccount?>(null)
     val account: StateFlow<GoogleSignInAccount?> = _account.asStateFlow()
@@ -53,14 +58,14 @@ class GoogleTasksUseCase(
 
         _account.value = GoogleSignIn.getLastSignedInAccount(application)
         if (_account.value != null) {
-            Log.d(TAG, "Signed in to Google Tasks: ${_account.value?.displayName}")
+            logManager.addLog("Signed in to Google Tasks: ${_account.value?.displayName}")
         }
 
         // Observe changes to the Google Todo list name and clear the cached taskListId
         appSettingsRepository.googleTodoListNameFlow.onEach {
             taskListId = null // Clear cached taskListId so it's re-fetched
-            Log.d(TAG, "Google Todo list name changed. Cleared cached taskListId.")
-        }.launchIn(GlobalScope) // Using GlobalScope is not ideal, should be a scope from outside
+            logManager.addLog("Google Todo list name changed. Cleared cached taskListId.")
+        }.launchIn(scope)
     }
 
     private suspend fun makeApiRequest(urlString: String, method: String = "GET", body: String? = null): String = withContext(Dispatchers.IO) {
@@ -99,7 +104,7 @@ class GoogleTasksUseCase(
 
         val listName = appSettingsRepository.googleTodoListNameFlow.first()
         if (listName.isBlank()) {
-            Log.d(TAG, "Google Todo List Name is blank. Using '@default'.")
+            logManager.addLog("Google Todo List Name is blank. Using '@default'.")
             taskListId = "@default" // Cache the default
             return "@default"
         }
@@ -111,7 +116,7 @@ class GoogleTasksUseCase(
             taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
             taskListId
         } catch (e: Exception) {
-            Log.d(TAG, "Error getting task lists: ${e.message}")
+            logManager.addLog("Error getting task lists: ${e.message}")
             null
         }
     }
@@ -123,10 +128,10 @@ class GoogleTasksUseCase(
         val taskJson = json.encodeToString(Task.serializer(), Task(title = title, notes = notes, status = status))
         return try {
             val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks", method = "POST", body = taskJson)
-            Log.d(TAG, "Added new Google Task: $title")
+            logManager.addLog("Added new Google Task: $title")
             json.decodeFromString<Task>(response)
         } catch (e: Exception) {
-            Log.d(TAG, "Error adding Google Task '$title': ${e.message}")
+            logManager.addLog("Error adding Google Task '$title': ${e.message}")
             null
         }
     }
@@ -138,10 +143,10 @@ class GoogleTasksUseCase(
         val taskJson = json.encodeToString(Task.serializer(), Task(id = taskId, title = title, notes = notes, status = status))
         return try {
             val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "PATCH", body = taskJson)
-            Log.d(TAG, "Updated Google Task: $title (ID: $taskId)")
+            logManager.addLog("Updated Google Task: $title (ID: $taskId)")
             json.decodeFromString<Task>(response)
         } catch (e: Exception) {
-            Log.d(TAG, "Error updating Google Task '$title' (ID: $taskId): ${e.message}")
+            logManager.addLog("Error updating Google Task '$title' (ID: $taskId): ${e.message}")
             null
         }
     }
@@ -151,22 +156,22 @@ class GoogleTasksUseCase(
         val currentTaskListId = taskListId ?: getTaskListId() ?: return
         try {
             makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "DELETE")
-            Log.d(TAG, "Deleted Google Task ID: $taskId")
+            logManager.addLog("Deleted Google Task ID: $taskId")
         } catch (e: Exception) {
-            Log.d(TAG, "Error deleting Google Task ID '$taskId': ${e.message}")
+            logManager.addLog("Error deleting Google Task ID '$taskId': ${e.message}")
         }
     }
 
     private suspend fun loadGoogleTasks(): List<Task> {
         if (_account.value == null) {
-            Log.d(TAG, "Not signed in to Google. Cannot load tasks.")
+            logManager.addLog("Not signed in to Google. Cannot load tasks.")
             return emptyList()
         }
         _isLoadingGoogleTasks.value = true
         try {
             val currentTaskListId = taskListId ?: getTaskListId()
             if (currentTaskListId == null) {
-                Log.d(TAG, "No Google task list found. Cannot load tasks.")
+                logManager.addLog("No Google task list found. Cannot load tasks.")
                 return emptyList()
             }
 
@@ -177,7 +182,7 @@ class GoogleTasksUseCase(
             return tasksResponse.items ?: emptyList()
 
         } catch (e: Exception) {
-            Log.d(TAG, "Error loading Google tasks: ${e.message}")
+            logManager.addLog("Error loading Google tasks: ${e.message}")
             return emptyList()
         } finally {
             _isLoadingGoogleTasks.value = false
@@ -186,11 +191,11 @@ class GoogleTasksUseCase(
 
     suspend fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String) {
         if (_account.value == null) {
-            Log.d(TAG, "Not signed in to Google. Cannot sync tasks.")
+            logManager.addLog("Not signed in to Google. Cannot sync tasks.")
             return
         }
         _isLoadingGoogleTasks.value = true
-        Log.d(TAG, "Starting Google Tasks synchronization...")
+        logManager.addLog("Starting Google Tasks synchronization...")
 
         try {
             val currentLocalResults = transcriptionResultRepository.transcriptionResultsFlow.first().toMutableList()
@@ -202,25 +207,25 @@ class GoogleTasksUseCase(
 
             for (softDeletedResult in softDeletedLocalResults) {
                 if (softDeletedResult.googleTaskId != null) {
-                    Log.d(TAG, "Attempting to delete Google Task '${softDeletedResult.googleTaskId}' for locally soft-deleted result '${softDeletedResult.fileName}'...")
+                    logManager.addLog("Attempting to delete Google Task '${softDeletedResult.googleTaskId}' for locally soft-deleted result '${softDeletedResult.fileName}'...")
                     try {
                         deleteGoogleTask(softDeletedResult.googleTaskId)
-                        Log.d(TAG, "Successfully deleted Google Task '${softDeletedResult.googleTaskId}'. Permanently removing local result '${softDeletedResult.fileName}'.")
+                        logManager.addLog("Successfully deleted Google Task '${softDeletedResult.googleTaskId}'. Permanently removing local result '${softDeletedResult.fileName}'.")
                         transcriptionResultRepository.permanentlyRemoveResult(softDeletedResult)
                         successfullyDeletedLocalFiles.add(softDeletedResult.fileName)
 
                         val audioFile = FileUtil.getAudioFile(context, audioDirName, softDeletedResult.fileName)
                         if (audioFile.exists()) {
                             if (audioFile.delete()) {
-                                Log.d(TAG, "Deleted associated audio file: ${softDeletedResult.fileName}")
+                                logManager.addLog("Deleted associated audio file: ${softDeletedResult.fileName}")
                             } else {
-                                Log.d(TAG, "Failed to delete associated audio file: ${softDeletedResult.fileName}")
+                                logManager.addLog("Failed to delete associated audio file: ${softDeletedResult.fileName}")
                             }
                         } else {
-                            Log.d(TAG, "Associated audio file not found for soft-deleted result: ${softDeletedResult.fileName}")
+                            logManager.addLog("Associated audio file not found for soft-deleted result: ${softDeletedResult.fileName}")
                         }
                     } catch (e: Exception) {
-                        Log.d(TAG, "Error deleting Google Task '${softDeletedResult.googleTaskId}' for local result '${softDeletedResult.fileName}': ${e.message}. Keeping local soft-deleted for retry.")
+                        logManager.addLog("Error deleting Google Task '${softDeletedResult.googleTaskId}' for local result '${softDeletedResult.fileName}': ${e.message}. Keeping local soft-deleted for retry.")
                         updatedLocalResultsAfterDeletionProcessing.add(softDeletedResult)
                     }
                 }
@@ -254,33 +259,33 @@ class GoogleTasksUseCase(
                                 isSyncedWithGoogleTasks = true
                             )
                         )
-                        Log.d(TAG, "Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
+                        logManager.addLog("Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
                     } else {
-                        Log.d(TAG, "Failed to add local result '${localResult.fileName}' to Google Tasks.")
+                        logManager.addLog("Failed to add local result '${localResult.fileName}' to Google Tasks.")
                         reconciledTranscriptionResults.add(localResult)
                     }
                 } else {
                     val correspondingGoogleTask = googleMap[localResult.googleTaskId]
                     if (correspondingGoogleTask == null) {
-                        Log.d(TAG, "Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Permanently deleting local result and audio file.")
+                        logManager.addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Permanently deleting local result and audio file.")
                         transcriptionResultRepository.permanentlyRemoveResult(localResult)
 
                         val audioFile = FileUtil.getAudioFile(context, audioDirName, localResult.fileName)
                         if (audioFile.exists()) {
                             if (audioFile.delete()) {
-                                Log.d(TAG, "Deleted associated audio file: ${localResult.fileName}")
+                                logManager.addLog("Deleted associated audio file: ${localResult.fileName}")
                             } else {
-                                Log.d(TAG, "Failed to delete associated audio file: ${localResult.fileName}")
+                                logManager.addLog("Failed to delete associated audio file: ${localResult.fileName}")
                             }
                         } else {
-                            Log.d(TAG, "Associated audio file not found for remote-deleted result: ${localResult.fileName}")
+                            logManager.addLog("Associated audio file not found for remote-deleted result: ${localResult.fileName}")
                         }
                     } else {
                         val googleTaskUpdateTimestamp = FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
                         val localLastEditedTimestamp = localResult.lastEditedTimestamp
 
                         if (googleTaskUpdateTimestamp > localLastEditedTimestamp) {
-                            Log.d(TAG, "Google Task '${localResult.googleTaskId}' is newer. Pulling changes to local result '${localResult.fileName}'.")
+                            logManager.addLog("Google Task '${localResult.googleTaskId}' is newer. Pulling changes to local result '${localResult.fileName}'.")
                             reconciledTranscriptionResults.add(
                                 localResult.copy(
                                     transcription = correspondingGoogleTask.title ?: localResult.transcription,
@@ -295,7 +300,7 @@ class GoogleTasksUseCase(
                             val localNotesChanged = localResult.googleTaskNotes != correspondingGoogleTask.notes
 
                             if (localTranscriptionChanged || localCompletionChanged || localNotesChanged) {
-                                Log.d(TAG, "Local result '${localResult.fileName}' is newer or has changes. Updating Google Task '${localResult.googleTaskId}'.")
+                                logManager.addLog("Local result '${localResult.fileName}' is newer or has changes. Updating Google Task '${localResult.googleTaskId}'.")
                                 val updatedTask = updateGoogleTask(
                                     taskId = localResult.googleTaskId,
                                     title = localResult.transcription,
@@ -310,7 +315,9 @@ class GoogleTasksUseCase(
                                         )
                                     )
                                 } else {
-                                    Log.d(TAG, "Failed to update Google Task for local result '${localResult.fileName}'.")
+                                                                            logManager.addLog(
+                                                                                "Failed to update Google Task for local result '${localResult.fileName}'."
+                                                                            )
                                     reconciledTranscriptionResults.add(localResult)
                                 }
                             } else {
@@ -327,7 +334,7 @@ class GoogleTasksUseCase(
 
             for (googleTask in googleTasks) {
                 if (!reconciledTranscriptionResults.any { it.googleTaskId == googleTask.id }) {
-                    Log.d(TAG, "New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
+                    logManager.addLog("New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
                     val newLocalResult = TranscriptionResult(
                         fileName = "GT_${googleTask.id}_${System.currentTimeMillis()}.txt",
                         transcription = googleTask.title ?: "",
@@ -343,10 +350,10 @@ class GoogleTasksUseCase(
 
             transcriptionResultRepository.updateResults(reconciledTranscriptionResults.distinctBy { it.fileName })
 
-            Log.d(TAG, "Google Tasks synchronization completed.")
+            logManager.addLog("Google Tasks synchronization completed.")
 
         } catch (e: Exception) {
-            Log.d(TAG, "Error during Google Tasks synchronization: ${e.message}")
+            logManager.addLog("Error during Google Tasks synchronization: ${e.message}")
         } finally {
             _isLoadingGoogleTasks.value = false
         }
@@ -358,10 +365,10 @@ class GoogleTasksUseCase(
             _account.value = task.getResult(ApiException::class.java)
             // viewModelScope is not available here. A scope should be passed or use GlobalScope.
             // For now, let's assume the caller will handle the coroutine scope.
-            Log.d(TAG, "Google Sign-In successful for: ${_account.value?.displayName}")
+            logManager.addLog("Google Sign-In successful for: ${_account.value?.displayName}")
             onSuccess()
         } catch (e: ApiException) {
-            Log.d(TAG, "Google Sign-In failed: ${e.statusCode} - ${e.message}")
+            logManager.addLog("Google Sign-In failed: ${e.statusCode} - ${e.message}")
             onFailure(e)
         }
     }
@@ -370,11 +377,9 @@ class GoogleTasksUseCase(
         googleSignInClient.signOut().addOnCompleteListener {
             _account.value = null
             taskListId = null
-            Log.d(TAG, "Signed out from Google Tasks.")
+            logManager.addLog("Signed out from Google Tasks.")
         }
     }
 
-    companion object {
-        private const val TAG = "GoogleTasksUseCase"
-    }
+
 }

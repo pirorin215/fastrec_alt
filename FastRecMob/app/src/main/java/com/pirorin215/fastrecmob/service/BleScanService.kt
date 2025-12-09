@@ -118,7 +118,7 @@ class BleScanService : Service() {
             super.onScanResult(callbackType, result)
             Log.d(TAG, "ScanResult: Device found - ${result.device.name} (${result.device.address}), RSSI: ${result.rssi}")
             if (result.device.name == DEVICE_NAME) {
-                Log.d(TAG, "Target device '${DEVICE_NAME}' found! Signaling BleViewModel to connect.")
+                Log.d(TAG, "Target device '${DEVICE_NAME}' found! Signaling MainViewModel to connect.")
                 // Stop scanning to allow the ViewModel to handle the connection.
                 // The ViewModel will be responsible for restarting the scan later.
                 stopBleScan()
@@ -134,7 +134,7 @@ class BleScanService : Service() {
             // バッチスキャン結果の中からターゲットデバイスを探す
             results.forEach { result ->
                 if (result.device.name == DEVICE_NAME) {
-                    Log.d(TAG, "Target device '${DEVICE_NAME}' found in batch! Signaling BleViewModel to connect.")
+                    Log.d(TAG, "Target device '${DEVICE_NAME}' found in batch! Signaling MainViewModel to connect.")
                     // Do NOT stop scan here; continue scanning for automatic re-detection
                     CoroutineScope(Dispatchers.IO).launch {
                         BleScanServiceManager.emitDeviceFound(result.device)

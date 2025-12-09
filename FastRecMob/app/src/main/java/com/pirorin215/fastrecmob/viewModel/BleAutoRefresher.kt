@@ -12,7 +12,7 @@ class BleAutoRefresher(
     private val scope: CoroutineScope,
     private val refreshIntervalSecondsFlow: StateFlow<Int>,
     private val onRefresh: () -> Unit,
-    private val logCallback: (String) -> Unit
+    private val logManager: LogManager
 ) {
     private val _isAutoRefreshEnabled = MutableStateFlow(true)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
@@ -22,11 +22,11 @@ class BleAutoRefresher(
     fun setAutoRefresh(enabled: Boolean) {
         _isAutoRefreshEnabled.value = enabled
         if (enabled) {
-            logCallback("Auto-refresh enabled.")
+            logManager.addLog("Auto-refresh enabled.")
             onRefresh() // Immediate refresh
             startAutoRefresh()
         } else {
-            logCallback("Auto-refresh disabled.")
+            logManager.addLog("Auto-refresh disabled.")
             stopAutoRefresh()
         }
     }

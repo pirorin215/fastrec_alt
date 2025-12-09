@@ -1,6 +1,7 @@
 package com.pirorin215.fastrecmob
 
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModelFactory
 
 import android.Manifest
 import android.app.Application
@@ -27,7 +28,6 @@ import com.pirorin215.fastrecmob.ui.screen.MainScreen
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
-import com.pirorin215.fastrecmob.viewModel.BleViewModelFactory
 import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel
 import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModelFactory
 
@@ -40,23 +40,24 @@ class MainActivity : ComponentActivity() {
             val appSettingsRepository = AppSettingsRepository(context.applicationContext as Application)
             val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
             val bleRepository = com.pirorin215.fastrecmob.data.BleRepository(context.applicationContext)
+            val logManager = com.pirorin215.fastrecmob.viewModel.LogManager()
             
-            val deviceStatusViewModelFactory = DeviceStatusViewModelFactory(context.applicationContext as Application, bleRepository)
+            val deviceStatusViewModelFactory = DeviceStatusViewModelFactory(context.applicationContext as Application, bleRepository, logManager)
             val deviceStatusViewModel: DeviceStatusViewModel = viewModel(factory = deviceStatusViewModelFactory)
 
             // ViewModels are created here to scope them to the Activity
-            val bleViewModelFactory = BleViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent)
-            val bleViewModel: BleViewModel = viewModel(factory = bleViewModelFactory)
+            val mainViewModelFactory = MainViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent, logManager)
+            val mainViewModel: MainViewModel = viewModel(factory = mainViewModelFactory)
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
 
-            val themeMode by bleViewModel.themeMode.collectAsState()
+            val themeMode by mainViewModel.themeMode.collectAsState()
 
             val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
                     val intent = result.data ?: return@rememberLauncherForActivityResult
-                    bleViewModel.handleSignInResult(intent,
+                    mainViewModel.handleSignInResult(intent,
                         onSuccess = { Toast.makeText(context, "Google Sign-In Success!", Toast.LENGTH_SHORT).show() },
                         onFailure = { e -> Toast.makeText(context, "Google Sign-In Failed: ${e.message}", Toast.LENGTH_LONG).show() }
                     )

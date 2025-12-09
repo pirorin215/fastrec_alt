@@ -20,7 +20,7 @@ class BleDeviceManager(
     private val scope: CoroutineScope,
     private val context: Context,
     private val sendCommand: (String) -> Unit,
-    private val addLog: (String) -> Unit,
+    private val logManager: LogManager,
     private val _currentOperation: MutableStateFlow<BleOperation>,
     private val bleMutex: Mutex,
     private val onFileListUpdated: () -> Unit // Callback to trigger checking for new files
@@ -42,13 +42,13 @@ class BleDeviceManager(
 
     suspend fun syncTime(connectionState: String): Boolean {
         if (connectionState != "Connected") {
-            addLog("Cannot sync time, not connected.")
+            logManager.addLog("Cannot sync time, not connected.")
             return false
         }
 
         return bleMutex.withLock {
             if (_currentOperation.value != BleOperation.IDLE) {
-                addLog("Cannot sync time, busy: ${_currentOperation.value}")
+                logManager.addLog("Cannot sync time, busy: ${_currentOperation.value}")
                 return@withLock false
             }
 
@@ -60,7 +60,7 @@ class BleDeviceManager(
 
                 val currentTimestampSec = System.currentTimeMillis() / 1000
                 val timeCommand = "SET:time:$currentTimestampSec"
-                addLog("Sending time synchronization command: $timeCommand")
+                logManager.addLog("Sending time synchronization command: $timeCommand")
                 sendCommand(timeCommand)
 
                 val (timeSyncSuccess, _) = withTimeoutOrNull(5000L) {
@@ -68,13 +68,13 @@ class BleDeviceManager(
                 } ?: Pair(false, "Timeout")
 
                 if (timeSyncSuccess) {
-                    addLog("Time synchronization successful.")
+                    logManager.addLog("Time synchronization successful.")
                 } else {
-                    addLog("Time synchronization failed or timed out.")
+                    logManager.addLog("Time synchronization failed or timed out.")
                 }
                 timeSyncSuccess
             } catch (e: Exception) {
-                addLog("Error during time sync: ${e.message}")
+                logManager.addLog("Error during time sync: ${e.message}")
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
@@ -96,7 +96,7 @@ class BleDeviceManager(
                             if (_currentOperation.value == BleOperation.IDLE) {
                                 val periodicTimestampSec = System.currentTimeMillis() / 1000
                                 val periodicTimeCommand = "SET:time:$periodicTimestampSec"
-                                addLog("Sending periodic time synchronization command: $periodicTimeCommand")
+                                logManager.addLog("Sending periodic time synchronization command: $periodicTimeCommand")
                                 sendCommand(periodicTimeCommand)
                                 // This is a best-effort periodic sync, so we don't wait for the response.
                                 // The device will either get it or not. The main sync is more important.
@@ -105,7 +105,7 @@ class BleDeviceManager(
                             bleMutex.unlock()
                         }
                     } else {
-                        addLog("Skipping periodic time sync: another operation is in progress.")
+                        logManager.addLog("Skipping periodic time sync: another operation is in progress.")
                     }
                 }
             }
@@ -119,20 +119,20 @@ class BleDeviceManager(
 
     suspend fun fetchDeviceInfo(connectionState: String): Boolean {
         if (connectionState != "Connected") {
-            addLog("Cannot fetch device info, not connected.")
+            logManager.addLog("Cannot fetch device info, not connected.")
             return false
         }
 
         return bleMutex.withLock {
             if (_currentOperation.value != BleOperation.IDLE) {
-                addLog("Cannot fetch device info, busy: ${_currentOperation.value}")
+                logManager.addLog("Cannot fetch device info, busy: ${_currentOperation.value}")
                 return@withLock false
             }
 
             try {
                 _currentOperation.value = BleOperation.FETCHING_DEVICE_INFO
                 responseBuffer.clear()
-                addLog("Requesting device info from device...")
+                logManager.addLog("Requesting device info from device...")
 
                 val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                 currentCommandCompletion = commandCompletion
@@ -144,13 +144,13 @@ class BleDeviceManager(
                 } ?: Pair(false, "Timeout")
 
                 if (success) {
-                    addLog("GET:info command completed successfully.")
+                    logManager.addLog("GET:info command completed successfully.")
                 } else {
-                    addLog("GET:info command failed or timed out.")
+                    logManager.addLog("GET:info command failed or timed out.")
                 }
                 success
             } catch (e: Exception) {
-                addLog("Error fetchDeviceInfo: ${e.message}")
+                logManager.addLog("Error fetchDeviceInfo: ${e.message}")
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
@@ -161,20 +161,20 @@ class BleDeviceManager(
 
     suspend fun fetchFileList(connectionState: String, extension: String = "wav"): Boolean {
         if (connectionState != "Connected") {
-            addLog("Cannot fetch file list, not connected.")
+            logManager.addLog("Cannot fetch file list, not connected.")
             return false
         }
 
         return bleMutex.withLock {
             if (_currentOperation.value != BleOperation.IDLE) {
-                addLog("Cannot fetch file list, busy: ${_currentOperation.value}")
+                logManager.addLog("Cannot fetch file list, busy: ${_currentOperation.value}")
                 return@withLock false
             }
 
             try {
                 _currentOperation.value = BleOperation.FETCHING_FILE_LIST
                 responseBuffer.clear()
-                addLog("Requesting file list (GET:ls:$extension)...")
+                logManager.addLog("Requesting file list (GET:ls:$extension)...")
 
                 val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
                 currentCommandCompletion = commandCompletion
@@ -186,16 +186,16 @@ class BleDeviceManager(
                 } ?: Pair(false, "Timeout")
 
                 if (success) {
-                    addLog("GET:ls:$extension completed.")
+                    logManager.addLog("GET:ls:$extension completed.")
                     if (extension == "wav") {
                         onFileListUpdated()
                     }
                 } else {
-                    addLog("GET:ls:$extension failed or timed out.")
+                    logManager.addLog("GET:ls:$extension failed or timed out.")
                 }
                 success
             } catch (e: Exception) {
-                addLog("Error fetchFileList: ${e.message}")
+                logManager.addLog("Error fetchFileList: ${e.message}")
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
@@ -207,7 +207,7 @@ class BleDeviceManager(
 
     fun removeFileFromList(fileName: String) {
         _fileList.value = _fileList.value.filterNot { it.name == fileName }
-        addLog("Removed '$fileName' from local file list.")
+        logManager.addLog("Removed '$fileName' from local file list.")
         onFileListUpdated() // Callback to trigger checking for new files
     }
 
@@ -225,14 +225,14 @@ class BleDeviceManager(
                     try {
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
                         _deviceInfo.value = parsedResponse
-                        addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                        logManager.addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
                         currentCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
-                        addLog("Error parsing DeviceInfo: ${e.message}")
+                        logManager.addLog("Error parsing DeviceInfo: ${e.message}")
                         currentCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
-                    addLog("Error response GET:info: $currentBufferAsString")
+                    logManager.addLog("Error response GET:info: $currentBufferAsString")
                     currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
             }
@@ -251,14 +251,14 @@ class BleDeviceManager(
                 if (currentBufferAsString.trim().endsWith("]")) {
                     try {
                         _fileList.value = parseFileEntries(currentBufferAsString)
-                        addLog("Parsed FileList. Count: ${_fileList.value.size}")
+                        logManager.addLog("Parsed FileList. Count: ${_fileList.value.size}")
                         currentCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
-                        addLog("Error parsing FileList: ${e.message}")
+                        logManager.addLog("Error parsing FileList: ${e.message}")
                         currentCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
-                    addLog("Error response GET:ls: $currentBufferAsString")
+                    logManager.addLog("Error response GET:ls: $currentBufferAsString")
                     _fileList.value = emptyList()
                     currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
@@ -272,14 +272,14 @@ class BleDeviceManager(
                     currentCommandCompletion?.complete(Pair(false, response))
                     responseBuffer.clear()
                 } else {
-                    addLog("Unexpected response during SET:time: $response")
+                    logManager.addLog("Unexpected response during SET:time: $response")
                     // Don't complete here, maybe the message is fragmented.
                     // Timeout will handle the failure.
                 }
             }
             else -> {
                 // This can happen if a response from a previous operation arrives late.
-                // addLog("handleResponse called in non-listening state: ${_currentOperation.value}")
+                // logManager.addLog("handleResponse called in non-listening state: ${_currentOperation.value}")
             }
         }
     }

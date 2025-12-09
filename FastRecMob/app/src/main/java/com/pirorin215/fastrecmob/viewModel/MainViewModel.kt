@@ -34,100 +34,59 @@ import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import com.pirorin215.fastrecmob.data.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.pirorin215.fastrecmob.viewModel.LogManager
 
 
 @SuppressLint("MissingPermission")
-class BleViewModel(
+class MainViewModel(
     private val application: Application,
     private val appSettingsRepository: AppSettingsRepository,
-    private val transcriptionResultRepository: TranscriptionResultRepository,
+    private val transcriptionResultRepository: TranscriptionResultRepository, // Keep this
     private val lastKnownLocationRepository: LastKnownLocationRepository,
-    private val context: Context,
     private val repository: com.pirorin215.fastrecmob.data.BleRepository,
     private val connectionStateFlow: StateFlow<String>,
-    private val onDeviceReadyEvent: SharedFlow<Unit>
+    private val onDeviceReadyEvent: SharedFlow<Unit>,
+    private val logManager: LogManager
 ) : ViewModel() {
 
     companion object {
-        const val TAG = "BleViewModel"
+        const val TAG = "MainViewModel"
     }
 
-    // --- UseCase Instances ---
-    private val googleTasksUseCase = GoogleTasksUseCase(application, appSettingsRepository, transcriptionResultRepository, context)
+    // --- Google Tasks Manager ---
+    private val googleTasksIntegration: GoogleTasksIntegration by lazy {
+        GoogleTasksManager(
+            application = application,
+            appSettingsRepository = appSettingsRepository,
+            transcriptionResultRepository = transcriptionResultRepository,
+            context = application,
+            scope = viewModelScope,
+            logManager = logManager
+        )
+    }
 
-    // --- Exposing UseCase State ---
-    val account: StateFlow<GoogleSignInAccount?> = googleTasksUseCase.account
-    val isLoadingGoogleTasks: StateFlow<Boolean> = googleTasksUseCase.isLoadingGoogleTasks
-    val googleSignInClient: GoogleSignInClient = googleTasksUseCase.googleSignInClient
+    // --- Exposing Google Tasks Manager State ---
+    val account: StateFlow<GoogleSignInAccount?> = googleTasksIntegration.account
+    val isLoadingGoogleTasks: StateFlow<Boolean> = googleTasksIntegration.isLoadingGoogleTasks
+    val googleSignInClient: SharedFlow<GoogleSignInClient> = googleTasksIntegration.googleSignInClient
 
     // --- Google Tasks Delegated Functions ---
-    fun syncTranscriptionResultsWithGoogleTasks() = viewModelScope.launch {
-        googleTasksUseCase.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
-        transcriptionManager.updateLocalAudioFileCount()
+    fun syncTranscriptionResultsWithGoogleTasks() = googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
+    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
+    fun signOut() = googleTasksIntegration.signOut()
+
+
+    private val appSettingsAccessor: AppSettingsAccessor by lazy {
+        AppSettingsViewModelDelegate(appSettingsRepository, viewModelScope)
     }
 
-    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
-        googleTasksUseCase.handleSignInResult(intent, {
-            viewModelScope.launch {
-                withContext(Dispatchers.Main) { onSuccess() }
-            }
-        }, onFailure)
-    }
-
-    fun signOut() {
-        googleTasksUseCase.signOut()
-    }
-    // --- End Google Tasks Delegated Functions ---
-
-
-    val apiKey: StateFlow<String> = appSettingsRepository.apiKeyFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ""
-        )
-
-    val refreshIntervalSeconds: StateFlow<Int> = appSettingsRepository.refreshIntervalSecondsFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 30 // Provide a default
-        )
-
-    val transcriptionCacheLimit: StateFlow<Int> = appSettingsRepository.transcriptionCacheLimitFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 100 // Default to 100 files
-        )
-
-    val transcriptionFontSize: StateFlow<Int> = appSettingsRepository.transcriptionFontSizeFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 14 // Default to 14
-        )
-
-    val audioDirName: StateFlow<String> = appSettingsRepository.audioDirNameFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = "FastRecRecordings" // Default directory name
-        )
-
-    val themeMode: StateFlow<ThemeMode> = appSettingsRepository.themeModeFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ThemeMode.SYSTEM // Default to SYSTEM
-        )
-
-    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsRepository.sortModeFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP
-        )
+    val apiKey: StateFlow<String> = appSettingsAccessor.apiKey
+    val refreshIntervalSeconds: StateFlow<Int> = appSettingsAccessor.refreshIntervalSeconds
+    val transcriptionCacheLimit: StateFlow<Int> = appSettingsAccessor.transcriptionCacheLimit
+    val transcriptionFontSize: StateFlow<Int> = appSettingsAccessor.transcriptionFontSize
+    val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
+    val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
+    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsAccessor.sortMode
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
@@ -152,45 +111,47 @@ class BleViewModel(
             initialValue = 0
         )
     
-    // ViewModel's own logs and addLog
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
-    val logs = _logs.asStateFlow()
+    val logs = logManager.logs
 
-    private fun addLog(message: String) {
-        Log.d(TAG, message)
-        _logs.value = (_logs.value + message).takeLast(100)
-    }
+
+
 
     // --- Location Monitor ---
-    private val locationMonitor by lazy {
-        LocationMonitor(context, viewModelScope, lastKnownLocationRepository) { addLog(it) }
+    private val locationMonitor: LocationTracking by lazy {
+        LocationMonitor(application, viewModelScope, lastKnownLocationRepository, logManager)
     }
 
     // --- Transcription Manager ---
-    private val transcriptionManager by lazy {
+    private val transcriptionManager: TranscriptionManagement by lazy {
         TranscriptionManager(
-            context = context,
+            context = application,
             scope = viewModelScope,
             appSettingsRepository = appSettingsRepository,
             transcriptionResultRepository = transcriptionResultRepository,
             currentForegroundLocationFlow = locationMonitor.currentForegroundLocation,
             audioDirNameFlow = audioDirName,
             transcriptionCacheLimitFlow = transcriptionCacheLimit,
-            logCallback = { addLog(it) }
+            logManager = logManager
         )
     }
 
-    private val bleSelectionManager by lazy {
+    private val bleSelectionManager: BleSelection by lazy {
         BleSelectionManager(
-            logCallback = { addLog(it) }
+            logManager = logManager
         )
     }
+
+    val selectedFileNames = bleSelectionManager.selectedFileNames
+
+    // --- Methods delegated to Selection Manager ---
+    fun toggleSelection(fileName: String) = bleSelectionManager.toggleSelection(fileName)
+    fun clearSelection() = bleSelectionManager.clearSelection()
 
     // --- BLE Orchestrator ---
-    private val bleOrchestrator by lazy {
+    private val bleOrchestrator: BleOrchestration by lazy {
         BleOrchestrator(
             scope = viewModelScope,
-            context = context,
+            context = application,
             repository = repository,
             connectionStateFlow = connectionStateFlow,
             onDeviceReadyEvent = onDeviceReadyEvent,
@@ -199,32 +160,32 @@ class BleViewModel(
             appSettingsRepository = appSettingsRepository,
             bleSelectionManager = bleSelectionManager,
             transcriptionResults = transcriptionResults, // Pass ViewModel's transcriptionResults
-            logCallback = { addLog(it) } // Pass ViewModel's addLog to Orchestrator
+            logManager = logManager
         )
     }
 
     // --- State exposed from orchestrator and managers ---
     // val logs = bleOrchestrator.logs // Commented out as ViewModel has its own logs
-    val currentOperation = bleOrchestrator.currentOperation
-    val navigationEvent = bleOrchestrator.navigationEvent
+    val currentOperation: StateFlow<BleOperation> = bleOrchestrator.currentOperation
+    val navigationEvent: SharedFlow<NavigationEvent> = bleOrchestrator.navigationEvent
     
     val audioFileCount = transcriptionManager.audioFileCount
     val transcriptionState = transcriptionManager.transcriptionState
     val transcriptionResult = transcriptionManager.transcriptionResult
 
-    val fileList = bleOrchestrator.fileList
-    val deviceInfo = bleOrchestrator.deviceInfo
-    val deviceSettings = bleOrchestrator.deviceSettings
-    val remoteDeviceSettings = bleOrchestrator.remoteDeviceSettings
-    val settingsDiff = bleOrchestrator.settingsDiff
+    val fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>> = bleOrchestrator.fileList
+    val deviceInfo: StateFlow<com.pirorin215.fastrecmob.data.DeviceInfoResponse?> = bleOrchestrator.deviceInfo
+    val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> = bleOrchestrator.deviceSettings
+    val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> = bleOrchestrator.remoteDeviceSettings
+    val settingsDiff: StateFlow<String?> = bleOrchestrator.settingsDiff
 
-    val isAutoRefreshEnabled = bleOrchestrator.isAutoRefreshEnabled
-    val selectedFileNames = bleSelectionManager.selectedFileNames
+    val isAutoRefreshEnabled: StateFlow<Boolean> = bleOrchestrator.isAutoRefreshEnabled
 
-    val downloadProgress = bleOrchestrator.downloadProgress
-    val currentFileTotalSize = bleOrchestrator.currentFileTotalSize
-    val fileTransferState = bleOrchestrator.fileTransferState
-    val transferKbps = bleOrchestrator.transferKbps
+
+    val downloadProgress: StateFlow<Int> = bleOrchestrator.downloadProgress
+    val currentFileTotalSize: StateFlow<Long> = bleOrchestrator.currentFileTotalSize
+    val fileTransferState: StateFlow<String> = bleOrchestrator.fileTransferState
+    val transferKbps: StateFlow<Float> = bleOrchestrator.transferKbps
 
     // --- Location Monitor Delegation ---
     val currentForegroundLocation = locationMonitor.currentForegroundLocation
@@ -242,10 +203,6 @@ class BleViewModel(
     fun downloadFile(fileName: String) = bleOrchestrator.downloadFile(fileName)
     fun sendCommand(command: String) = bleOrchestrator.sendCommand(command)
     fun clearLogs() = bleOrchestrator.clearLogs() // This will call orchestrator's clearLogs, which in turn logs to ViewModel's addLog
-
-    // --- Methods delegated to Selection Manager ---
-    fun toggleSelection(fileName: String) = bleSelectionManager.toggleSelection(fileName)
-    fun clearSelection() = bleSelectionManager.clearSelection()
 
     // --- Methods delegated to Transcription Manager ---
     fun resetTranscriptionState() = transcriptionManager.resetTranscriptionState()

@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.BleOperation
 
 import androidx.activity.compose.BackHandler
@@ -23,7 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LogDownloadScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+fun LogDownloadScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
     LaunchedEffect(Unit) {

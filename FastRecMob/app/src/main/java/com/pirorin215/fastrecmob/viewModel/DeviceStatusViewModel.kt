@@ -22,7 +22,8 @@ import java.util.UUID
 class DeviceStatusViewModel(
     private val application: Application,
     private val context: Context,
-    private val repository: BleRepository
+    private val repository: BleRepository,
+    private val logManager: LogManager
 ) : ViewModel() {
 
     companion object {
@@ -34,11 +35,8 @@ class DeviceStatusViewModel(
     private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
     private val _currentOperation = MutableStateFlow(BleOperation.IDLE)
     private val bleMutex = Mutex()
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
     private val _onDeviceReadyEvent = MutableSharedFlow<Unit>()
     val onDeviceReadyEvent = _onDeviceReadyEvent.asSharedFlow()
-
-
 
     // Expose as read-only StateFlows
     val connectionState = _connectionState.asStateFlow()
@@ -54,10 +52,10 @@ class DeviceStatusViewModel(
             scope = viewModelScope,
             context = context,
             sendCommand = { command -> sendCommand(command) },
-            addLog = { addLog(it) },
+            logManager = logManager,
             _currentOperation = _currentOperation,
             bleMutex = bleMutex,
-            onFileListUpdated = { /* Handled by BleViewModel */ }
+            onFileListUpdated = { /* Handled by MainViewModel */ }
         )
 
         // bleConnectionManager initialized after bleDeviceManager
@@ -65,7 +63,7 @@ class DeviceStatusViewModel(
             context = context,
             scope = viewModelScope,
             repository = repository,
-            addLog = { addLog(it) },
+            logManager = logManager,
             onStateChange = { state ->
                 _connectionState.value = when (state) {
                     is ConnectionState.Connected -> "Connected"
@@ -115,13 +113,8 @@ class DeviceStatusViewModel(
             .launchIn(viewModelScope)
     }
 
-    private fun addLog(message: String) {
-        Log.d(TAG, message)
-        _logs.value = (_logs.value + message).takeLast(100)
-    }
-
     private fun resetOperationStates() {
-        addLog("Resetting all operation states.")
+        logManager.addLog("Resetting all operation states.")
         _currentOperation.value = BleOperation.IDLE
     }
 
@@ -165,6 +158,6 @@ class DeviceStatusViewModel(
         super.onCleared()
         bleConnectionManager.disconnect()
         bleConnectionManager.close()
-        addLog("DeviceStatusViewModel cleared, BLE resources released.")
+        logManager.addLog("DeviceStatusViewModel cleared, BLE resources released.")
     }
 }

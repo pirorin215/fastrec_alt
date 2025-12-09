@@ -9,30 +9,33 @@ import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
+import com.pirorin215.fastrecmob.viewModel.LogManager // Import LogManager once
 
-class BleViewModelFactory(
+class MainViewModelFactory(
     private val appSettingsRepository: AppSettingsRepository,
     private val lastKnownLocationRepository: LastKnownLocationRepository,
     private val application: Application,
     private val bleRepository: com.pirorin215.fastrecmob.data.BleRepository,
     private val connectionStateFlow: StateFlow<String>,
-    private val onDeviceReadyEvent: SharedFlow<Unit>
+    private val onDeviceReadyEvent: SharedFlow<Unit>,
+    private val logManager: LogManager
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(BleViewModel::class.java)) {
+        if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             val transcriptionResultRepository = TranscriptionResultRepository(application)
             @Suppress("UNCHECKED_CAST")
-                            return BleViewModel(
+                            return MainViewModel(
                                 application,
                                 appSettingsRepository,
                                 transcriptionResultRepository,
                                 lastKnownLocationRepository,
-                                application,
                                 bleRepository,
                                 connectionStateFlow,
-                                onDeviceReadyEvent
-                            ) as T        }
+                                onDeviceReadyEvent,
+                                logManager
+                            ) as T
+        }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
@@ -52,12 +55,13 @@ class AppSettingsViewModelFactory(
 
 class DeviceStatusViewModelFactory(
     private val application: Application,
-    private val bleRepository: com.pirorin215.fastrecmob.data.BleRepository
+    private val bleRepository: com.pirorin215.fastrecmob.data.BleRepository,
+    private val logManager: LogManager
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(DeviceStatusViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return DeviceStatusViewModel(application, application, bleRepository) as T // Pass application as context
+            return DeviceStatusViewModel(application, application, bleRepository, logManager) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

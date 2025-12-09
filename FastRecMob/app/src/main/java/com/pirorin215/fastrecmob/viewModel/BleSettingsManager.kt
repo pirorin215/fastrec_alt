@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 class BleSettingsManager(
     private val scope: CoroutineScope,
     private val sendCommand: (String) -> Unit,
-    private val addLog: (String) -> Unit,
+    private val logManager: LogManager,
     private val _currentOperation: MutableStateFlow<BleOperation>,
     private val _navigationEvent: MutableSharedFlow<NavigationEvent>
 ) {
@@ -28,12 +28,12 @@ class BleSettingsManager(
 
     fun getSettings(connectionState: String) {
         if (_currentOperation.value != BleOperation.IDLE || connectionState != "Connected") {
-            addLog("Cannot get settings, busy or not connected.")
+            logManager.addLog("Cannot get settings, busy or not connected.")
             return
         }
         _currentOperation.value = BleOperation.FETCHING_SETTINGS
         responseBuffer.clear()
-        addLog("Requesting settings from device...")
+        logManager.addLog("Requesting settings from device...")
         sendCommand("GET:setting_ini")
     }
 
@@ -43,7 +43,7 @@ class BleSettingsManager(
             delay(200)
             if (_currentOperation.value == BleOperation.FETCHING_SETTINGS) {
                 val settingsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
-                addLog("Assembled remote settings: $settingsString")
+                logManager.addLog("Assembled remote settings: $settingsString")
                 try {
                     val remoteSettings = DeviceSettings.fromIniString(settingsString)
                     _remoteDeviceSettings.value = remoteSettings
@@ -52,13 +52,13 @@ class BleSettingsManager(
 
                     if (diff.isNotBlank()) {
                         _settingsDiff.value = diff
-                        addLog("Settings have differences.")
+                        logManager.addLog("Settings have differences.")
                     } else {
                         _settingsDiff.value = "差分はありません。"
-                        addLog("Settings are identical.")
+                        logManager.addLog("Settings are identical.")
                     }
                 } catch (e: Exception) {
-                    addLog("Error parsing settings: ${e.message}")
+                    logManager.addLog("Error parsing settings: ${e.message}")
                 }
 
                 _currentOperation.value = BleOperation.IDLE
@@ -70,7 +70,7 @@ class BleSettingsManager(
     fun applyRemoteSettings() {
         _remoteDeviceSettings.value?.let {
             _deviceSettings.value = it
-            addLog("Applied remote settings to local state.")
+            logManager.addLog("Applied remote settings to local state.")
         }
         dismissSettingsDiff()
     }
@@ -82,14 +82,14 @@ class BleSettingsManager(
 
     fun sendSettings(connectionState: String) {
         if (_currentOperation.value != BleOperation.IDLE || connectionState != "Connected") {
-            addLog("Cannot send settings, busy or not connected.")
+            logManager.addLog("Cannot send settings, busy or not connected.")
             return
         }
         val settings = _deviceSettings.value
         dismissSettingsDiff()
         _currentOperation.value = BleOperation.SENDING_SETTINGS
         val iniString = settings.toIniString()
-        addLog("Sending settings to device:\n$iniString")
+        logManager.addLog("Sending settings to device:\n$iniString")
         sendCommand("SET:setting_ini:$iniString")
         scope.launch {
             _navigationEvent.emit(NavigationEvent.NavigateBack)

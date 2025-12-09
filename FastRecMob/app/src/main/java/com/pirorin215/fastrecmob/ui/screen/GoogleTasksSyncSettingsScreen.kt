@@ -17,13 +17,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoogleTasksSyncSettingsScreen(
-    viewModel: BleViewModel,
+    viewModel: MainViewModel,
     appSettingsViewModel: AppSettingsViewModel,
     onBack: () -> Unit,
     onSignInClick: (Intent) -> Unit
@@ -31,6 +31,7 @@ fun GoogleTasksSyncSettingsScreen(
     BackHandler(onBack = onBack)
     val googleAccount by viewModel.account.collectAsState()
     val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
+    val googleSignInClient by viewModel.googleSignInClient.collectAsState(initial = null)
     val currentGoogleTodoListName by appSettingsViewModel.googleTodoListName.collectAsState()
     var googleTodoListNameText by remember(currentGoogleTodoListName) { mutableStateOf(currentGoogleTodoListName) }
 
@@ -59,7 +60,7 @@ fun GoogleTasksSyncSettingsScreen(
             // Google Sign-In/Out Button
             if (googleAccount == null) {
                 Button(
-                    onClick = { onSignInClick(viewModel.googleSignInClient.signInIntent) },
+                    onClick = { googleSignInClient?.signInIntent?.let { onSignInClick(it) } },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Google Tasks にサインイン")

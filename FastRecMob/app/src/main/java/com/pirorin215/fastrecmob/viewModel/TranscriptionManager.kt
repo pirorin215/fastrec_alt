@@ -29,29 +29,29 @@ class TranscriptionManager(
     private val currentForegroundLocationFlow: StateFlow<LocationData?>,
     private val audioDirNameFlow: StateFlow<String>,
     private val transcriptionCacheLimitFlow: StateFlow<Int>,
-    private val logCallback: (String) -> Unit
-) {
+    private val logManager: LogManager
+) : TranscriptionManagement {
 
     private var speechToTextService: SpeechToTextService? = null
 
     private val _transcriptionState = MutableStateFlow("Idle")
-    val transcriptionState: StateFlow<String> = _transcriptionState.asStateFlow()
+    override val transcriptionState: StateFlow<String> = _transcriptionState.asStateFlow()
 
     private val _transcriptionResult = MutableStateFlow<String?>(null)
-    val transcriptionResult: StateFlow<String?> = _transcriptionResult.asStateFlow()
+    override val transcriptionResult: StateFlow<String?> = _transcriptionResult.asStateFlow()
 
     private val _audioFileCount = MutableStateFlow(0)
-    val audioFileCount: StateFlow<Int> = _audioFileCount.asStateFlow()
+    override val audioFileCount: StateFlow<Int> = _audioFileCount.asStateFlow()
 
     init {
         // Initialize SpeechToTextService based on API Key
         appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
             if (apiKey.isNotEmpty()) {
                 speechToTextService = SpeechToTextService(apiKey)
-                logCallback("TranscriptionManager: SpeechToTextService initialized with API Key.")
+                logManager.addLog("TranscriptionManager: SpeechToTextService initialized with API Key.")
             } else {
                 speechToTextService = null
-                logCallback("TranscriptionManager: SpeechToTextService cleared (API Key not set).")
+                logManager.addLog("TranscriptionManager: SpeechToTextService cleared (API Key not set).")
             }
         }.launchIn(scope)
 
@@ -59,7 +59,7 @@ class TranscriptionManager(
         updateLocalAudioFileCount()
     }
 
-    fun updateLocalAudioFileCount() {
+    override fun updateLocalAudioFileCount() {
         scope.launch {
             val audioDirName = audioDirNameFlow.value
             val audioDir = context.getExternalFilesDir(audioDirName)
@@ -68,10 +68,10 @@ class TranscriptionManager(
                     name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
                 }?.size ?: 0
                 _audioFileCount.value = count
-                logCallback("Updated local audio file count: $count")
+                logManager.addLog("Updated local audio file count: $count")
             } else {
                 _audioFileCount.value = 0
-                logCallback("Audio directory not found, local audio file count is 0.")
+                logManager.addLog("Audio directory not found, local audio file count is 0.")
             }
         }
     }
@@ -81,27 +81,27 @@ class TranscriptionManager(
     suspend fun doTranscription(resultToProcess: TranscriptionResult) {
         val filePath = FileUtil.getAudioFile(context, audioDirNameFlow.value, resultToProcess.fileName).absolutePath
         _transcriptionState.value = "Transcribing ${File(filePath).name}"
-        logCallback("Starting transcription for $filePath")
+        logManager.addLog("Starting transcription for $filePath")
 
         val currentService = speechToTextService
         val locationData = currentForegroundLocationFlow.value
         if (locationData != null) {
-            logCallback("Using pre-collected location for transcription: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
+            logManager.addLog("Using pre-collected location for transcription: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
         } else {
-            logCallback("Pre-collected location not available. Proceeding without location data.")
+            logManager.addLog("Pre-collected location not available. Proceeding without location data.")
         }
 
         if (currentService == null) {
             val errorMessage = "APIキーが設定されていません。設定画面で入力してください。"
             _transcriptionState.value = "Error: $errorMessage"
-            logCallback("Transcription failed: $errorMessage")
+            logManager.addLog("Transcription failed: $errorMessage")
             val errorResult = resultToProcess.copy(
                 transcription = "文字起こしエラー: $errorMessage",
                 locationData = locationData ?: resultToProcess.locationData,
                 transcriptionStatus = "FAILED"
             )
             transcriptionResultRepository.addResult(errorResult)
-            logCallback("Transcription error result saved for ${resultToProcess.fileName}.")
+            logManager.addLog("Transcription error result saved for ${resultToProcess.fileName}.")
             return
         }
 
@@ -109,14 +109,14 @@ class TranscriptionManager(
 
         result.onSuccess { transcription ->
             _transcriptionResult.value = transcription
-            logCallback("Transcription successful for $filePath.")
+            logManager.addLog("Transcription successful for $filePath.")
             val newResult = resultToProcess.copy(
                 transcription = transcription,
                 locationData = locationData ?: resultToProcess.locationData,
                 transcriptionStatus = "COMPLETED"
             )
             transcriptionResultRepository.addResult(newResult)
-            logCallback("Transcription result saved for ${resultToProcess.fileName}.")
+            logManager.addLog("Transcription result saved for ${resultToProcess.fileName}.")
         }.onFailure { error ->
             val errorMessage = error.message ?: "不明なエラー"
             val displayMessage = if (errorMessage.contains("API key authentication failed") || errorMessage.contains("API key is not set")) {
@@ -126,21 +126,21 @@ class TranscriptionManager(
             }
             _transcriptionState.value = "Error: $displayMessage"
             _transcriptionResult.value = null
-            logCallback("Transcription failed for $filePath: $displayMessage")
+            logManager.addLog("Transcription failed for $filePath: $displayMessage")
             val errorResult = resultToProcess.copy(
                 transcription = displayMessage,
                 locationData = locationData ?: resultToProcess.locationData,
                 transcriptionStatus = "FAILED"
             )
             transcriptionResultRepository.addResult(errorResult)
-            logCallback("Transcription error result saved for ${resultToProcess.fileName}.")
+            logManager.addLog("Transcription error result saved for ${resultToProcess.fileName}.")
         }
     }
 
-    fun processPendingTranscriptions() {
+    override fun processPendingTranscriptions() {
         scope.launch {
             if (!transcriptionMutex.tryLock()) {
-                logCallback("Transcription processing already in progress. Skipping.")
+                logManager.addLog("Transcription processing already in progress. Skipping.")
                 return@launch
             }
             try {
@@ -148,15 +148,15 @@ class TranscriptionManager(
                     .filter { it.transcriptionStatus == "PENDING" }
 
                 if (pendingResults.isEmpty()) {
-                    logCallback("No pending transcriptions to process.")
+                    logManager.addLog("No pending transcriptions to process.")
                     return@launch
                 }
 
-                logCallback("Found ${pendingResults.size} pending transcription(s). Starting processing.")
+                logManager.addLog("Found ${pendingResults.size} pending transcription(s). Starting processing.")
                 for (result in pendingResults) {
                     doTranscription(result)
                 }
-                logCallback("Pending transcription processing finished.")
+                logManager.addLog("Pending transcription processing finished.")
                 _transcriptionState.value = "Idle"
             } finally {
                 transcriptionMutex.unlock()
@@ -165,9 +165,9 @@ class TranscriptionManager(
         }
     }
 
-    suspend fun cleanupTranscriptionResultsAndAudioFiles() = withContext(Dispatchers.IO) {
+    override suspend fun cleanupTranscriptionResultsAndAudioFiles() = withContext(Dispatchers.IO) {
         try {
-            logCallback("Running transcription results and audio file cleanup...")
+            logManager.addLog("Running transcription results and audio file cleanup...")
             val limit = transcriptionCacheLimitFlow.value
             // We need to fetch the current list from repository
             val currentTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
@@ -176,52 +176,52 @@ class TranscriptionManager(
 
             if (currentTranscriptionResults.size > limit) {
                 val resultsToDelete = currentTranscriptionResults.take(currentTranscriptionResults.size - limit)
-                logCallback("Transcription cache limit ($limit) exceeded. Found ${currentTranscriptionResults.size} results. Deleting oldest ${resultsToDelete.size} results and associated audio files...")
+                logManager.addLog("Transcription cache limit ($limit) exceeded. Found ${currentTranscriptionResults.size} results. Deleting oldest ${resultsToDelete.size} results and associated audio files...")
 
                 resultsToDelete.forEach { result ->
                     // Delete from DataStore
                     transcriptionResultRepository.removeResult(result)
-                    logCallback("Deleted transcription result: ${result.fileName}")
+                    logManager.addLog("Deleted transcription result: ${result.fileName}")
 
                     // Delete associated audio file
                     val audioDirName = audioDirNameFlow.value
                     val audioFile = FileUtil.getAudioFile(context, audioDirName, result.fileName)
                     if (audioFile.exists()) {
                         if (audioFile.delete()) {
-                            logCallback("Deleted associated audio file: ${result.fileName}")
+                            logManager.addLog("Deleted associated audio file: ${result.fileName}")
                         } else {
-                            logCallback("Failed to delete associated audio file: ${result.fileName}")
+                            logManager.addLog("Failed to delete associated audio file: ${result.fileName}")
                         }
                     } else {
-                        logCallback("Associated audio file not found for: ${result.fileName}")
+                        logManager.addLog("Associated audio file not found for: ${result.fileName}")
                     }
                 }
-                logCallback("Cleanup finished. Deleted ${resultsToDelete.size} transcription results and audio files.")
+                logManager.addLog("Cleanup finished. Deleted ${resultsToDelete.size} transcription results and audio files.")
             } else {
-                logCallback("Transcription cache is within limit ($limit). No results or files deleted.")
+                logManager.addLog("Transcription cache is within limit ($limit). No results or files deleted.")
             }
         } catch (e: Exception) {
-            logCallback("Error during transcription results and audio file cleanup: ${e.message}")
+            logManager.addLog("Error during transcription results and audio file cleanup: ${e.message}")
         } finally {
             updateLocalAudioFileCount() // Ensure count is updated after cleanup
         }
     }
 
-    fun retranscribe(result: TranscriptionResult) {
+    override fun retranscribe(result: TranscriptionResult) {
         scope.launch {
-            logCallback("Attempting to retranscribe file: ${result.fileName}")
+            logManager.addLog("Attempting to retranscribe file: ${result.fileName}")
 
             val audioDirName = audioDirNameFlow.value
             val audioFile = FileUtil.getAudioFile(context, audioDirName, result.fileName)
             if (!audioFile.exists()) {
-                logCallback("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe.")
+                logManager.addLog("Error: Audio file not found for retranscription: ${result.fileName}. Cannot retranscribe.")
                 // Optionally update status to FAILED here if desired
                 val updatedResult = result.copy(transcriptionStatus = "FAILED", transcription = "Audio file not found.")
                 transcriptionResultRepository.addResult(updatedResult)
                 return@launch
             }
 
-            logCallback("Marking ${result.fileName} as PENDING for retranscription.")
+            logManager.addLog("Marking ${result.fileName} as PENDING for retranscription.")
             val pendingResult = result.copy(transcriptionStatus = "PENDING")
             transcriptionResultRepository.addResult(pendingResult)
 
@@ -230,13 +230,13 @@ class TranscriptionManager(
         }
     }
 
-    fun addPendingTranscription(fileName: String) {
+    override fun addPendingTranscription(fileName: String) {
         scope.launch {
-            logCallback("Creating pending transcription record for $fileName")
+            logManager.addLog("Creating pending transcription record for $fileName")
             // Check if a result for this file already exists to avoid duplicates
             val existing = transcriptionResultRepository.transcriptionResultsFlow.first().find { it.fileName == fileName }
             if (existing != null) {
-                logCallback("Transcription record for $fileName already exists. Skipping creation.")
+                logManager.addLog("Transcription record for $fileName already exists. Skipping creation.")
                 return@launch
             }
 
@@ -247,17 +247,17 @@ class TranscriptionManager(
                 transcriptionStatus = "PENDING"
             )
             transcriptionResultRepository.addResult(newResult)
-            logCallback("Pending transcription for $fileName saved.")
+            logManager.addLog("Pending transcription for $fileName saved.")
         }
     }
 
-    fun addManualTranscription(text: String) {
+    override fun addManualTranscription(text: String) {
         scope.launch {
             var locationData: LocationData? = currentForegroundLocationFlow.value
             if (locationData != null) {
-                logCallback("Using pre-collected location for manual transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
+                logManager.addLog("Using pre-collected location for manual transcription: Lat=${locationData?.latitude}, Lng=${locationData?.longitude}")
             } else {
-                 logCallback("Pre-collected location not available for manual transcription. Proceeding without location data.")
+                 logManager.addLog("Pre-collected location not available for manual transcription. Proceeding without location data.")
             }
 
             val timestamp = System.currentTimeMillis()
@@ -265,25 +265,25 @@ class TranscriptionManager(
             val newResult = TranscriptionResult(manualFileName, text, locationData)
 
             transcriptionResultRepository.addResult(newResult)
-            logCallback("Manual transcription added: $manualFileName")
+            logManager.addLog("Manual transcription added: $manualFileName")
 
             scope.launch { cleanupTranscriptionResultsAndAudioFiles() }
         }
     }
 
-    fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
+    override fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
         scope.launch {
             val updatedList = reorderedList.mapIndexed { index, result ->
                 result.copy(displayOrder = index)
             }
             transcriptionResultRepository.updateResults(updatedList)
-            logCallback("Transcription results order updated.")
+            logManager.addLog("Transcription results order updated.")
         }
     }
 
-    fun clearTranscriptionResults() {
+    override fun clearTranscriptionResults() {
         scope.launch {
-            logCallback("Starting clear all transcription results...")
+            logManager.addLog("Starting clear all transcription results...")
             val currentTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
 
             val updatedListForRepo = mutableListOf<TranscriptionResult>()
@@ -296,9 +296,9 @@ class TranscriptionManager(
                     val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
                     if (audioFile.exists()) {
                         if (audioFile.delete()) {
-                            logCallback("Deleted local-only audio file during clear all: ${result.fileName}")
+                            logManager.addLog("Deleted local-only audio file during clear all: ${result.fileName}")
                         } else {
-                            logCallback("Failed to delete local-only audio file during clear all: ${result.fileName}")
+                            logManager.addLog("Failed to delete local-only audio file during clear all: ${result.fileName}")
                         }
                     }
                 } else {
@@ -308,39 +308,39 @@ class TranscriptionManager(
             }
             transcriptionResultRepository.updateResults(updatedListForRepo)
 
-            logCallback("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
+            logManager.addLog("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
             updateLocalAudioFileCount() // Update count after deletions
         }
     }
 
-    fun removeTranscriptionResult(result: TranscriptionResult) {
+    override fun removeTranscriptionResult(result: TranscriptionResult) {
         scope.launch {
             if (result.googleTaskId != null) {
                 // If synced with Google Tasks, perform a soft delete locally.
                 // Actual deletion from Google Tasks and permanent local deletion will happen during sync.
                 transcriptionResultRepository.removeResult(result) // This now sets isDeletedLocally = true
-                logCallback("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
+                logManager.addLog("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
             } else {
                 // If not synced with Google Tasks, permanently delete locally and its audio file immediately.
                 transcriptionResultRepository.permanentlyRemoveResult(result)
-                logCallback("Permanently deleted local-only transcription result: ${result.fileName}")
+                logManager.addLog("Permanently deleted local-only transcription result: ${result.fileName}")
 
                 val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
                 if (audioFile.exists()) {
                     if (audioFile.delete()) {
-                        logCallback("Associated audio file deleted: ${result.fileName}")
+                        logManager.addLog("Associated audio file deleted: ${result.fileName}")
                         updateLocalAudioFileCount()
                     } else {
-                        logCallback("Failed to delete associated audio file: ${result.fileName}")
+                        logManager.addLog("Failed to delete associated audio file: ${result.fileName}")
                     }
                 } else {
-                    logCallback("Associated audio file not found for local-only result: ${result.fileName}")
+                    logManager.addLog("Associated audio file not found for local-only result: ${result.fileName}")
                 }
             }
         }
     }
 
-    fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) {
+    override fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) {
         scope.launch {
             // Create a new TranscriptionResult with the updated transcription and notes
             val updatedResult = originalResult.copy(
@@ -350,11 +350,11 @@ class TranscriptionManager(
             )
             // The addResult method now handles updates, so we just call that.
             transcriptionResultRepository.addResult(updatedResult)
-            logCallback("Transcription result for ${originalResult.fileName} updated.")
+            logManager.addLog("Transcription result for ${originalResult.fileName} updated.")
         }
     }
 
-    fun removeTranscriptionResults(fileNames: Set<String>, clearSelectionCallback: () -> Unit) {
+    override fun removeTranscriptionResults(fileNames: Set<String>, clearSelectionCallback: () -> Unit) {
         scope.launch {
             // We need to fetch the current results to filter
             val currentResults = transcriptionResultRepository.transcriptionResultsFlow.first()
@@ -363,16 +363,17 @@ class TranscriptionManager(
                 removeTranscriptionResult(result) // Use the existing single delete function
             }
             clearSelectionCallback() // Clear selection after deletion
-            logCallback("Removed ${resultsToRemove.size} selected transcription results.")
+            logManager.addLog("Removed ${resultsToRemove.size} selected transcription results.")
         }
     }
 
-    fun resetTranscriptionState() {
+
+    override fun resetTranscriptionState() {
         _transcriptionState.value = "Idle"
         _transcriptionResult.value = null
     }
     
-    fun onCleared() {
+    override fun onCleared() {
         // Placeholder for future cleanup if needed
     }
 }

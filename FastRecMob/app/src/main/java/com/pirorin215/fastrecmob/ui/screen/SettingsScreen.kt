@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pirorin215.fastrecmob.data.DeviceSettings
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.BleOperation
 import com.pirorin215.fastrecmob.viewModel.NavigationEvent
 
@@ -25,12 +25,12 @@ import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: BleViewModel, onBack: () -> Unit) {
+fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
 
-    val settings by viewModel.deviceSettings.collectAsState()
-    val operation by viewModel.currentOperation.collectAsState()
-    val settingsDiff by viewModel.settingsDiff.collectAsState()
+    val settings: DeviceSettings? by viewModel.deviceSettings.collectAsState()
+    val operation: BleOperation by viewModel.currentOperation.collectAsState()
+    val settingsDiff: String? by viewModel.settingsDiff.collectAsState()
 
     LaunchedEffect(Unit) {
         if (settings == null) {

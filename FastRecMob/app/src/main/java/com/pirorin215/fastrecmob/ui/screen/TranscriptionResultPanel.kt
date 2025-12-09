@@ -25,7 +25,7 @@ import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
 import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.TranscriptionResult
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import kotlinx.coroutines.launch
 import org.burnoutcrew.reorderable.ReorderableItem
@@ -35,7 +35,7 @@ import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TranscriptionResultPanel(viewModel: BleViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier) {
+fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: AppSettingsViewModel, modifier: Modifier = Modifier) {
     val transcriptionResults by viewModel.transcriptionResults.collectAsState()
     val scope = rememberCoroutineScope()
     var showDeleteAllConfirmDialog by remember { mutableStateOf(false) }
@@ -349,11 +349,15 @@ fun TranscriptionResultItem(
     val backgroundColor = when {
         isDragging -> MaterialTheme.colorScheme.tertiaryContainer
         isSelected -> MaterialTheme.colorScheme.primaryContainer
+        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.surfaceVariant // PENDING 状態の項目を灰色にする
+        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.errorContainer // FAILED 状態の項目を薄い赤にする
         else -> MaterialTheme.colorScheme.surface
     }
     val contentColor = when {
         isDragging -> MaterialTheme.colorScheme.onTertiaryContainer
         isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.onSurfaceVariant // PENDING 状態のテキスト色
+        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.onErrorContainer // FAILED 状態のテキスト色
         else -> MaterialTheme.colorScheme.onSurface
     }
 

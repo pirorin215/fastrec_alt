@@ -29,7 +29,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.BleOperation
-import com.pirorin215.fastrecmob.viewModel.BleViewModel
+import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel
 import kotlinx.coroutines.launch
 
@@ -44,10 +44,10 @@ fun MainScreen(
     onSignInClick: (Intent) -> Unit
 ) {
     val context = LocalContext.current
-    val viewModel: BleViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
+    val viewModel: MainViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
     val connectionState by deviceStatusViewModel.connectionState.collectAsState()
     val deviceInfo by deviceStatusViewModel.deviceInfo.collectAsState()
-    val logs by viewModel.logs.collectAsState()
+    val logs: List<String> by viewModel.logs.collectAsState()
     val fileList by viewModel.fileList.collectAsState()
     val fileTransferState by viewModel.fileTransferState.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()

@@ -22,41 +22,39 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 
+import com.pirorin215.fastrecmob.viewModel.LogManager
+
 class BleOrchestrator(
     private val scope: CoroutineScope,
     private val context: Context,
     private val repository: BleRepository,
     private val connectionStateFlow: StateFlow<String>,
     private val onDeviceReadyEvent: SharedFlow<Unit>,
-    private val transcriptionManager: TranscriptionManager,
-    private val locationMonitor: LocationMonitor,
+    private val transcriptionManager: TranscriptionManagement,
+    private val locationMonitor: LocationTracking,
     private val appSettingsRepository: AppSettingsRepository,
-    private val bleSelectionManager: BleSelectionManager,
+    private val bleSelectionManager: BleSelection,
     private val transcriptionResults: StateFlow<List<TranscriptionResult>>,
-    private val logCallback: (String) -> Unit
-) {
+    private val logManager: LogManager
+) : BleOrchestration {
     companion object {
         const val TAG = "BleOrchestrator"
         const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
     }
 
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
-    val logs = _logs.asStateFlow()
-
     private val _currentOperation = MutableStateFlow(BleOperation.IDLE)
-    val currentOperation = _currentOperation.asStateFlow()
+    override val currentOperation = _currentOperation.asStateFlow()
     private val bleMutex = Mutex()
 
     private val _navigationEvent = MutableSharedFlow<NavigationEvent>()
-    val navigationEvent = _navigationEvent.asSharedFlow()
+    override val navigationEvent = _navigationEvent.asSharedFlow()
 
-    // --- Managers ---
     private val bleDeviceManager by lazy {
         BleDeviceManager(
             scope = scope,
             context = context,
             sendCommand = { command -> sendCommand(command) },
-            addLog = { message -> addLog(message) },
+            logManager = logManager,
             _currentOperation = _currentOperation,
             bleMutex = bleMutex,
             onFileListUpdated = { checkForNewWavFilesAndProcess() }
@@ -67,7 +65,7 @@ class BleOrchestrator(
         BleSettingsManager(
             scope = scope,
             sendCommand = { command -> sendCommand(command) },
-            addLog = { message -> addLog(message) },
+            logManager = logManager,
             _currentOperation = _currentOperation,
             _navigationEvent = _navigationEvent
         )
@@ -85,17 +83,17 @@ class BleOrchestrator(
             onRefresh = {
                 fetchFileList()
             },
-            logCallback = { message -> addLog(message) }
+            logManager = logManager
         )
     }
 
     // --- Delegated Properties from Managers ---
-    val fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>> get() = bleDeviceManager.fileList
-    val deviceInfo: StateFlow<com.pirorin215.fastrecmob.data.DeviceInfoResponse?> get() = bleDeviceManager.deviceInfo
-    val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> get() = bleSettingsManager.deviceSettings
-    val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> get() = bleSettingsManager.remoteDeviceSettings
-    val settingsDiff: StateFlow<String?> get() = bleSettingsManager.settingsDiff
-    val isAutoRefreshEnabled: StateFlow<Boolean> get() = bleAutoRefresher.isAutoRefreshEnabled
+    override val fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>> get() = bleDeviceManager.fileList
+    override val deviceInfo: StateFlow<com.pirorin215.fastrecmob.data.DeviceInfoResponse?> get() = bleDeviceManager.deviceInfo
+    override val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> get() = bleSettingsManager.deviceSettings
+    override val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> get() = bleSettingsManager.remoteDeviceSettings
+    override val settingsDiff: StateFlow<String?> get() = bleSettingsManager.settingsDiff
+    override val isAutoRefreshEnabled: StateFlow<Boolean> get() = bleAutoRefresher.isAutoRefreshEnabled
 
     private val fileTransferManager by lazy {
         FileTransferManager(
@@ -110,7 +108,7 @@ class BleOrchestrator(
                     initialValue = "FastRecRecordings"
                 ),
             bleMutex = bleMutex,
-            logCallback = { message -> addLog(message) },
+            logManager = logManager,
             sendCommandCallback = { command -> sendCommand(command) },
             sendAckCallback = { ackValue -> sendAck(ackValue) },
             _currentOperation = _currentOperation,
@@ -119,10 +117,10 @@ class BleOrchestrator(
         )
     }
 
-    val downloadProgress: StateFlow<Int> get() = fileTransferManager.downloadProgress
-    val currentFileTotalSize: StateFlow<Long> get() = fileTransferManager.currentFileTotalSize
-    val fileTransferState: StateFlow<String> get() = fileTransferManager.fileTransferState
-    val transferKbps: StateFlow<Float> get() = fileTransferManager.transferKbps
+    override val downloadProgress: StateFlow<Int> get() = fileTransferManager.downloadProgress
+    override val currentFileTotalSize: StateFlow<Long> get() = fileTransferManager.currentFileTotalSize
+    override val fileTransferState: StateFlow<String> get() = fileTransferManager.fileTransferState
+    override val transferKbps: StateFlow<Float> get() = fileTransferManager.transferKbps
 
     init {
         onDeviceReadyEvent
@@ -142,24 +140,22 @@ class BleOrchestrator(
         }.launchIn(scope)
     }
     
-    fun stop() {
+    override fun stop() {
         bleDeviceManager.stopTimeSyncJob()
         addLog("Orchestrator stopped.")
     }
 
-    fun setAutoRefresh(enabled: Boolean) {
+    override fun setAutoRefresh(enabled: Boolean) {
         bleAutoRefresher.setAutoRefresh(enabled)
     }
 
     fun addLog(message: String) {
-        Log.d(TAG, message)
-        _logs.value = (_logs.value + message).takeLast(100)
-        logCallback(message)
+        logManager.addLog(message)
     }
 
-    fun clearLogs() {
-        _logs.value = emptyList()
-        addLog("App logs cleared.")
+    override fun clearLogs() {
+        logManager.clearLogs()
+        logManager.addLog("App logs cleared.")
     }
 
     private fun startFullSync() {
@@ -184,9 +180,8 @@ class BleOrchestrator(
             }
 
             // Step 3: Update location (since GET:info was successful)
-            addLog("Device info received, updating location. (Note: Direct 'updateLocation' needs to be implemented in LocationMonitor if one-shot update is required.)")
-            // Temporarily comment out locationMonitor.updateLocation() as it does not exist
-            // locationMonitor.updateLocation()
+            addLog("Device info received, updating location.")
+            locationMonitor.updateLocation()
 
             // Step 4: Fetch file list (which will trigger download/transcription logic via its callback)
             bleDeviceManager.fetchFileList(connectionStateFlow.value)
@@ -232,7 +227,7 @@ class BleOrchestrator(
         }
     }
 
-    fun sendCommand(command: String) {
+    override fun sendCommand(command: String) {
         addLog("Sending command: $command")
         repository.sendCommand(command)
     }
@@ -241,33 +236,33 @@ class BleOrchestrator(
         repository.sendAck(ackValue)
     }
 
-    fun fetchFileList(extension: String = "wav") {
+    override fun fetchFileList(extension: String) {
         scope.launch {
             bleDeviceManager.fetchFileList(connectionStateFlow.value, extension)
         }
     }
 
-    fun getSettings() {
+    override fun getSettings() {
         bleSettingsManager.getSettings(connectionStateFlow.value)
     }
 
-    fun applyRemoteSettings() {
+    override fun applyRemoteSettings() {
         bleSettingsManager.applyRemoteSettings()
     }
 
-    fun dismissSettingsDiff() {
+    override fun dismissSettingsDiff() {
         bleSettingsManager.dismissSettingsDiff()
     }
 
-    fun sendSettings() {
+    override fun sendSettings() {
         bleSettingsManager.sendSettings(connectionStateFlow.value)
     }
 
-    fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
+    override fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) {
         bleSettingsManager.updateSettings(updater)
     }
 
-    fun downloadFile(fileName: String) {
+    override fun downloadFile(fileName: String) {
         fileTransferManager.downloadFileAndProcess(fileName)
     }
 
