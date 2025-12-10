@@ -12,4 +12,16 @@ interface AppSettingsAccessor {
     val audioDirName: StateFlow<String>
     val themeMode: StateFlow<ThemeMode>
     val sortMode: StateFlow<SortMode>
+    val googleTodoListName: StateFlow<String>
+    val googleTaskTitleLength: StateFlow<Int>
+
+    fun saveApiKey(apiKey: String)
+    fun saveRefreshIntervalSeconds(seconds: Int)
+    fun saveTranscriptionCacheLimit(limit: Int)
+    fun saveTranscriptionFontSize(size: Int)
+    fun saveAudioDirName(name: String)
+    fun saveThemeMode(mode: ThemeMode)
+    fun saveSortMode(sortMode: SortMode)
+    fun saveGoogleTodoListName(name: String)
+    fun saveGoogleTaskTitleLength(length: Int)
 }

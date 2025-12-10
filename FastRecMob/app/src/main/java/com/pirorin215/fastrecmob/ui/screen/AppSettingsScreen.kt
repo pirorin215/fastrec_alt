@@ -52,6 +52,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     val currentTranscriptionCacheLimit by appSettingsViewModel.transcriptionCacheLimit.collectAsState() // Renamed
     val currentFontSize by appSettingsViewModel.transcriptionFontSize.collectAsState()
     val currentThemeMode by appSettingsViewModel.themeMode.collectAsState()
+    val currentGoogleTaskTitleLength by appSettingsViewModel.googleTaskTitleLength.collectAsState()
 
 
     // TextFieldの状態を管理
@@ -60,6 +61,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     var transcriptionCacheLimitText by remember(currentTranscriptionCacheLimit) { mutableStateOf(currentTranscriptionCacheLimit.toString()) } // Renamed
     var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
     var selectedThemeMode by remember(currentThemeMode) { mutableStateOf(currentThemeMode) }
+    var googleTaskTitleLengthText by remember(currentGoogleTaskTitleLength) { mutableStateOf(currentGoogleTaskTitleLength.toString()) }
 
 
 
@@ -99,6 +101,14 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                 value = transcriptionCacheLimitText, // Renamed
                 onValueChange = { transcriptionCacheLimitText = it },
                 label = { Text("文字起こし保持数") }, // Updated text
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = googleTaskTitleLengthText,
+                onValueChange = { googleTaskTitleLengthText = it },
+                label = { Text("タイトルの最大文字数") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -148,6 +158,8 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     appSettingsViewModel.saveTranscriptionCacheLimit(transcriptionCacheLimit) // Updated function call
                     appSettingsViewModel.saveTranscriptionFontSize(fontSizeSliderValue.roundToInt())
                     appSettingsViewModel.saveThemeMode(selectedThemeMode)
+                    val googleTaskTitleLength = googleTaskTitleLengthText.toIntOrNull() ?: 20
+                    appSettingsViewModel.saveGoogleTaskTitleLength(googleTaskTitleLength)
 
                     onBack() // 保存後に前の画面に戻る
                 },

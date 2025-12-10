@@ -87,6 +87,8 @@ class MainViewModel(
     val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
     val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
     val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsAccessor.sortMode
+    val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
+    val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
@@ -131,7 +133,8 @@ class MainViewModel(
             currentForegroundLocationFlow = locationMonitor.currentForegroundLocation,
             audioDirNameFlow = audioDirName,
             transcriptionCacheLimitFlow = transcriptionCacheLimit,
-            logManager = logManager
+            logManager = logManager,
+            googleTaskTitleLengthFlow = appSettingsAccessor.googleTaskTitleLength // Pass the new parameter
         )
     }
 

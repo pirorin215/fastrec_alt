@@ -29,7 +29,8 @@ class TranscriptionManager(
     private val currentForegroundLocationFlow: StateFlow<LocationData?>,
     private val audioDirNameFlow: StateFlow<String>,
     private val transcriptionCacheLimitFlow: StateFlow<Int>,
-    private val logManager: LogManager
+    private val logManager: LogManager,
+    private val googleTaskTitleLengthFlow: StateFlow<Int> // New parameter
 ) : TranscriptionManagement {
 
     private var speechToTextService: SpeechToTextService? = null
@@ -107,11 +108,24 @@ class TranscriptionManager(
 
         val result = currentService.transcribeFile(filePath)
 
-        result.onSuccess { transcription ->
-            _transcriptionResult.value = transcription
-            logManager.addLog("Transcription successful for $filePath.")
+        result.onSuccess { fullTranscription ->
+            val googleTaskTitleLength = googleTaskTitleLengthFlow.first()
+
+            val rawTitle = fullTranscription.take(googleTaskTitleLength)
+            val cleanTitle = rawTitle.replace("\n", "")
+            val title = if (cleanTitle.isBlank()) "Transcription" else cleanTitle
+
+            val notes = if (fullTranscription.length > googleTaskTitleLength) {
+                fullTranscription
+            } else {
+                null
+            }
+
+            _transcriptionResult.value = title // Display the clean title
+            logManager.addLog("Transcription successful for $filePath. Title: '$title'")
             val newResult = resultToProcess.copy(
-                transcription = transcription,
+                transcription = title, // Save the title as the main transcription
+                googleTaskNotes = notes, // Save full transcription as notes if overflow
                 locationData = locationData ?: resultToProcess.locationData,
                 transcriptionStatus = "COMPLETED"
             )
@@ -262,7 +276,24 @@ class TranscriptionManager(
 
             val timestamp = System.currentTimeMillis()
             val manualFileName = "M${FileUtil.formatTimestampForFileName(timestamp)}.txt"
-            val newResult = TranscriptionResult(manualFileName, text, locationData)
+
+            val googleTaskTitleLength = googleTaskTitleLengthFlow.first()
+            val rawTitle = text.take(googleTaskTitleLength)
+            val cleanTitle = rawTitle.replace("\n", "")
+            val title = if (cleanTitle.isBlank()) "Manual Transcription" else cleanTitle
+
+            val notes = if (text.length > googleTaskTitleLength) {
+                text
+            } else {
+                null
+            }
+
+            val newResult = TranscriptionResult(
+                fileName = manualFileName,
+                transcription = title, // Save the title as the main transcription
+                locationData = locationData,
+                googleTaskNotes = notes // Save full transcription as notes if overflow
+            )
 
             transcriptionResultRepository.addResult(newResult)
             logManager.addLog("Manual transcription added: $manualFileName")

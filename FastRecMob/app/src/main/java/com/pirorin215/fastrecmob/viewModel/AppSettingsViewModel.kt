@@ -73,6 +73,13 @@ class AppSettingsViewModel(
             initialValue = "fastrec"
         )
 
+    val googleTaskTitleLength: StateFlow<Int> = appSettingsRepository.googleTaskTitleLengthFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 20 // Default to 20
+        )
+
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
@@ -109,6 +116,13 @@ class AppSettingsViewModel(
     fun saveGoogleTodoListName(name: String) {
         viewModelScope.launch {
             appSettingsRepository.saveGoogleTodoListName(name)
+        }
+    }
+
+    fun saveGoogleTaskTitleLength(length: Int) {
+        viewModelScope.launch {
+            val titleLength = length.coerceIn(5, 50) // Example bounds: 5 to 50 characters
+            appSettingsRepository.saveGoogleTaskTitleLength(titleLength)
         }
     }
 
