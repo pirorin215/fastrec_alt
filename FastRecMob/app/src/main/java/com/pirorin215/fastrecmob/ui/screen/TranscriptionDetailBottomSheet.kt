@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -79,7 +80,7 @@ fun TranscriptionDetailBottomSheet(
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
     )
-    var showGoogleTasksInfo by remember { mutableStateOf(false) } // Moved declaration here
+    var isExpanded by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -93,7 +94,11 @@ fun TranscriptionDetailBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { isExpanded = !isExpanded } // Make the column clickable
+                ) {
                     Text(
                         text = "作成日時: " + FileUtil.extractRecordingDateTime(result.fileName),
                         style = MaterialTheme.typography.bodyMedium,
@@ -105,17 +110,9 @@ fun TranscriptionDetailBottomSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
-
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Switch(
-                        checked = showGoogleTasksInfo,
-                        onCheckedChange = { showGoogleTasksInfo = it }
-                    )
-                    Spacer(Modifier.width(8.dp))
 
                     // Retranscribe Button
                     if (audioFileExists) { // Conditionally display the button
@@ -169,7 +166,7 @@ fun TranscriptionDetailBottomSheet(
                 }
             }
 
-            if (showGoogleTasksInfo) {
+            if (isExpanded) { // Use isExpanded here
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
