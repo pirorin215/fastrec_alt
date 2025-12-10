@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
             val mainViewModelFactory = MainViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent, logManager)
             val mainViewModel: MainViewModel = viewModel(factory = mainViewModelFactory)
 
-            val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository)
+            val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository, mainViewModel.transcriptionManager)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
 
             val themeMode by mainViewModel.themeMode.collectAsState()

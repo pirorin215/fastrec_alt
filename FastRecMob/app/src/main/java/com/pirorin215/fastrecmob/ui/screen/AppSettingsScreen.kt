@@ -145,7 +145,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {

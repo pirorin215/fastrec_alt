@@ -129,7 +129,7 @@ class MainViewModel(
     }
 
     // --- Transcription Manager ---
-    private val transcriptionManager: TranscriptionManagement by lazy {
+    val transcriptionManager: TranscriptionManagement by lazy {
         TranscriptionManager(
             context = application,
             scope = viewModelScope,

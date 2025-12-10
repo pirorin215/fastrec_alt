@@ -80,6 +80,7 @@ class TranscriptionManager(
     private val transcriptionMutex = Mutex()
 
     suspend fun doTranscription(resultToProcess: TranscriptionResult) {
+        logManager.addLog("Entered doTranscription for file: ${resultToProcess.fileName}. Current status: ${resultToProcess.transcriptionStatus}")
         val filePath = FileUtil.getAudioFile(context, audioDirNameFlow.value, resultToProcess.fileName).absolutePath
         _transcriptionState.value = "Transcribing ${File(filePath).name}"
         logManager.addLog("Starting transcription for $filePath")
@@ -106,7 +107,9 @@ class TranscriptionManager(
             return
         }
 
+        logManager.addLog("Calling transcribeFile for ${filePath}...")
         val result = currentService.transcribeFile(filePath)
+        logManager.addLog("TranscribeFile call finished for ${filePath}. Result success: ${result.isSuccess}")
 
         result.onSuccess { fullTranscription ->
             val googleTaskTitleLength = googleTaskTitleLengthFlow.first()
@@ -168,6 +171,7 @@ class TranscriptionManager(
 
                 logManager.addLog("Found ${pendingResults.size} pending transcription(s). Starting processing.")
                 for (result in pendingResults) {
+                    logManager.addLog("Processing pending transcription for file: ${result.fileName}")
                     doTranscription(result)
                 }
                 logManager.addLog("Pending transcription processing finished.")
@@ -398,6 +402,51 @@ class TranscriptionManager(
         }
     }
 
+
+    override fun findAndProcessUnlinkedWavFiles() {
+        scope.launch {
+            logManager.addLog("Starting to find and process unlinked WAV files...")
+
+            val audioDirName = audioDirNameFlow.value
+            val audioDir = context.getExternalFilesDir(audioDirName)
+            if (audioDir == null || !audioDir.exists()) {
+                logManager.addLog("Audio directory not found: $audioDirName. No WAV files to process.")
+                return@launch
+            }
+
+            val localWavFiles = audioDir.listFiles { _, name ->
+                name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
+            }?.map { it.name }?.toSet() ?: emptySet()
+
+            if (localWavFiles.isEmpty()) {
+                logManager.addLog("No local WAV files found in $audioDirName.")
+                return@launch
+            }
+
+            val recordedFileNames = transcriptionResultRepository.transcriptionResultsFlow.first()
+                .map { it.fileName }
+                .toSet()
+
+            val unlinkedWavFiles = localWavFiles.filter { it !in recordedFileNames }
+
+            if (unlinkedWavFiles.isEmpty()) {
+                logManager.addLog("No unlinked WAV files found.")
+            } else {
+                logManager.addLog("Found ${unlinkedWavFiles.size} unlinked WAV file(s). Adding to pending transcriptions.")
+                unlinkedWavFiles.forEach { fileName ->
+                    addPendingTranscription(fileName)
+                }
+                logManager.addLog("Finished adding unlinked WAV files to pending transcriptions.")
+                processPendingTranscriptions()
+            }
+
+            // Ensure cleanup and count update after processing
+            cleanupTranscriptionResultsAndAudioFiles()
+            updateLocalAudioFileCount()
+
+            logManager.addLog("Finished finding and processing unlinked WAV files.")
+        }
+    }
 
     override fun resetTranscriptionState() {
         _transcriptionState.value = "Idle"

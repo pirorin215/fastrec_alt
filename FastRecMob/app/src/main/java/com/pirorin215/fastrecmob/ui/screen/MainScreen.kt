@@ -196,6 +196,13 @@ fun MainScreen(
                                         expanded = false
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("未リンクWAVファイルをスキャンして文字起こし") },
+                                    onClick = {
+                                        appSettingsViewModel.scanForUnlinkedWavFiles()
+                                        expanded = false
+                                    }
+                                )
 
                                 DropdownMenuItem(
                                     text = { Text("ログファイルダウンロード") },

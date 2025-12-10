@@ -19,6 +19,7 @@ interface TranscriptionManagement {
     fun removeTranscriptionResult(result: TranscriptionResult)
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?)
     fun removeTranscriptionResults(fileNames: Set<String>, clearSelectionCallback: () -> Unit)
+    fun findAndProcessUnlinkedWavFiles() // Added
     fun resetTranscriptionState()
     fun onCleared()
 }

@@ -25,7 +25,8 @@ enum class ApiKeyStatus {
 
 class AppSettingsViewModel(
     private val appSettingsRepository: AppSettingsRepository,
-    private val application: Application // Context for SpeechToTextService, though not directly used now
+    private val transcriptionManager: TranscriptionManagement, // Added
+    private val application: Application
 ) : ViewModel() {
 
     private val _apiKeyStatus = MutableStateFlow(ApiKeyStatus.CHECKING)
@@ -139,6 +140,11 @@ class AppSettingsViewModel(
         }
     }
 
+    fun scanForUnlinkedWavFiles() {
+        viewModelScope.launch {
+            transcriptionManager.findAndProcessUnlinkedWavFiles()
+        }
+    }
 
     private var lastCheckedApiKey: String = ""
 
