@@ -237,28 +237,24 @@ fun TranscriptionDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceAround,
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Play Button
+                // Play Button (Icon)
                 if (audioFileExists) {
-                    Button(
+                    IconButton(
                         onClick = { onPlay(result) },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        modifier = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
-                        Spacer(Modifier.width(4.dp))
-                        Text("再生")
                     }
-                    Spacer(Modifier.width(8.dp))
                 }
 
-                // Map Button
+                // Map Button (Icon)
                 result.locationData?.let { location ->
-                    Button(
+                    IconButton(
                         onClick = {
                             val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
                             val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
@@ -271,19 +267,17 @@ fun TranscriptionDetailBottomSheet(
                                 context.startActivity(webMapIntent)
                             }
                         },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        modifier = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
                     ) {
                         Icon(Icons.Default.LocationOn, contentDescription = "Show Location")
-                        Spacer(Modifier.width(4.dp))
-                        Text("地図")
                     }
-                    Spacer(Modifier.width(8.dp))
                 }
+                Spacer(Modifier.weight(1f)) // Pushes the Save button to the end
                 // Save Button
                 Button(
                     onClick = { onSave(result, editableText.text, editableNote.text.ifBlank { null }) }, // Pass editableNote.text
                     enabled = isEdited,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = "Save Changes")
                     Spacer(Modifier.width(4.dp))
