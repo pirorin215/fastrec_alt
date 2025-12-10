@@ -190,6 +190,21 @@ class GoogleTasksUseCase(
         }
     }
 
+    suspend fun moveTask(taskId: String, previousTaskId: String?): Task? {
+        if (_account.value == null || taskId.isBlank()) return null
+        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
+        val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId/move" +
+                (previousTaskId?.let { "?previous=$it" } ?: "")
+        return try {
+            val response = makeApiRequest(urlString = url, method = "POST")
+            logManager.addLog("Moved Google Task ID: $taskId after $previousTaskId")
+            json.decodeFromString<Task>(response)
+        } catch (e: Exception) {
+            logManager.addLog("Error moving Google Task ID '$taskId': ${e.message}")
+            null
+        }
+    }
+
     private suspend fun loadGoogleTasks(): List<Task> {
         if (_account.value == null) {
             logManager.addLog("Not signed in to Google. Cannot load tasks.")
@@ -309,68 +324,57 @@ class GoogleTasksUseCase(
                             logManager.addLog("Associated audio file not found for remote-deleted result: ${localResult.fileName}")
                         }
                     } else {
-                        val remoteNotesCleared = correspondingGoogleTask.notes.isNullOrEmpty()
-                        val localNotesNotEmpty = !localResult.googleTaskNotes.isNullOrEmpty()
+                        val googleTaskUpdateTimestamp = FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
+                        val localLastEditedTimestamp = localResult.lastEditedTimestamp
 
-                        if (remoteNotesCleared && localNotesNotEmpty) {
-                            // Remote notes were explicitly cleared, and local still has content.
-                            // Pull this remote clear, regardless of timestamps.
-                            logManager.addLog("Remote Google Task '${localResult.googleTaskId}' notes were cleared. Pulling this change to local result '${localResult.fileName}'.")
-                            reconciledTranscriptionResults.add(
-                                localResult.copy(
-                                    googleTaskNotes = null, // Explicitly clear local
-                                    isSyncedWithGoogleTasks = true
-                                )
+                        // ローカルでの変更点を検出
+                        val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
+                        val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
+                        val normalizedLocalNotes = localResult.googleTaskNotes.takeIf { !it.isNullOrEmpty() }
+                        val normalizedRemoteNotes = correspondingGoogleTask.notes.takeIf { !it.isNullOrEmpty() }
+                        val contentDiffers = localTranscriptionChanged || localCompletionChanged || (normalizedLocalNotes != normalizedRemoteNotes)
+
+                        if (localLastEditedTimestamp > googleTaskUpdateTimestamp) {
+                            // ローカルが新しい -> リモートにPush
+                            logManager.addLog("Local result '${localResult.fileName}' is newer. Pushing changes to Google Task '${localResult.googleTaskId}'.")
+                            val updatedTask = updateGoogleTask(
+                                taskId = localResult.googleTaskId,
+                                title = localResult.transcription,
+                                notes = if (localResult.googleTaskNotes.isNullOrEmpty()) "" else localResult.googleTaskNotes,
+                                isCompleted = localResult.isCompleted
                             )
-                        } else {
-                            val googleTaskUpdateTimestamp = FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
-                            val localLastEditedTimestamp = localResult.lastEditedTimestamp
-
-                            val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
-                            val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
-                            val normalizedLocalNotes = localResult.googleTaskNotes.takeIf { !it.isNullOrEmpty() }
-                            val normalizedRemoteNotes = correspondingGoogleTask.notes.takeIf { !it.isNullOrEmpty() }
-                            val localNotesChanged = normalizedLocalNotes != normalizedRemoteNotes
-
-                            if (localTranscriptionChanged || localCompletionChanged || localNotesChanged) {
-                                // Local result has changes, push to Google Tasks
-                                logManager.addLog("Local result '${localResult.fileName}' has changes. Updating Google Task '${localResult.googleTaskId}'.")
-                                val updatedTask = updateGoogleTask(
-                                    taskId = localResult.googleTaskId,
-                                    title = localResult.transcription,
-                                    notes = if (localResult.googleTaskNotes.isNullOrEmpty()) "" else localResult.googleTaskNotes,
-                                    isCompleted = localResult.isCompleted
-                                )
-
-                                if (updatedTask != null) {
-                                    reconciledTranscriptionResults.add(
-                                        localResult.copy(
-                                            isSyncedWithGoogleTasks = true
-                                        )
-                                    )
-                                } else {
-                                    logManager.addLog("Failed to update Google Task for local result '${localResult.fileName}'.")
-                                    reconciledTranscriptionResults.add(localResult)
-                                }
-                            } else if (googleTaskUpdateTimestamp > localLastEditedTimestamp) {
-                                // No local changes, but Google Task is newer. Pull from Google.
-                                logManager.addLog("Google Task '${localResult.googleTaskId}' is newer. Pulling changes to local result '${localResult.fileName}'.")
+                            if (updatedTask != null) {
                                 reconciledTranscriptionResults.add(
                                     localResult.copy(
-                                        transcription = correspondingGoogleTask.title ?: localResult.transcription,
-                                        googleTaskNotes = correspondingGoogleTask.notes,
-                                        isCompleted = (correspondingGoogleTask.status == "completed"),
-                                        isSyncedWithGoogleTasks = true
+                                        isSyncedWithGoogleTasks = true,
+                                        googleTaskUpdated = updatedTask.updated // Push成功後、リモートのタイムスタンプをローカルに反映
                                     )
                                 )
                             } else {
-                                // No local changes, Google Task is not newer (or same age). Consider in sync.
-                                reconciledTranscriptionResults.add(
-                                    localResult.copy(
-                                        isSyncedWithGoogleTasks = true
-                                    )
-                                )
+                                logManager.addLog("Failed to push update for newer local result '${localResult.fileName}'.")
+                                reconciledTranscriptionResults.add(localResult) // Sync失敗
                             }
+                        } else if (googleTaskUpdateTimestamp > localLastEditedTimestamp || contentDiffers) {
+                            // リモートが新しい、またはタイムスタンプが同じだが内容が違う -> ローカルを更新 (Pull)
+                            logManager.addLog("Google Task '${localResult.googleTaskId}' is newer or content differs. Pulling changes to local result '${localResult.fileName}'.")
+                            reconciledTranscriptionResults.add(
+                                localResult.copy(
+                                    transcription = correspondingGoogleTask.title ?: localResult.transcription,
+                                    googleTaskNotes = correspondingGoogleTask.notes,
+                                    isCompleted = (correspondingGoogleTask.status == "completed"),
+                                    googleTaskUpdated = correspondingGoogleTask.updated,
+                                    googleTaskPosition = correspondingGoogleTask.position,
+                                    googleTaskDue = correspondingGoogleTask.due,
+                                    googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
+                                    isSyncedWithGoogleTasks = true,
+                                    lastEditedTimestamp = googleTaskUpdateTimestamp // ローカルのタイムスタンプをリモートに合わせる
+                                )
+                            )
+                        } else {
+                            // 変更なし (タイムスタンプも内容も同じ)
+                            reconciledTranscriptionResults.add(
+                                localResult.copy(isSyncedWithGoogleTasks = true)
+                            )
                         }
                     }
                 }
@@ -386,13 +390,46 @@ class GoogleTasksUseCase(
                         locationData = null,
                         googleTaskId = googleTask.id,
                         isCompleted = (googleTask.status == "completed"),
+                        googleTaskNotes = googleTask.notes,
+                        googleTaskUpdated = googleTask.updated,
+                        googleTaskPosition = googleTask.position,
+                        googleTaskDue = googleTask.due,
+                        googleTaskWebViewLink = googleTask.webViewLink,
                         isSyncedWithGoogleTasks = true
                     )
                     reconciledTranscriptionResults.add(newLocalResult)
                 }
             }
 
-            transcriptionResultRepository.updateResults(reconciledTranscriptionResults.distinctBy { it.fileName })
+            // Sort by remote position first, then by local data for stability.
+            // Create a map for quick lookup of Google Task order.
+            val googleTaskOrderMap = googleTasks
+                .sortedBy { it.position }
+                .mapIndexed { index, task -> task.id to index }
+                .toMap()
+
+            // Sort reconciled results:
+            // 1. By Google Task position if available.
+            // 2. Local-only items (no googleTaskId) are placed at the end.
+            // 3. Among local-only items, sort by last edited time (newest first).
+            val sortedReconciledResults = reconciledTranscriptionResults.distinctBy { it.fileName }
+                .sortedWith(
+                    compareBy(
+                        { result -> result.googleTaskId?.let { googleTaskOrderMap[it] } ?: Int.MAX_VALUE },
+                        { result -> -result.lastEditedTimestamp } // Use negative for descending
+                    )
+                )
+                .mapIndexed { index, result ->
+                    result.copy(
+                        displayOrder = index,
+                        // Also update the local position string to match the latest from remote
+                        googleTaskPosition = result.googleTaskId?.let { taskId ->
+                            googleTasks.find { it.id == taskId }?.position
+                        } ?: result.googleTaskPosition
+                    )
+                }
+
+            transcriptionResultRepository.updateResults(sortedReconciledResults)
 
             logManager.addLog("Google Tasks synchronization completed.")
 

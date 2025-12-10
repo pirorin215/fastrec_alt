@@ -78,6 +78,10 @@ class GoogleTasksManager(
         logManager.addLog("Google Sign-In result handled.")
     }
 
+    override suspend fun moveTask(taskId: String, previousTaskId: String?) {
+        googleTasksUseCase.moveTask(taskId, previousTaskId)
+    }
+
     override fun signOut() {
         googleTasksUseCase.signOut()
         logManager.addLog("Signed out from Google Tasks.")

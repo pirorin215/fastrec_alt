@@ -183,25 +183,27 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
                 }
             }
             Spacer(modifier = Modifier.height(8.dp)) // Add this Spacer for separation
-            if (localItems.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("no data")
-                }
-            } else {
-                LazyColumn(
-                    state = reorderableState.listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (sortMode == SortMode.CUSTOM) {
-                                Modifier
-                                    .reorderable(reorderableState)
-                                    .detectReorderAfterLongPress(reorderableState)
-                            } else {
-                                Modifier
-                            }
-                        )
-                ) {
+            LazyColumn(
+                state = reorderableState.listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (sortMode == SortMode.CUSTOM) {
+                            Modifier
+                                .reorderable(reorderableState)
+                                .detectReorderAfterLongPress(reorderableState)
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
+                if (localItems.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("no data")
+                        }
+                    }
+                } else {
                     items(items = localItems, key = { it.fileName }) { result ->
                         ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
                             val elevation = if (isDragging) 12.dp else 0.dp
