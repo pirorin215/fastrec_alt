@@ -14,6 +14,7 @@ interface AppSettingsAccessor {
     val sortMode: StateFlow<SortMode>
     val googleTodoListName: StateFlow<String>
     val googleTaskTitleLength: StateFlow<Int>
+    val googleTasksSyncIntervalMinutes: StateFlow<Int>
 
     fun saveApiKey(apiKey: String)
     fun saveRefreshIntervalSeconds(seconds: Int)
@@ -24,4 +25,5 @@ interface AppSettingsAccessor {
     fun saveSortMode(sortMode: SortMode)
     fun saveGoogleTodoListName(name: String)
     fun saveGoogleTaskTitleLength(length: Int)
+    fun saveGoogleTasksSyncIntervalMinutes(minutes: Int)
 }

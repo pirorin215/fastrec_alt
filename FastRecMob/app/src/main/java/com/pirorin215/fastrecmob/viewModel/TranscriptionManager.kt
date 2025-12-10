@@ -30,7 +30,8 @@ class TranscriptionManager(
     private val audioDirNameFlow: StateFlow<String>,
     private val transcriptionCacheLimitFlow: StateFlow<Int>,
     private val logManager: LogManager,
-    private val googleTaskTitleLengthFlow: StateFlow<Int> // New parameter
+    private val googleTaskTitleLengthFlow: StateFlow<Int>, // New parameter
+    private val googleTasksIntegration: GoogleTasksIntegration
 ) : TranscriptionManagement {
 
     private var speechToTextService: SpeechToTextService? = null
@@ -134,6 +135,8 @@ class TranscriptionManager(
             )
             transcriptionResultRepository.addResult(newResult)
             logManager.addLog("Transcription result saved for ${resultToProcess.fileName}.")
+            // Immediately sync with Google Tasks after successful transcription
+            googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirNameFlow.value)
         }.onFailure { error ->
             val errorMessage = error.message ?: "不明なエラー"
             val displayMessage = if (errorMessage.contains("API key authentication failed") || errorMessage.contains("API key is not set")) {

@@ -16,6 +16,8 @@ import android.media.MediaPlayer
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.pirorin215.fastrecmob.LocationData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,6 +35,9 @@ import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emptyFlow
 import com.pirorin215.fastrecmob.data.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +58,44 @@ class MainViewModel(
 
     companion object {
         const val TAG = "MainViewModel"
+    }
+
+    private val appSettingsAccessor: AppSettingsAccessor by lazy {
+        AppSettingsViewModelDelegate(appSettingsRepository, viewModelScope)
+    }
+
+    val apiKey: StateFlow<String> = appSettingsAccessor.apiKey
+    val refreshIntervalSeconds: StateFlow<Int> = appSettingsAccessor.refreshIntervalSeconds
+    val transcriptionCacheLimit: StateFlow<Int> = appSettingsAccessor.transcriptionCacheLimit
+    val transcriptionFontSize: StateFlow<Int> = appSettingsAccessor.transcriptionFontSize
+    val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
+    val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
+    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsAccessor.sortMode
+    val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
+    val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
+    val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsAccessor.googleTasksSyncIntervalMinutes
+
+    init {
+        // Start periodic Google Tasks sync
+        viewModelScope.launch {
+            googleTasksSyncIntervalMinutes.flatMapLatest { minutes ->
+                if (minutes > 0) {
+                    // Create a flow that emits every `minutes`
+                    flow {
+                        while(true) {
+                            delay(minutes * 60 * 1000L)
+                            emit(minutes)
+                        }
+                    }
+                } else {
+                    // If minutes is 0 or less, return an empty flow that does nothing
+                    emptyFlow()
+                }
+            }.collect { minuteValue ->
+                logManager.addLog("Triggering periodic Google Tasks sync ($minuteValue min).")
+                googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
+            }
+        }
     }
 
     // --- Google Tasks Manager ---
@@ -76,21 +119,6 @@ class MainViewModel(
     fun syncTranscriptionResultsWithGoogleTasks() = googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
     fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
     fun signOut() = googleTasksIntegration.signOut()
-
-
-    private val appSettingsAccessor: AppSettingsAccessor by lazy {
-        AppSettingsViewModelDelegate(appSettingsRepository, viewModelScope)
-    }
-
-    val apiKey: StateFlow<String> = appSettingsAccessor.apiKey
-    val refreshIntervalSeconds: StateFlow<Int> = appSettingsAccessor.refreshIntervalSeconds
-    val transcriptionCacheLimit: StateFlow<Int> = appSettingsAccessor.transcriptionCacheLimit
-    val transcriptionFontSize: StateFlow<Int> = appSettingsAccessor.transcriptionFontSize
-    val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
-    val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
-    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsAccessor.sortMode
-    val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
-    val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
@@ -139,7 +167,8 @@ class MainViewModel(
             audioDirNameFlow = audioDirName,
             transcriptionCacheLimitFlow = transcriptionCacheLimit,
             logManager = logManager,
-            googleTaskTitleLengthFlow = appSettingsAccessor.googleTaskTitleLength // Pass the new parameter
+            googleTaskTitleLengthFlow = appSettingsAccessor.googleTaskTitleLength, // Pass the new parameter
+            googleTasksIntegration = googleTasksIntegration
         )
     }
 

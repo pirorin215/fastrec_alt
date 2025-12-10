@@ -81,6 +81,13 @@ class AppSettingsViewModel(
             initialValue = 20 // Default to 20
         )
 
+    val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsRepository.googleTasksSyncIntervalMinutesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 5 // Default to 5 minutes
+        )
+
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
@@ -124,6 +131,13 @@ class AppSettingsViewModel(
         viewModelScope.launch {
             val titleLength = length.coerceIn(5, 50) // Example bounds: 5 to 50 characters
             appSettingsRepository.saveGoogleTaskTitleLength(titleLength)
+        }
+    }
+
+    fun saveGoogleTasksSyncIntervalMinutes(minutes: Int) {
+        viewModelScope.launch {
+            val interval = minutes.coerceAtLeast(1) // Ensure at least 1 minute
+            appSettingsRepository.saveGoogleTasksSyncIntervalMinutes(interval)
         }
     }
 

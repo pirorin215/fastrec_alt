@@ -114,6 +114,22 @@ fun GoogleTasksSyncSettingsScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
+            val currentSyncInterval by appSettingsViewModel.googleTasksSyncIntervalMinutes.collectAsState()
+            var sliderPosition by remember(currentSyncInterval) { mutableStateOf(currentSyncInterval.toFloat()) }
+
+            Text("Google Tasks 同期周期: ${sliderPosition.toInt()} 分")
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                valueRange = 1f..60f,
+                steps = 58, // 60 - 1 - 1 = 58 steps for integer values
+                onValueChangeFinished = {
+                    appSettingsViewModel.saveGoogleTasksSyncIntervalMinutes(sliderPosition.toInt())
+                }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+
             OutlinedTextField(
                 value = googleTodoListNameText,
                 onValueChange = { googleTodoListNameText = it },

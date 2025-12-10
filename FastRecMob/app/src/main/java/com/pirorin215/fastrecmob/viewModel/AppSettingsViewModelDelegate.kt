@@ -70,6 +70,9 @@ class AppSettingsViewModelDelegate(
     override val googleTaskTitleLength: StateFlow<Int> = appSettingsRepository.googleTaskTitleLengthFlow
         .stateIn(scope, SharingStarted.Eagerly, 20) // Default to 20
 
+    override val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsRepository.googleTasksSyncIntervalMinutesFlow
+        .stateIn(scope, SharingStarted.Eagerly, 5) // Default to 5
+
     override fun saveApiKey(apiKey: String) {
         scope.launch { appSettingsRepository.saveApiKey(apiKey) }
     }
@@ -104,5 +107,9 @@ class AppSettingsViewModelDelegate(
 
     override fun saveGoogleTaskTitleLength(length: Int) {
         scope.launch { appSettingsRepository.saveGoogleTaskTitleLength(length) }
+    }
+
+    override fun saveGoogleTasksSyncIntervalMinutes(minutes: Int) {
+        scope.launch { appSettingsRepository.saveGoogleTasksSyncIntervalMinutes(minutes) }
     }
 }

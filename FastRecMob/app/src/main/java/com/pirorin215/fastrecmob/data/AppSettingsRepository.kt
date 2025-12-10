@@ -28,6 +28,7 @@ class AppSettingsRepository(private val context: Context) {
         val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
         val GOOGLE_TODO_LIST_NAME = stringPreferencesKey("google_todo_list_name")
         val GOOGLE_TASK_TITLE_LENGTH = intPreferencesKey("google_task_title_length")
+        val GOOGLE_TASKS_SYNC_INTERVAL_MINUTES = intPreferencesKey("google_tasks_sync_interval_minutes")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -89,6 +90,11 @@ class AppSettingsRepository(private val context: Context) {
             preferences[PreferencesKeys.GOOGLE_TASK_TITLE_LENGTH] ?: 20 // Default to 20
         }
 
+    val googleTasksSyncIntervalMinutesFlow: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.GOOGLE_TASKS_SYNC_INTERVAL_MINUTES] ?: 5 // Default to 5 minutes
+        }
+
     // APIキーを保存するsuspend関数
     suspend fun saveApiKey(apiKey: String) {
         context.dataStore.edit { preferences ->
@@ -147,6 +153,12 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveGoogleTaskTitleLength(length: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.GOOGLE_TASK_TITLE_LENGTH] = length
+        }
+    }
+
+    suspend fun saveGoogleTasksSyncIntervalMinutes(minutes: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.GOOGLE_TASKS_SYNC_INTERVAL_MINUTES] = minutes
         }
     }
 
