@@ -99,6 +99,20 @@ class GoogleTasksUseCase(
         }
     }
 
+    private suspend fun createGoogleTaskList(listName: String): String? {
+        if (_account.value == null || listName.isBlank()) return null
+        val taskListJson = json.encodeToString(TaskList.serializer(), TaskList(id = "", title = listName)) // ID is ignored for creation
+        return try {
+            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/users/@me/lists", method = "POST", body = taskListJson)
+            val newTaskList = json.decodeFromString<TaskList>(response)
+            logManager.addLog("Created new Google Task List: '${newTaskList.title}' (ID: ${newTaskList.id})")
+            newTaskList.id
+        } catch (e: Exception) {
+            logManager.addLog("Error creating Google Task List '$listName': ${e.message}")
+            null
+        }
+    }
+
     private suspend fun getTaskListId(): String? {
         if (taskListId != null) return taskListId
 
@@ -112,11 +126,25 @@ class GoogleTasksUseCase(
             val url = "https://www.googleapis.com/tasks/v1/users/@me/lists"
             val response = makeApiRequest(url)
             val taskListsResponse = json.decodeFromString<TaskListsResponse>(response)
-            val foundList = taskListsResponse.items.find { it.title == listName }
-            taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list
+            var foundList = taskListsResponse.items.find { it.title == listName }
+
+            if (foundList == null && listName != "@default") {
+                logManager.addLog("Google Task List '$listName' not found. Attempting to create it.")
+                val newTaskListId = createGoogleTaskList(listName)
+                if (newTaskListId != null) {
+                    // Refetch the list to get the newly created one, or assume the newTaskListId is enough
+                    // For simplicity, we'll just use the newTaskListId directly and update taskListId
+                    taskListId = newTaskListId
+                    return newTaskListId
+                } else {
+                    logManager.addLog("Failed to create Google Task List '$listName'. Falling back to default or first available.")
+                }
+            }
+
+            taskListId = foundList?.id ?: taskListsResponse.items.firstOrNull()?.id // Fallback to first list if user-defined not found/created
             taskListId
         } catch (e: Exception) {
-            logManager.addLog("Error getting task lists: ${e.message}")
+            logManager.addLog("Error getting or creating task lists: ${e.message}")
             null
         }
     }
