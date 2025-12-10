@@ -16,7 +16,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
-import android.content.Intent // Add this import
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +43,7 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
     val sortMode by appSettingsViewModel.sortMode.collectAsState()
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState() // Observe isPlaying state
 
     var selectedResultForDetail by remember { mutableStateOf<TranscriptionResult?>(null) }
     val audioDirName by viewModel.audioDirName.collectAsState()
@@ -225,21 +225,11 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
                 fontSize = fontSize,
                 audioFileExists = FileUtil.getAudioFile(context, audioDirName, result.fileName).exists(),
                 audioDirName = audioDirName,
+                isPlaying = isPlaying, // Pass the isPlaying state
                 onPlay = { transcriptionResult ->
-                    val fileToPlay = FileUtil.getAudioFile(context, audioDirName, transcriptionResult.fileName)
-                    if (fileToPlay.exists()) {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            val uri = FileProvider.getUriForFile(context, "com.pirorin215.fastrecmob.provider", fileToPlay)
-                            setDataAndType(uri, "audio/wav")
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        try {
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
+                    viewModel.playAudioFile(transcriptionResult)
                 },
+                onStop = { viewModel.stopAudioFile() }, // Pass the stopAudioFile lambda
                 onDelete = { transcriptionResult ->
                     scope.launch {
                         viewModel.removeTranscriptionResult(transcriptionResult)

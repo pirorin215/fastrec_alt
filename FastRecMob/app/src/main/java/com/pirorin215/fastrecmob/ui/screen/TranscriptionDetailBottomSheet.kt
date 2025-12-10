@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh // Add this import
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Stop // Add this import
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +64,9 @@ fun TranscriptionDetailBottomSheet(
     fontSize: Int,
     audioFileExists: Boolean,
     audioDirName: String, // New parameter
+    isPlaying: Boolean, // New parameter for playback status
     onPlay: (TranscriptionResult) -> Unit,
+    onStop: () -> Unit, // New lambda for stopping playback
     onDelete: (TranscriptionResult) -> Unit,
     onSave: (TranscriptionResult, String, String?) -> Unit, // Modified to include note
     onRetranscribe: (TranscriptionResult) -> Unit,
@@ -242,13 +245,23 @@ fun TranscriptionDetailBottomSheet(
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Play Button (Icon)
+                // Play/Stop Button (Icon)
                 if (audioFileExists) {
                     IconButton(
-                        onClick = { onPlay(result) },
+                        onClick = {
+                            if (isPlaying) {
+                                onStop()
+                            } else {
+                                onPlay(result)
+                            }
+                        },
                         modifier = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
+                        if (isPlaying) {
+                            Icon(Icons.Default.Stop, contentDescription = "Stop Audio")
+                        } else {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
+                        }
                     }
                 }
 
