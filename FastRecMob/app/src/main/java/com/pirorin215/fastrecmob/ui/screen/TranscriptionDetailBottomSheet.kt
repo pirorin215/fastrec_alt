@@ -206,9 +206,9 @@ fun TranscriptionDetailBottomSheet(
             OutlinedTextField(
                 value = editableText,
                 onValueChange = { editableText = it },
-                label = { Text("タイトル") }, // Added label
+                label = { Text("タイトル") },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSize.sp),
-                singleLine = true, // Made single line
+                singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
