@@ -53,16 +53,6 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     val localItems = remember { mutableStateListOf<TranscriptionResult>() }
     val originalOrder = remember { mutableStateOf<List<TranscriptionResult>>(emptyList()) }
 
-    LaunchedEffect(transcriptionResults) {
-        if (localItems.toList() != transcriptionResults) {
-            localItems.clear()
-            localItems.addAll(transcriptionResults)
-            if (sortMode == SortMode.CUSTOM) {
-                originalOrder.value = transcriptionResults
-            }
-        }
-    }
-
     val reorderableState = rememberReorderableLazyListState(
         onMove = { from, to ->
             localItems.add(to.index, localItems.removeAt(from.index))
@@ -71,6 +61,19 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     )
 
     val isDragging by remember { derivedStateOf { reorderableState.draggingItemKey != null } }
+
+    LaunchedEffect(transcriptionResults) {
+        if (localItems.toList() != transcriptionResults) {
+            localItems.clear()
+            localItems.addAll(transcriptionResults)
+            if (sortMode == SortMode.CUSTOM) {
+                originalOrder.value = transcriptionResults
+            }
+            scope.launch {
+                reorderableState.listState.animateScrollToItem(0)
+            }
+        }
+    }
 
     LaunchedEffect(isDragging) {
         if (isDragging) {
