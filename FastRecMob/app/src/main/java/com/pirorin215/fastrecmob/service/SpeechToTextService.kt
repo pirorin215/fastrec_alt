@@ -1,5 +1,9 @@
 package com.pirorin215.fastrecmob.service
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import com.google.api.gax.core.NoCredentialsProvider
 import com.google.api.gax.rpc.FixedHeaderProvider
 import com.google.cloud.speech.v1.RecognitionAudio
 import com.google.cloud.speech.v1.RecognitionConfig
@@ -7,25 +11,61 @@ import com.google.cloud.speech.v1.RecognizeRequest
 import com.google.cloud.speech.v1.SpeechClient
 import com.google.cloud.speech.v1.SpeechSettings
 import com.google.protobuf.ByteString
-import com.pirorin215.fastrecmob.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 
-class SpeechToTextService(private val apiKey: String) {
+class SpeechToTextService(private val context: Context, private val apiKey: String) {
+
+    @Suppress("DEPRECATION")
+    private fun getSignatureSha1Hex(): String? {
+        try {
+            val packageName = context.packageName
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNATURES.toLong()))
+            } else {
+                context.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            }
+
+            val signatures = packageInfo.signatures
+            if (signatures.isNullOrEmpty()) return null
+
+            val signature = signatures[0]
+            val md = MessageDigest.getInstance("SHA-1")
+            md.update(signature.toByteArray())
+            val digest = md.digest()
+
+            // Convert byte array to lower-case hex string
+            return digest.joinToString(separator = "") { "%02x".format(it) }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
 
     private fun getClient(): SpeechClient {
         if (apiKey.isEmpty()) {
             throw IllegalStateException("API key is not set. Please enter it in the settings.")
         }
 
-        val headerProvider = FixedHeaderProvider.create("X-Goog-Api-Key", apiKey)
+        val packageName = context.packageName
+        val signatureHash = getSignatureSha1Hex() ?: throw IllegalStateException("Could not get signature hash.")
+
+        val headers = mapOf(
+            "X-Goog-Api-Key" to apiKey,
+            "X-Android-Package" to packageName,
+            "X-Android-Cert" to signatureHash
+        )
+
+        val headerProvider = FixedHeaderProvider.create(headers)
 
         val speechSettings = SpeechSettings.newBuilder()
-            .setCredentialsProvider(com.google.api.gax.core.NoCredentialsProvider.create())
+            .setCredentialsProvider(NoCredentialsProvider.create())
             .setHeaderProvider(headerProvider)
             .build()
 

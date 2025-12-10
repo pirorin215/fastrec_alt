@@ -194,7 +194,7 @@ class AppSettingsViewModel(
             }
 
             // APIキーが変更されたか、または未検証の場合はネットワーク経由でチェック
-            val speechToTextService = SpeechToTextService(apiKey)
+            val speechToTextService = SpeechToTextService(application, apiKey)
             val result = speechToTextService.verifyApiKey()
 
             _apiKeyStatus.value = if (result.isSuccess) {

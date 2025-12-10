@@ -47,16 +47,18 @@ class TranscriptionManager(
     override val audioFileCount: StateFlow<Int> = _audioFileCount.asStateFlow()
 
     init {
-        // Initialize SpeechToTextService based on API Key
-        appSettingsRepository.apiKeyFlow.distinctUntilChanged().onEach { apiKey ->
-            if (apiKey.isNotEmpty()) {
-                speechToTextService = SpeechToTextService(apiKey)
-                logManager.addLog("TranscriptionManager: SpeechToTextService initialized with API Key.")
-            } else {
-                speechToTextService = null
-                logManager.addLog("TranscriptionManager: SpeechToTextService cleared (API Key not set).")
+        appSettingsRepository.apiKeyFlow
+            .onEach { apiKey ->
+                logManager.addLog("TranscriptionManager: API Key changed.")
+                if (apiKey.isNotBlank()) {
+                    speechToTextService = SpeechToTextService(context, apiKey)
+                    logManager.addLog("TranscriptionManager: SpeechToTextService initialized.")
+                } else {
+                    speechToTextService = null
+                    logManager.addLog("TranscriptionManager: SpeechToTextService cleared (API Key not set).")
+                }
             }
-        }.launchIn(scope)
+            .launchIn(scope)
 
         // Initial update
         updateLocalAudioFileCount()
