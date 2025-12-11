@@ -337,6 +337,16 @@ void loop() {
     case DSLEEP:
       goDeepSleep();
       break;
+    case INIT:
+      // If we are in INIT state for too long, transition to IDLE
+      // This acts as a safeguard if setup() doesn't explicitly transition the state
+      // after all initializations are done.
+      static unsigned long initEntryTime = millis();
+      if (millis() - initEntryTime > 1000) { // 1000ms timeout
+        applog("INIT state timeout, transitioning to IDLE.");
+        setAppState(IDLE, false);
+      }
+      break;
   }
   g_currentBatteryVoltage = getBatteryVoltage();
 }
