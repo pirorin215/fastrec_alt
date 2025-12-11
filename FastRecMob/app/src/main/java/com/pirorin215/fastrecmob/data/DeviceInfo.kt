@@ -12,9 +12,7 @@ data class DeviceInfoResponse(
     @SerialName("battery_level") val batteryLevel: Float,
     @SerialName("battery_voltage") val batteryVoltage: Float,
     @SerialName("app_state") val appState: String,
-    @SerialName("wifi_status") val wifiStatus: String,
-    @SerialName("connected_ssid") val connectedSsid: String,
-    @SerialName("wifi_rssi") val wifiRssi: Int,
+
     @SerialName("littlefs_total_bytes") val littlefsTotalBytes: Long,
     @SerialName("littlefs_used_bytes") val littlefsUsedBytes: Long,
     @SerialName("littlefs_usage_percent") val littlefsUsagePercent: Int

@@ -1,6 +1,6 @@
 #include "fastrec_alt.h"
 #include <SSD1315.h>
-#include <WiFi.h>
+
 #include <cmath>
 
 SSD1315 display;
@@ -40,75 +40,12 @@ void displayLine(uint8_t lineNumber, const char* text) {
   display.drawString(0, lineNumber * LINE_HEIGHT, display_buffer, FONT_SIZE);
 }
 
-void drawWifiSignal() {
-  int rssi = WiFi.RSSI();
-
-  if (rssi == 0) { // If not connected, don't draw anything
-    //applog("WiFi not connected (RSSI is 0), not drawing pictogram.");
-    return;
-  }
-
-  int level = 0;
-  if (rssi > RSSI_LEVEL_4_THRESHOLD) {
-    level = 4;
-  } else if (rssi > RSSI_LEVEL_3_THRESHOLD) {
-    level = 3;
-  } else if (rssi > RSSI_LEVEL_2_THRESHOLD) {
-    level = 2;
-  } else {
-    level = 1;
-  }
-
-  //applog("RSSI: %2d, Level: %d", rssi, level);
-
-  // Bar 1
-  if (level >= 1) display.drawRect(61, 6, 62, 8, true);
-  // Bar 2
-  if (level >= 2) display.drawRect(64, 4, 65, 8, true);
-  // Bar 3
-  if (level >= 3) display.drawRect(67, 2, 68, 8, true);
-  // Bar 4
-  if (level >= 4) display.drawRect(70, 0, 71, 8, true);
-}
-
-void displayUpload(const char* progress) {
-  char files[4][MAX_FILENAME_LENGTH]; // Declare a fixed-size array of filenames
-  int numFiles = getLatestAudioFilenames(files, 4, false); // Call with array and size, newest first
-  char statusStrBuffer[MAX_CHARS_PER_LINE+1];
-  snprintf(statusStrBuffer, sizeof(statusStrBuffer), "%3s %-6s %2d",progress, appStateStrings[g_currentAppState], abs(WiFi.RSSI()));
-  displayLine(0, statusStrBuffer);
-
-  int progressBarEndX = (int)((atoi(progress) / 100.0) * SSD1315_WIDTH) - 1;
-  if (progressBarEndX >= 0) {
-    display.drawRect(0, 0, progressBarEndX, 0, true);
-  }
-
-  for (int i = 0; i < numFiles; ++i) {
-    char timeStr[MAX_CHARS_PER_LINE+1]; // %m/%d %k:%M:%S -> 01/01 00:00:00
-    struct tm timeinfo;
-    if (parseFilenameToTm(files[i], &timeinfo)) {
-      strftime(timeStr, sizeof(timeStr), "%m/%d %k:%M:%S", &timeinfo);
-    } else {
-      strncpy(timeStr, "Invalid Time", sizeof(timeStr));
-      timeStr[sizeof(timeStr) - 1] = '\0';
-    }
-    displayLine(i+1, timeStr);
-  }
-  drawWifiSignal();
-}
-
 void displayStatus(const char* msg) {
 
-  // 1行目: AppState(6桁) 空白(4桁) WifiのRSSI(2桁) ピクト
   char line1[MAX_CHARS_PER_LINE+1];
   char rssiStr[4];
-  if (WiFi.RSSI() == 0) {
-    snprintf(rssiStr, sizeof(rssiStr), "  ");
-  } else {
-    snprintf(rssiStr, sizeof(rssiStr), "%2d", abs(WiFi.RSSI()));
-  }
-
   const char* appStateToDisplay;
+
   if (isBLEConnected()) {
     appStateToDisplay = "BLE";
   } else {
@@ -145,19 +82,12 @@ void displayStatus(const char* msg) {
   // 4行目
   char line4[MAX_CHARS_PER_LINE+1];
   if(msg[0] == '\0') {
-    if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
-      strncpy(line4, g_wifi_ssids[g_connectedSSIDIndex], MAX_CHARS_PER_LINE);
-    } else {
-      line4[0] = '\0';
-    }
+
   } else {
     strncpy(line4, msg, MAX_CHARS_PER_LINE);
   }
   line4[MAX_CHARS_PER_LINE] = '\0';
   displayLine(3, line4);
-
-  // wifi強度ピクト　
-  drawWifiSignal();
 }
 
 void displaySetup() {
@@ -170,9 +100,7 @@ void displaySetup() {
 void updateDisplay(const char* msg) {
   display.clear();
   switch (g_currentAppState) {
-    case UPLOAD:
-      displayUpload(msg);
-      break;
+
     case SETUP:
       displaySetup();
       break;

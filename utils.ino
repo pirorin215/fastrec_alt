@@ -119,16 +119,8 @@ bool isConnectUSB() {
 bool getValidRtcTime(struct tm* timeinfo) {
   time_t current_epoch_time;
   if (time(&current_epoch_time) != (time_t)-1) {
-    time_t corrected_epoch_time = current_epoch_time;
-    // Only apply correction if we have a valid last sync time and a valid ratio
-    if (g_last_ntp_epoch_s > 0 && g_rtc_drift_ratio > 0.0f) {
-        time_t mcu_elapsed = current_epoch_time - g_last_ntp_epoch_s;
-        double real_elapsed = (double)mcu_elapsed / g_rtc_drift_ratio;
-        corrected_epoch_time = g_last_ntp_epoch_s + (time_t)real_elapsed;
-    }
-
     // Convert corrected epoch time to tm struct (using gmtime_r for UTC, common for RTC)
-    if (localtime_r(&corrected_epoch_time, timeinfo)) {
+    if (localtime_r(&current_epoch_time, timeinfo)) {
       if (timeinfo->tm_year > (2000 - 1900)) {  // Check if year is after 2000 (epoch is 1970)
         return true;
       }
@@ -310,66 +302,4 @@ int getLatestAudioFilenames(char outputArray[][MAX_FILENAME_LENGTH], int maxFile
   }
 
   return currentFileCount;
-}
-
-void execUpload() {
-  applog("try to upload all WAV files.");
-  
-  g_audioFileCount = countAudioFiles(); // Update file count before array declaration
-  if (g_audioFileCount == 0) {
-    applog("No audio files to upload.");
-    return;
-  }
-
-  // --- New: Authentication check before starting file uploads ---
-  if (!checkAuthentication(HS_HOST, HS_PORT, HS_PATH, HS_USER, HS_PASS)) {
-    applog("Authentication failed. Aborting file uploads.");
-    updateDisplay("AUTH ERR"); // Display persistent authentication error
-    return; // Abort execUpload
-  }
-  // --- End New ---
-
-  char wavFilesToProcess[g_audioFileCount][MAX_FILENAME_LENGTH]; 
-  int numFiles = getLatestAudioFilenames(wavFilesToProcess, g_audioFileCount, true); // Get all files, oldest first for upload
-
-  applog("Found %d WAV files to process for upload.", numFiles);
-
-  // Phase 2: Process collected WAV files (check size, upload, delete)
-  for (int i = 0; i < numFiles; ++i) {
-    char fullPath[MAX_FILENAME_LENGTH + 1]; // +1 for '/' character
-    snprintf(fullPath, sizeof(fullPath), "/%s", wavFilesToProcess[i]);
-    const char* currentFilename = fullPath;
-    applog("Processing file for upload: %s", currentFilename);
-
-    File audioFileForSize = LittleFS.open(currentFilename, FILE_READ);
-    if (!audioFileForSize) {
-      applog("ERROR: Could not open file %s to check size. Skipping.", currentFilename);
-      continue;
-    }
-
-    size_t fileSize = audioFileForSize.size();
-    audioFileForSize.close(); // Close the file after getting its size
-
-    if (fileSize < MIN_AUDIO_FILE_SIZE_BYTES) {
-      applog("File %s is too short (size: %u bytes). Deleting from LittleFS.", currentFilename, fileSize);
-      if (!LittleFS.remove(currentFilename)) {
-        applog("Failed to delete short file %s from LittleFS.", currentFilename);
-      }
-      g_audioFileCount = countAudioFiles(); // Update file counts after deletion
-      continue;
-    }
-
-    if (uploadAudioFileViaHTTP(currentFilename, HS_HOST, HS_PORT, HS_PATH, HS_USER, HS_PASS)) {
-      applog("File %s uploaded successfully. Deleting from LittleFS.", currentFilename);
-      if (!LittleFS.remove(currentFilename)) {
-        applog("Failed to delete file %s from LittleFS.", currentFilename);
-      }
-    } else {
-      applog("Failed to upload file %s. Stopping further uploads.", currentFilename);
-      updateDisplay("UPLOAD ERR"); // Display error on LCD
-      break; // Exit the loop immediately
-    }
-    g_audioFileCount = countAudioFiles(); // Update file counts after deletion/upload attempt
-  }
-  applog("Finished processing WAV files for upload.");
 }

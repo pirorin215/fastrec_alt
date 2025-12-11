@@ -29,7 +29,7 @@ fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceAround // 均等配置
             ) {
-                InfoItem(icon = getWifiIcon(deviceInfo?.wifiRssi ?: -100), label = deviceInfo?.connectedSsid ?: "-", value = "${deviceInfo?.wifiRssi ?: "-"}dBm", modifier = Modifier.weight(1f))
+
                 InfoItem(icon = Icons.Default.BatteryChargingFull, label = "Battery", value = "${String.format("%.0f", deviceInfo?.batteryLevel ?: 0.0f)}%", modifier = Modifier.weight(1f))
                 InfoItem(icon = Icons.Default.SdStorage, label = "Storage", value = "${deviceInfo?.littlefsUsagePercent ?: 0}%", modifier = Modifier.weight(1f))
                 InfoItem(icon = Icons.Default.Audiotrack, label = "WAVs", value = (deviceInfo?.wavCount ?: 0).toString(), modifier = Modifier.weight(1f))
@@ -78,13 +78,4 @@ fun InfoRow(label: String, value: String) {
     Divider()
 }
 
-// Helper function to get the appropriate WiFi icon based on RSSI
-fun getWifiIcon(rssi: Int): ImageVector {
-    return when {
-        rssi >= -50 -> Icons.Default.SignalWifi4Bar
-        rssi >= -67 -> Icons.Default.NetworkWifi3Bar
-        rssi >= -70 -> Icons.Default.NetworkWifi2Bar
-        rssi >= -80 -> Icons.Default.NetworkWifi1Bar
-        else -> Icons.Default.WifiOff
-    }
-}
+

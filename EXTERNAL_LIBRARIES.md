@@ -11,7 +11,7 @@ This document lists the external libraries identified as being used in the `fast
 | NimBLE-Arduino      | 2.3.6   
 | Wire                | 3.3.4   
 | ArduinoJson         | 7.4.2   
-| WiFi                | 3.3.4   
+
 | Networking          | 3.3.4   
 | 72x40oled_lib       | 1.0.1   
 | HTTPClient          | 3.3.4   

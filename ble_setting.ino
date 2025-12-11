@@ -2,7 +2,6 @@
 #include <NimBLEDevice.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <WiFi.h>
 
 #define DEVICE_NAME "fastrec"
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -301,18 +300,7 @@ static std::string handle_get_info() {
   doc["battery_level"] = batteryLevel;
   doc["battery_voltage"] = g_currentBatteryVoltage;
   doc["app_state"] = appStateStrings[g_currentAppState];
-  doc["wifi_status"] = isWiFiConnected() ? "Connected" : "Disconnected";
-  if (isWiFiConnected()) {
-    if (g_connectedSSIDIndex != -1 && g_connectedSSIDIndex < g_num_wifi_aps) {
-      doc["connected_ssid"] = g_wifi_ssids[g_connectedSSIDIndex];
-    } else {
-      doc["connected_ssid"] = "N/A";
-    }
-    doc["wifi_rssi"] = WiFi.RSSI();
-  } else {
-    doc["connected_ssid"] = "N/A";
-    doc["wifi_rssi"] = 0;
-  }
+
   unsigned long totalBytes = LittleFS.totalBytes();
   unsigned long usedBytes = LittleFS.usedBytes();
   doc["littlefs_total_bytes"] = totalBytes;
@@ -373,9 +361,6 @@ static std::string handle_set_time(const std::string& value) {
       tv.tv_sec = (time_t)timestamp_ll; // atollからtime_tへのキャストを明確化
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
-      
-      // Store the timestamp in RTC memory for persistence across deep sleep
-      g_last_ntp_epoch_s = (time_t)timestamp_ll;
       
       time_t now;
       struct tm timeinfo;
@@ -441,7 +426,6 @@ static void handle_cmd_reset_all() {
   delay(100);
   ESP.restart();
 }
-
 
 // --- BLE Callbacks ---
 class MyCallbacks : public NimBLECharacteristicCallbacks {
@@ -636,16 +620,8 @@ bool isBLEConnected() {
   return pBLEServer->getConnectedCount() > 0;
 }
 
-
 bool loadSettingsFromLittleFS() {
   applog("Loading settings from /setting.ini...");
-
-  // Initialize global WiFi AP arrays
-  for (int i = 0; i < WIFI_MAX_APS; ++i) {
-    g_wifi_ssids[i][0] = '\0';
-    g_wifi_passwords[i][0] = '\0';
-  }
-  g_num_wifi_aps = 0; // Reset count before loading
 
   if (!LittleFS.begin()) {
     applog("LittleFS Mount Failed. Using default settings.");
@@ -727,53 +703,10 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "RTC_DRIFT_RATIO") == 0) {
      g_rtc_drift_ratio = atof(value);
      applog("Setting RTC_DRIFT_RATIO to %f", g_rtc_drift_ratio);
-    } else if (strcmp(key, "HS_HOST") == 0) {
-      HS_HOST = strdup(value);
-      applog("Setting HS_HOST to %s", HS_HOST);
-    } else if (strcmp(key, "HS_PORT") == 0) {
-      HS_PORT = atoi(value);
-      applog("Setting HS_PORT to %d", HS_PORT);
-    } else if (strcmp(key, "HS_PATH") == 0) {
-      HS_PATH = strdup(value);
-      applog("Setting HS_PATH to %s", HS_PATH);
-    } else if (strcmp(key, "HS_USER") == 0) {
-      HS_USER = strdup(value);
-      applog("Setting HS_USER to %s", HS_USER);
-    } else if (strcmp(key, "HS_PASS") == 0) {
-      HS_PASS = strdup(value);
-      applog("Setting HS_PASS to %s", HS_PASS);
-    } else if (strncmp(key, "W_SSID_", strlen("W_SSID_")) == 0) {
-      int apIndex = atoi(key + strlen("W_SSID_"));
-      if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
-        strncpy(g_wifi_ssids[apIndex], value, sizeof(g_wifi_ssids[apIndex]) - 1);
-        g_wifi_ssids[apIndex][sizeof(g_wifi_ssids[apIndex]) - 1] = '\0'; // Ensure null termination
-        applog("Setting W_SSID_%d to %s", apIndex, g_wifi_ssids[apIndex]);
-      }
-    } else if (strncmp(key, "W_PASS_", strlen("W_PASS_")) == 0) {
-      int apIndex = atoi(key + strlen("W_PASS_"));
-      if (apIndex >= 0 && apIndex < WIFI_MAX_APS) {
-        strncpy(g_wifi_passwords[apIndex], value, sizeof(g_wifi_passwords[apIndex]) - 1);
-        g_wifi_passwords[apIndex][sizeof(g_wifi_passwords[apIndex]) - 1] = '\0'; // Ensure null termination
-        applog("Setting W_PASS_%d to %s", apIndex, g_wifi_passwords[apIndex]);
-      }
     } else {
       applog("Unknown setting in setting.ini: %s", key);
     }
   }
-
-  // After parsing all lines, count the number of configured WiFi APs
-  g_num_wifi_aps = 0;
-  for (int i = 0; i < WIFI_MAX_APS; ++i) {
-    // Check if both SSID and password are set for this index
-    if (strlen(g_wifi_ssids[i]) > 0 && strlen(g_wifi_passwords[i]) > 0) {
-      g_num_wifi_aps++;
-    } else {
-      // If an AP is missing, assume subsequent ones are also missing
-      break;
-    }
-  }
-  applog("Configured %d WiFi APs.", g_num_wifi_aps);
-
   configFile.close();
   applog("Settings loaded.");
   return true;

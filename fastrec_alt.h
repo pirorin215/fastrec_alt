@@ -11,7 +11,7 @@
 
 // GPIO settings
 #define REC_BUTTON_GPIO    GPIO_NUM_1
-#define UPLOAD_BUTTON_GPIO GPIO_NUM_2
+
 #define MOTOR_GPIO         GPIO_NUM_3
 #define USB_DETECT_PIN     GPIO_NUM_4
 #define BATTERY_DIV_PIN    GPIO_NUM_5
@@ -22,16 +22,6 @@
 #define LCD_SCL_GPIO       GPIO_NUM_44
 
 // --- Configuration Constants ---
-
-// WiFi
-#define WIFI_MAX_APS 10 // Maximum number of configurable WiFi APs
-const long WIFI_CONNECT_TIMEOUT_MS = 20000; // overall timeout for WiFi connection
-
-// Global variables to store WiFi AP settings
-char g_wifi_ssids[WIFI_MAX_APS][33];     // Max 32 chars for SSID + null terminator
-char g_wifi_passwords[WIFI_MAX_APS][65]; // Max 64 chars for password + null terminator
-int g_num_wifi_aps = 0;                  // Number of configured WiFi APs
-
 // Serial
 const long SERIAL_BAUD_RATE = 115200;
 const long SERIAL_TIMEOUT_MS = 5000;  // 5 seconds timeout for serial connection
@@ -58,13 +48,6 @@ const char* LOG_FILE_0 = "/log.0.txt";
 const char* LOG_FILE_1 = "/log.1.txt";
 const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
 
-// HTTP Server for Upload
-char* HS_HOST = (char*)"";
-int HS_PORT = 61443;
-char* HS_PATH = (char*)"/fastrec/upload";
-char* HS_USER = (char*)"fastrec";
-char* HS_PASS = (char*)"12345678";
-
 // Vibration
 unsigned long VIBRA_STARTUP_MS = 500;
 unsigned long VIBRA_REC_START_MS = 300;
@@ -72,15 +55,7 @@ unsigned long VIBRA_REC_STOP_MS = 300;
 bool VIBRA = true;
 
 // Other Timings/Debounce
-const unsigned long UPLOAD_RETRY_DELAY_MS = 60000; // 1 minute delay for upload retries
 const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state changes
-
-
-// RSSI levels (adjusted for positive values from getWifiRSSI() where smaller value = stronger signal)
-#define RSSI_LEVEL_4_THRESHOLD -55 // Excellent
-#define RSSI_LEVEL_3_THRESHOLD -65 // Good
-#define RSSI_LEVEL_2_THRESHOLD -75 // Fair
-// Level 1 (Poor):
 
 // --- End Configuration Constants ---
 
@@ -89,9 +64,8 @@ const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state c
   X(INIT,   "INIT"), \
   X(IDLE,   "IDLE"), \
   X(REC,    "REC"), \
-  X(UPLOAD, "UPLOAD"), \
   X(DSLEEP, "DSLEEP"), \
-  X(SETUP,  "SETUP"), \
+  X(SETUP,  "SETUP")
 // このコメントを消したり、ここにコードを書いたりしてはいけない
 
 #define APP_STATE_ENUM(name, str) name
@@ -126,28 +100,17 @@ typedef struct {
 // --- Global Variables (Declarations only, definitions will remain in .ino) ---
 
 // fastrec_alt
-RTC_DATA_ATTR signed char g_lastConnectedSSIDIndexRTC = -1;
+
 RTC_DATA_ATTR bool LOG_AT_BOOT = false;
 
 bool g_enable_logging = true;
 volatile AppState g_currentAppState;
 unsigned long g_boot_time_ms = 0;
 unsigned long g_lastActivityTime;
-
 float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
-
 float g_rtcDriftCorrectionFactor = 1.0f; // Default to no correction
-
-
-volatile bool g_isForceUpload = false;
-volatile bool g_setupForUpload = false;
 NimBLEServer* pBLEServer; // Global pointer to the BLE server instance
-
-volatile bool g_ntpSyncEnd = false;
-
-// Global variables for time drift measurement
-RTC_DATA_ATTR static time_t g_last_ntp_epoch_s = 0;
 RTC_DATA_ATTR float g_rtc_drift_ratio = 1.0f;
 
 // audio
@@ -162,9 +125,6 @@ File g_audioFile;
 char g_audio_filename[64];
 int g_audioFileCount;
 uint32_t g_totalBytesRecorded = 0;
-
-// wifi
-int g_connectedSSIDIndex = -1; // Index of the currently connected SSID in g_wifi_ssids, -1 if not connected
 
 // ble setting
 volatile bool g_start_file_transfer = false;

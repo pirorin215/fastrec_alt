@@ -5,7 +5,7 @@
 #include <Base64.h>
 #include "driver/rtc_io.h"
 #include "esp_bt.h"
-#include "esp_wifi.h"
+
 #include "esp_sleep.h"
 #include <Wire.h>
 
@@ -24,12 +24,9 @@ void serialWait() { // check_unused:ignore
 const AppState validTransitions[][2] = {
     {INIT, IDLE},
     {INIT, REC},
-    {INIT, UPLOAD},
     {INIT, SETUP},
     {IDLE, REC},
     {REC, IDLE},
-    {IDLE, UPLOAD},
-    {UPLOAD, IDLE},
     {IDLE, DSLEEP},
     {SETUP, DSLEEP}
 };
@@ -96,38 +93,13 @@ void goDeepSleep() {
   rtc_gpio_pulldown_en(REC_BUTTON_GPIO);
   rtc_gpio_pullup_dis(REC_BUTTON_GPIO);
 
-  esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
-  rtc_gpio_pulldown_en(UPLOAD_BUTTON_GPIO);
-  rtc_gpio_pullup_dis(UPLOAD_BUTTON_GPIO);
-
   esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(USB_DETECT_PIN), ESP_EXT1_WAKEUP_ANY_HIGH);
   rtc_gpio_pulldown_en(USB_DETECT_PIN);
   rtc_gpio_pullup_dis(USB_DETECT_PIN);
 
-  wifiSetSleep(true);  // wifiモデムスリープ
   displaySleep(true); // LCDスリープ
   // esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); でタイマー復帰できる：今は使わないけどこのメモ消さないで
-
   esp_deep_sleep_start();
-}
-
-bool isUploadOrSyncNeeded() {
-  return g_audioFileCount > 0 || g_isForceUpload;
-}
-
-void tryUploadAndSync() {
-  if (connectToWiFi()) {
-    applog("WiFi connected");
-    updateDisplay("WiFi OK"); // Debug message on OLED
-    synchronizeTime(); // Perform NTP sync after WiFi is connected
-    execUpload();
-    g_audioFileCount = countAudioFiles(); // Update file counts after upload try
-  } else {
-    applog("WiFi not connected.");
-    updateDisplay("WiFi Fail"); // Debug message on OLED
-    struct tm timeinfo;
-    getValidRtcTime(&timeinfo);
-  }
 }
 
 void writeAudioBufferToFile() {
@@ -199,18 +171,6 @@ void handleIdle() {
     return;
   }
 
-  if (digitalRead(UPLOAD_BUTTON_GPIO) == HIGH) {
-    startVibrationSync(VIBRA_STARTUP_MS);
-    g_isForceUpload = true;
-    setAppState(UPLOAD); // UPLOAD状態に遷移
-  }
-  
-  // Only force UPLOAD if we are still in IDLE state (i.e., recording was not just started)
-  if (g_currentAppState == IDLE && isConnectUSB() && !isWiFiConnected()) {
-    g_isForceUpload = true; // 強制UPLOAD
-    setAppState(UPLOAD, false);
-  }
-
   // Go to deep sleep if idle for a while, not connected to USB, and not in BLE setup
   if ((millis() - g_lastActivityTime > DEEP_SLEEP_DELAY_MS) && 
       !isConnectUSB() && 
@@ -242,41 +202,6 @@ void handleRec() {
     writeAudioBufferToFile();
   }
   g_lastActivityTime = millis();  // Reset activity timer while recording
-}
-
-void handleUpload() {
-  applog("Performing post-recording actions...");
-  static unsigned long lastUploadTryTime = 0; // To track last upload try time
-      
-  stop_ble_advertising();
-
-  while (isUploadOrSyncNeeded()) {
-    g_isForceUpload = false;
-    if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
-      applog("Start button pressed during upload. Cancelling upload and starting recording.");
-      setAppState(IDLE);
-      return;
-    }
-
-    if (millis() - lastUploadTryTime >= UPLOAD_RETRY_DELAY_MS || lastUploadTryTime == 0) {
-      tryUploadAndSync();
-      lastUploadTryTime = millis(); // Reset timer after try
-    }
-    
-    if (!isConnectUSB()) {
-      applog("USB disconnected during upload retry loop. Exiting.");
-      break;
-    }
-
-    if (!isUploadOrSyncNeeded()) {
-      break;
-    }
-    g_lastActivityTime = millis();  // Reset activity timer after stopping recording or writing data
-    yield(); // Allow other tasks to run
-  }
-
-  lastUploadTryTime = 0; // Reset lastUploadTryTime when exiting the upload state
-  setAppState(IDLE, false);
 }
 
 void handleSetup() {
@@ -313,15 +238,7 @@ void wakeupLogic() {
       } else {
         g_enable_logging = true; // Enable logging for other buttons
         applog("Wakeup was caused by: %d", wakeup_reason);
-        if (wakeup_pin_mask & BUTTON_PIN_BITMASK(UPLOAD_BUTTON_GPIO)) {
-          applog("UPLOAD Button pressed on wake-up");
-          //setAppState(UPLOAD, false);
-          setAppState(IDLE, false);
-        } else if (wakeup_pin_mask & BUTTON_PIN_BITMASK(USB_DETECT_PIN)) {
-          applog("USB connected on wake-up");
-          //setAppState(UPLOAD, false);
-          setAppState(IDLE, false);
-        }
+
       }
       break;
     }
@@ -342,8 +259,6 @@ void initPins() {
   digitalWrite(LED_BUILTIN, HIGH); // LED消灯
 
   pinMode(REC_BUTTON_GPIO, INPUT_PULLDOWN);
-  pinMode(UPLOAD_BUTTON_GPIO, INPUT_PULLDOWN);
-
   pinMode(MOTOR_GPIO, OUTPUT);
   pinMode(USB_DETECT_PIN, INPUT);  // Initialize USB connect pin
 
@@ -358,22 +273,6 @@ void initAdc() {
 
 void initRTCtime() {
   struct tm timeinfo;
-
-  // Check if we are waking up from deep sleep and have a valid stored time
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT1 || wakeup_reason == ESP_SLEEP_WAKEUP_TIMER) { // Assuming these are deep sleep wakeups
-    if (g_last_ntp_epoch_s > 1704067200) { // Check if stored epoch is valid (after 2024-01-01)
-      struct timeval tv;
-      tv.tv_sec = g_last_ntp_epoch_s;
-      tv.tv_usec = 0;
-      settimeofday(&tv, NULL);
-      applog("RTC restored from deep sleep with epoch: %ld", g_last_ntp_epoch_s);
-      // After setting time from RTC_DATA_ATTR, check for validity
-      if (getValidRtcTime(&timeinfo)) {
-        return; // Time successfully restored and is valid
-      }
-    }
-  }
 
   // If not restored from deep sleep, or stored time was invalid, proceed with normal initialization
   if (!getValidRtcTime(&timeinfo)) { // Check RTC time at startup
@@ -396,7 +295,6 @@ void setup() {
   // This ensures time functions behave correctly with the specified timezone.
   const long  gmtOffset_sec = 9 * 3600; // JST is UTC+9
   const int   daylightOffset_sec = 0;   // No daylight saving in JST
-  configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org", "time.nist.gov"); // Dummy NTP servers, not actively used for sync
   
   initPins();
 
@@ -414,50 +312,26 @@ void setup() {
 
   initI2SMicrophone();
 
+  start_ble_server();
+  initAdc();
+
   wakeupLogic();
 
   g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
 }
 
-void setupForUpload() {
-  if(g_currentAppState == REC) {
-    return;
-  }
-  if(g_setupForUpload) {
-    return;
-  }
-  applog("setupForUpload");
-    
-  start_ble_server();
-
-  initAdc();
-
-  initWifi();
-
-  g_setupForUpload = true;
-}
-
 void loop() {
   transferFileChunked();
-  setupForUpload();
-
   switch (g_currentAppState) {
     case IDLE:
       handleIdle();
       break;
-
     case REC:
       handleRec();
       break;
-
-    case UPLOAD:
-      handleUpload();
-      break;
-
     case SETUP:
       handleSetup();
       break;
-
     case DSLEEP:
       goDeepSleep();
       break;

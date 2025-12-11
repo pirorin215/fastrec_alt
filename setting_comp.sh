@@ -12,10 +12,8 @@ while IFS='=' read -r ini_key ini_value; do
         continue
     fi
 
-    # Skip WiFi settings as requested
-    if [[ "$ini_key" == W_SSID_* || "$ini_key" == W_PASS_* ]]; then
-        continue
-    fi
+
+
 
     # Trim whitespace from ini_value
     ini_value=$(echo "$ini_value" | xargs)
