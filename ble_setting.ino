@@ -694,15 +694,7 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "VIBRA") == 0) {
       VIBRA = (strcmp(value, "true") == 0);
       applog("Setting VIBRA to %s", VIBRA ? "true" : "false");
-    } else if (strcmp(key, "RTC_DRIFT_FACTOR") == 0) {
-      g_rtcDriftCorrectionFactor = atof(value);
-      applog("Setting RTC_DRIFT_FACTOR to %f", g_rtcDriftCorrectionFactor);
-    } else if (strcmp(key, "LOG_AT_BOOT") == 0) {
-      LOG_AT_BOOT = (strcmp(value, "true") == 0);
-      applog("Setting LOG_AT_BOOT to %s", LOG_AT_BOOT ? "true" : "false");
-    } else if (strcmp(key, "RTC_DRIFT_RATIO") == 0) {
-     g_rtc_drift_ratio = atof(value);
-     applog("Setting RTC_DRIFT_RATIO to %f", g_rtc_drift_ratio);
+
     } else {
       applog("Unknown setting in setting.ini: %s", key);
     }

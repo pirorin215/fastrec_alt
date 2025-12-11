@@ -115,7 +115,7 @@ bool isConnectUSB() {
   return digitalRead(USB_DETECT_PIN) == HIGH;
 }
 
-// Helper function to get time from internal RTC and check its validity, applying drift compensation.
+// Helper function to get time from internal RTC and check its validity.
 bool getValidRtcTime(struct tm* timeinfo) {
   time_t current_epoch_time;
   if (time(&current_epoch_time) != (time_t)-1) {

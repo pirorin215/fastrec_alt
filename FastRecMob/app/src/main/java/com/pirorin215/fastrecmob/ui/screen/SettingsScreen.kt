@@ -142,20 +142,6 @@ fun SettingsList(
         item { SettingTextField("Audio Gain", settings.audioGain, KeyboardType.Decimal) { onSettingChange(settings.copy(audioGain = it)) } }
         item { SettingSwitch("Vibration Enabled", settings.vibra) { onSettingChange(settings.copy(vibra = it)) } }
         item { SettingSwitch("Log at Boot", settings.logAtBoot) { onSettingChange(settings.copy(logAtBoot = it)) } }
-        item { SettingTextField("RTC Drift Ratio", settings.rtcDriftRatio, KeyboardType.Decimal) { onSettingChange(settings.copy(rtcDriftRatio = it)) } }
-        item { Text("Home Server", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp)) }
-        item { SettingTextField("Host", settings.hsHost, KeyboardType.Text) { onSettingChange(settings.copy(hsHost = it)) } }
-        item { SettingTextField("Port", settings.hsPort, KeyboardType.Number) { onSettingChange(settings.copy(hsPort = it)) } }
-        item { SettingTextField("Path", settings.hsPath, KeyboardType.Text) { onSettingChange(settings.copy(hsPath = it)) } }
-        item { SettingTextField("User", settings.hsUser, KeyboardType.Text) { onSettingChange(settings.copy(hsUser = it)) } }
-        item { SettingTextField("Password", settings.hsPass, KeyboardType.Password) { onSettingChange(settings.copy(hsPass = it)) } }
-        item { Text("WiFi Credentials", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp)) }
-        item { SettingTextField("SSID 0", settings.wSsid0, KeyboardType.Text) { onSettingChange(settings.copy(wSsid0 = it)) } }
-        item { SettingTextField("Password 0", settings.wPass0, KeyboardType.Password) { onSettingChange(settings.copy(wPass0 = it)) } }
-        item { SettingTextField("SSID 1", settings.wSsid1, KeyboardType.Text) { onSettingChange(settings.copy(wSsid1 = it)) } }
-        item { SettingTextField("Password 1", settings.wPass1, KeyboardType.Password) { onSettingChange(settings.copy(wPass1 = it)) } }
-        item { SettingTextField("SSID 2", settings.wSsid2, KeyboardType.Text) { onSettingChange(settings.copy(wSsid2 = it)) } }
-        item { SettingTextField("Password 2", settings.wPass2, KeyboardType.Password) { onSettingChange(settings.copy(wPass2 = it)) } }
     }
 }
 

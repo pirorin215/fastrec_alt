@@ -109,9 +109,7 @@ unsigned long g_boot_time_ms = 0;
 unsigned long g_lastActivityTime;
 float g_currentBatteryVoltage;
 volatile unsigned long g_scheduledStopTimeMillis;
-float g_rtcDriftCorrectionFactor = 1.0f; // Default to no correction
 NimBLEServer* pBLEServer; // Global pointer to the BLE server instance
-RTC_DATA_ATTR float g_rtc_drift_ratio = 1.0f;
 
 // audio
 std::vector<int16_t> g_audio_buffer; // VectorCheck:allows
