@@ -9,6 +9,10 @@ const int MAX_CHARS_PER_LINE = 15;
 const int FONT_SIZE = 5;
 const int LINE_HEIGHT = 10;  // Assuming 10 pixels per line for font size 5
 
+void setLcdBrightness(uint8_t brightness) {
+  display.setBrightness(brightness);
+}
+
 void initSSD() {
   applog("initSSD");
 
@@ -16,8 +20,7 @@ void initSSD() {
 
   display.begin();
   display.setRotation(2);       // rotate 180 degrees
-  //display.setBrightness(0x08);
-  display.setBrightness(0xFF);
+  display.setBrightness(0x00);
 
   // Update display with initial status
   float usagePercentage = getLittleFSUsagePercentage();

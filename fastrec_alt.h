@@ -28,6 +28,8 @@ const long SERIAL_TIMEOUT_MS = 5000;  // 5 seconds timeout for serial connection
 
 // Power/Battery
 unsigned long DEEP_SLEEP_DELAY_MS = 15000;
+unsigned long DEEP_SLEEP_CYCLE_MINUTES = 60; // Default 60 minutes
+unsigned long DEEP_SLEEP_CYCLE_MS = DEEP_SLEEP_CYCLE_MINUTES * 60 * 1000; // Calculated from minutes
 float BAT_VOL_MIN = 3.0f;
 float BAT_VOL_MULT = 2.1f;
 
@@ -128,6 +130,6 @@ uint32_t g_totalBytesRecorded = 0;
 volatile bool g_start_file_transfer = false;
 std::string g_file_to_transfer_name;
 
-// --- Function Prototypes ---
+// Function Prototypes ---
 
 #endif // FASTREC_INO_H

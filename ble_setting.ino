@@ -10,12 +10,12 @@
 #define ACK_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 
 // Global characteristic pointers to allow access from callbacks
-NimBLECharacteristic *pCommandCharacteristic;
-NimBLECharacteristic *pResponseCharacteristic;
-NimBLECharacteristic *pAckCharacteristic;
+NimBLECharacteristic* pCommandCharacteristic;
+NimBLECharacteristic* pResponseCharacteristic;
+NimBLECharacteristic* pAckCharacteristic;
 
 SemaphoreHandle_t ackSemaphore = NULL;
-SemaphoreHandle_t startTransferSemaphore = NULL; // 新しく追加するセマフォ
+SemaphoreHandle_t startTransferSemaphore = NULL;  // 新しく追加するセマフォ
 
 void transferFileChunked() {
   if (!g_start_file_transfer) {
@@ -33,10 +33,10 @@ void transferFileChunked() {
   pResponseCharacteristic->setValue("START");
   pResponseCharacteristic->notify();
   applog("Sent START signal. Waiting for ACK...");
-  
+
   unsigned long startAckWaitTime = millis();
   bool startAckReceived = false;
-  while(millis() - startAckWaitTime < 10000) { // 10-second total timeout
+  while (millis() - startAckWaitTime < 10000) {  // 10-second total timeout
     if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
       applog("Recording button pressed. Aborting file transfer while waiting for START_ACK.");
       pResponseCharacteristic->setValue("ERROR: Transfer aborted by device");
@@ -57,9 +57,12 @@ void transferFileChunked() {
     g_start_file_transfer = false;
     return;
   }
-  
+
   applog("Received START ACK. Starting file transfer.");
+
   // --- END START 信号送信とACK待機 ---
+
+  g_lastActivityTime = millis();  // アクティビティタイマーをリセット
 
   bool transferAborted = false;
 
@@ -81,15 +84,15 @@ void transferFileChunked() {
 
         bytesRead = file.read(buffer, chunkSize);
         if (bytesRead <= 0) {
-            break; // End of file
+          break;  // End of file
         }
-        
+
         pResponseCharacteristic->setValue(buffer, bytesRead);
         pResponseCharacteristic->notify();
 
         unsigned long ackWaitStartTime = millis();
         bool ackReceived = false;
-        while (millis() - ackWaitStartTime < 2000) { // 2-second total timeout for chunk ACK
+        while (millis() - ackWaitStartTime < 2000) {  // 2-second total timeout for chunk ACK
           if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
             applog("Recording button pressed during ACK wait. Aborting.");
             transferAborted = true;
@@ -100,18 +103,19 @@ void transferFileChunked() {
             break;
           }
         }
-        
+
         if (transferAborted) {
-          break; // Exit main transfer loop
+          break;  // Exit main transfer loop
         }
 
         if (!ackReceived) {
           applog("ACK timeout for chunk %d. Aborting file transfer.", chunkIndex);
-          transferAborted = true; // Mark as aborted due to timeout
+          transferAborted = true;  // Mark as aborted due to timeout
           break;
         }
 
         chunkIndex++;
+        g_lastActivityTime = millis();  // アクティビティタイマーをリセット
       }
       file.close();
 
@@ -173,7 +177,7 @@ static std::string handle_get_setting_ini() {
           return "ERROR: Memory allocation failed";
         }
       } else {
-        return ""; // Empty file
+        return "";  // Empty file
       }
       file.close();
     } else {
@@ -182,7 +186,7 @@ static std::string handle_get_setting_ini() {
   } else {
     return "ERROR: setting.ini not found";
   }
-  return "ERROR: Unknown error in handle_get_setting_ini"; // Should not be reached
+  return "ERROR: Unknown error in handle_get_setting_ini";  // Should not be reached
 }
 
 static std::string handle_get_ls(const std::string& value) {
@@ -190,15 +194,15 @@ static std::string handle_get_ls(const std::string& value) {
   if (ext_from_val.empty()) {
     return "ERROR: No extension specified for GET:ls";
   }
-  
-  String extension = String(ext_from_val.c_str());
-  if (!extension.startsWith(".")) {
+
+  std::string extension = ext_from_val;
+  if (!extension.starts_with(".")) {
     extension = "." + extension;
   }
 
   const int MAX_LS_FILES = 10;
-  String files[MAX_LS_FILES];
-  unsigned long file_sizes[MAX_LS_FILES]; // Array to store file sizes
+  std::string files[MAX_LS_FILES];
+  unsigned long file_sizes[MAX_LS_FILES];  // Array to store file sizes
   int file_count = 0;
 
   File root = LittleFS.open("/", "r");
@@ -209,8 +213,8 @@ static std::string handle_get_ls(const std::string& value) {
   File file = root.openNextFile();
   while (file) {
     if (!file.isDirectory()) {
-      String fileName = file.name();
-      if (fileName.endsWith(extension)) {
+      std::string fileName = file.name();
+      if (fileName.ends_with(extension)) {
         if (file_count < MAX_LS_FILES) {
           files[file_count] = fileName;
           file_sizes[file_count] = file.size();
@@ -229,7 +233,7 @@ static std::string handle_get_ls(const std::string& value) {
         }
       }
     }
-    file.close(); // Close the file after use
+    file.close();  // Close the file after use
     file = root.openNextFile();
   }
   root.close();
@@ -239,7 +243,7 @@ static std::string handle_get_ls(const std::string& value) {
     for (int j = 0; j < file_count - i - 1; j++) {
       if (files[j] > files[j + 1]) {
         // Swap filenames
-        String temp_name = files[j];
+        std::string temp_name = files[j];
         files[j] = files[j + 1];
         files[j + 1] = temp_name;
 
@@ -251,7 +255,7 @@ static std::string handle_get_ls(const std::string& value) {
     }
   }
 
-  StaticJsonDocument<1024> doc; // Increased size to accommodate 10 file entries
+  StaticJsonDocument<1024> doc;  // Increased size to accommodate 10 file entries
   JsonArray fileArray = doc.to<JsonArray>();
 
   for (int i = 0; i < file_count; i++) {
@@ -259,7 +263,7 @@ static std::string handle_get_ls(const std::string& value) {
     fileEntry["name"] = files[i];
     fileEntry["size"] = file_sizes[i];
   }
-  
+
   std::string jsonResponseStd;
   serializeJson(doc, jsonResponseStd);
   return jsonResponseStd;
@@ -293,7 +297,7 @@ static std::string handle_get_info() {
   doc["wav_count"] = wav_count;
   doc["txt_count"] = txt_count;
   doc["ini_count"] = ini_count;
-  
+
   float batteryLevel = ((g_currentBatteryVoltage - BAT_VOL_MIN) / 1.0f) * 100.0f;
   if (batteryLevel < 0.0f) batteryLevel = 0.0f;
   if (batteryLevel > 100.0f) batteryLevel = 100.0f;
@@ -340,7 +344,7 @@ static std::string handle_del_file(const std::string& value) {
   if (LittleFS.exists(fileNameToDelete.c_str())) {
     if (LittleFS.remove(fileNameToDelete.c_str())) {
       applog("Deleted file: %s", fileNameToDelete.c_str());
-      g_audioFileCount = countAudioFiles(); // Update global count after successful deletion
+      g_audioFileCount = countAudioFiles();  // Update global count after successful deletion
       return "OK: File " + fileNameToDelete + " deleted.";
     } else {
       applog("ERROR: Failed to delete file: %s", fileNameToDelete.c_str());
@@ -356,12 +360,12 @@ static std::string handle_set_time(const std::string& value) {
   std::string timestamp_str = value.substr(std::string("SET:time:").length());
   if (!timestamp_str.empty()) {
     long long timestamp_ll = atoll(timestamp_str.c_str());
-    if (timestamp_ll > 1704067200) { // Basic validation (after 2024-01-01)
+    if (timestamp_ll > 1704067200) {  // Basic validation (after 2024-01-01)
       struct timeval tv;
-      tv.tv_sec = (time_t)timestamp_ll; // atollからtime_tへのキャストを明確化
+      tv.tv_sec = (time_t)timestamp_ll;  // atollからtime_tへのキャストを明確化
       tv.tv_usec = 0;
       settimeofday(&tv, NULL);
-      
+
       time_t now;
       struct tm timeinfo;
       char time_buf[64];
@@ -403,7 +407,7 @@ static void handle_cmd_reset_all() {
     }
     char filePathBuffer[256];
     const char* fileName = file.name();
-    file.close(); 
+    file.close();
     if (fileName[0] != '/') {
       snprintf(filePathBuffer, sizeof(filePathBuffer), "/%s", fileName);
     } else {
@@ -418,7 +422,7 @@ static void handle_cmd_reset_all() {
     }
   }
   root.close();
-  
+
   char response[50];
   sprintf(response, "Deleted %d files.", deleted_count);
   pResponseCharacteristic->setValue(response);
@@ -429,7 +433,7 @@ static void handle_cmd_reset_all() {
 
 // --- BLE Callbacks ---
 class MyCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo& connInfo) override { // check_unused:ignore
+  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {  // check_unused:ignore
     std::string value = pCharacteristic->getValue().c_str();
 
     if (pCharacteristic->getUUID().toString() == ACK_UUID) {
@@ -438,6 +442,7 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
       } else if (value == "START_ACK") {
         xSemaphoreGive(startTransferSemaphore);
       }
+      g_lastActivityTime = millis();  // ACK受信もアクティビティ
       return;
     }
 
@@ -445,6 +450,7 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
 
     if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       applog("BLE Command Received: %s", value.c_str());
+      g_lastActivityTime = millis();  // コマンド受信もアクティビティ
 
       if (g_currentAppState != IDLE) {
         std::string busyMessage = "ERROR: Device is busy (State: " + std::string(appStateStrings[g_currentAppState]) + "). Command rejected.";
@@ -457,9 +463,9 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
       // --- Command Dispatcher ---
       if (value.rfind("GET:file:", 0) == 0) {
         handle_get_file(value);
-        return; 
+        return;
       }
-      
+
       std::string responseData = "ERROR: Invalid Command";
 
       if (value == "GET:setting_ini") {
@@ -470,14 +476,14 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
         responseData = handle_get_ls(value);
       } else if (value.rfind("SET:setting_ini:", 0) == 0) {
         handle_set_setting_ini(value);
-        return; // Function handles response and restart
+        return;  // Function handles response and restart
       } else if (value.rfind("DEL:file:", 0) == 0) {
         responseData = handle_del_file(value);
       } else if (value.rfind("SET:time:", 0) == 0) {
         responseData = handle_set_time(value);
       } else if (value == "CMD:reset_all") {
         handle_cmd_reset_all();
-        return; // Function handles response and restart
+        return;  // Function handles response and restart
       }
 
       pResponseCharacteristic->setValue(responseData.c_str());
@@ -489,26 +495,26 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
 
 // Helper function to trim leading/trailing whitespace from a char array
 void trim_whitespace(char* str) {
-    char* end;
+  char* end;
 
-    // Trim leading space
-    while(isspace((unsigned char)*str)) str++;
+  // Trim leading space
+  while (isspace((unsigned char)*str)) str++;
 
-    if(*str == 0)  // All spaces?
-        return;
+  if (*str == 0)  // All spaces?
+    return;
 
-    // Trim trailing space
-    end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) end--;
+  // Trim trailing space
+  end = str + strlen(str) - 1;
+  while (end > str && isspace((unsigned char)*end)) end--;
 
-    // Write new null terminator
-    *(end+1) = 0;
+  // Write new null terminator
+  *(end + 1) = 0;
 }
 
 // --- BLEサーバー開始処理 ---
 void start_ble_server() {
   ackSemaphore = xSemaphoreCreateBinary();
-  startTransferSemaphore = xSemaphoreCreateBinary(); // 新しく追加するセマフォ
+  startTransferSemaphore = xSemaphoreCreateBinary();  // 新しく追加するセマフォ
   // startTransferSemaphore = xSemaphoreCreateBinary(); // 新しく追加するセマフォ
 
   NimBLEDevice::init(DEVICE_NAME);
@@ -519,10 +525,10 @@ void start_ble_server() {
   // --- End BLE Security ---
 
   NimBLEDevice::setDefaultPhy(2, 2);
-  pBLEServer = NimBLEDevice::createServer(); // Assign to global pointer
-  NimBLEDevice::setMTU(517); // Set maximum MTU size
+  pBLEServer = NimBLEDevice::createServer();  // Assign to global pointer
+  NimBLEDevice::setMTU(517);                  // Set maximum MTU size
 
-  class MyServerCallbacks: public NimBLEServerCallbacks {
+  class MyServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
       applog("Client Connected");
     };
@@ -539,50 +545,49 @@ void start_ble_server() {
     }
 
     void onPhyUpdate(NimBLEConnInfo& connInfo, uint8_t txPhy, uint8_t rxPhy) override {
-        applog("PHY updated for connection %u | TX: %d, RX: %d (1=1M, 2=2M, 3=Coded)",
-               connInfo.getConnHandle(), txPhy, rxPhy);
+      applog("PHY updated for connection %u | TX: %d, RX: %d (1=1M, 2=2M, 3=Coded)",
+             connInfo.getConnHandle(), txPhy, rxPhy);
     }
 
-    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override { // Add this callback
-        if(connInfo.isAuthenticated()) {
-            applog("Authentication successful! Device is bonded.");
-        } else {
-            applog("Authentication failed."); // Removed getFailReason()
-        }
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {  // Add this callback
+      if (connInfo.isAuthenticated()) {
+        applog("Authentication successful! Device is bonded.");
+      } else {
+        applog("Authentication failed.");  // Removed getFailReason()
+      }
     }
   };
 
-  pBLEServer->setCallbacks(new MyServerCallbacks()); // Use global pointer
-  NimBLEService *pService = pBLEServer->createService(SERVICE_UUID);
+  pBLEServer->setCallbacks(new MyServerCallbacks());  // Use global pointer
+  NimBLEService* pService = pBLEServer->createService(SERVICE_UUID);
 
   // New COMMAND_UUID characteristic
   pCommandCharacteristic = pService->createCharacteristic(
-      COMMAND_UUID,
-      NIMBLE_PROPERTY::WRITE // Allow client to write commands
+    COMMAND_UUID,
+    NIMBLE_PROPERTY::WRITE  // Allow client to write commands
   );
   pCommandCharacteristic->setCallbacks(new MyCallbacks());
 
   // New RESPONSE_UUID characteristic
   pResponseCharacteristic = pService->createCharacteristic(
-      RESPONSE_UUID,
-      NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY // Allow client to read and receive notifications
+    RESPONSE_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY  // Allow client to read and receive notifications
   );
-  pResponseCharacteristic->setValue("Ready for commands"); // Initial value
+  pResponseCharacteristic->setValue("Ready for commands");  // Initial value
 
   // New ACK_UUID characteristic
   pAckCharacteristic = pService->createCharacteristic(
-      ACK_UUID,
-      NIMBLE_PROPERTY::WRITE
-  );
+    ACK_UUID,
+    NIMBLE_PROPERTY::WRITE);
   pAckCharacteristic->setCallbacks(new MyCallbacks());
 
   pService->start();
 
   // BLEアドバタイズ（広告）の準備
-  NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
-  pAdvertising->setName(DEVICE_NAME); // Explicitly set advertising name
-  pAdvertising->addServiceUUID(SERVICE_UUID); // Re-add service UUID
-  pAdvertising->enableScanResponse(true); // Enable scan response
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+  pAdvertising->setName(DEVICE_NAME);          // Explicitly set advertising name
+  pAdvertising->addServiceUUID(SERVICE_UUID);  // Re-add service UUID
+  pAdvertising->enableScanResponse(true);      // Enable scan response
 }
 
 void stop_ble_advertising() {
@@ -606,8 +611,8 @@ void disconnect_ble_clients() {
       applog("Disconnecting %d BLE client(s) due to state change.", connectedCount);
       // disconnect all clients
       auto connections = NimBLEDevice::getServer()->getPeerDevices();
-      for(auto& conn : connections) {
-          NimBLEDevice::getServer()->disconnect(conn);
+      for (auto& conn : connections) {
+        NimBLEDevice::getServer()->disconnect(conn);
       }
     }
   }
@@ -634,15 +639,15 @@ bool loadSettingsFromLittleFS() {
     return false;
   }
 
-  char lineBuffer[256]; // Buffer to hold each line from the config file
+  char lineBuffer[256];  // Buffer to hold each line from the config file
   while (configFile.available()) {
     int bytesRead = configFile.readBytesUntil('\n', lineBuffer, sizeof(lineBuffer) - 1);
-    lineBuffer[bytesRead] = '\0'; // Null-terminate the string
+    lineBuffer[bytesRead] = '\0';  // Null-terminate the string
 
-    trim_whitespace(lineBuffer); // Remove leading/trailing whitespace
+    trim_whitespace(lineBuffer);  // Remove leading/trailing whitespace
 
     if (strlen(lineBuffer) == 0 || lineBuffer[0] == '#') {
-      continue; // Skip empty lines and comments
+      continue;  // Skip empty lines and comments
     }
 
     char* separator = strchr(lineBuffer, '=');
@@ -651,7 +656,7 @@ bool loadSettingsFromLittleFS() {
       continue;
     }
 
-    *separator = '\0'; // Null-terminate the key part
+    *separator = '\0';  // Null-terminate the key part
     char* key = lineBuffer;
     char* value = separator + 1;
 
@@ -673,12 +678,12 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "REC_MAX_S") == 0) {
       REC_MAX_S = atoi(value);
       applog("Setting REC_MAX_S to %d", REC_MAX_S);
-      MAX_REC_DURATION_MS = REC_MAX_S * 1000; // Recalculate MAX_RECORDING_DURATION_MS
+      MAX_REC_DURATION_MS = REC_MAX_S * 1000;  // Recalculate MAX_RECORDING_DURATION_MS
       applog("Recalculated MAX_REC_DURATION_MS to %lu", MAX_REC_DURATION_MS);
     } else if (strcmp(key, "REC_MIN_S") == 0) {
       REC_MIN_S = atoi(value);
       applog("Setting REC_MIN_S to %d", REC_MIN_S);
-      updateMinAudioFileSize(); // Recalculate MIN_AUDIO_FILE_SIZE_BYTES
+      updateMinAudioFileSize();  // Recalculate MIN_AUDIO_FILE_SIZE_BYTES
     } else if (strcmp(key, "AUDIO_GAIN") == 0) {
       AUDIO_GAIN = atof(value);
       applog("Setting AUDIO_GAIN to %f", AUDIO_GAIN);
@@ -694,7 +699,10 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "VIBRA") == 0) {
       VIBRA = (strcmp(value, "true") == 0);
       applog("Setting VIBRA to %s", VIBRA ? "true" : "false");
-
+    } else if (strcmp(key, "DEEP_SLEEP_CYCLE_MINUTES") == 0) {
+      DEEP_SLEEP_CYCLE_MINUTES = atol(value);
+      DEEP_SLEEP_CYCLE_MS = DEEP_SLEEP_CYCLE_MINUTES * 60 * 1000;
+      applog("Setting DEEP_SLEEP_CYCLE_MINUTES to %lu (which is %lu ms)", DEEP_SLEEP_CYCLE_MINUTES, DEEP_SLEEP_CYCLE_MS);
     } else {
       applog("Unknown setting in setting.ini: %s", key);
     }

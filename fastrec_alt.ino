@@ -98,7 +98,7 @@ void goDeepSleep() {
   rtc_gpio_pullup_dis(USB_DETECT_PIN);
 
   displaySleep(true); // LCDスリープ
-  // esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); でタイマー復帰できる：今は使わないけどこのメモ消さないで
+  esp_sleep_enable_timer_wakeup(DEEP_SLEEP_CYCLE_MS * 1000); // DEEP_SLEEP_CYCLE_MS is in milliseconds, convert to microseconds
   esp_deep_sleep_start();
 }
 
@@ -167,6 +167,7 @@ void handleIdle() {
   }
 
   if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // Recording switch is pressed
+    setLcdBrightness(0xFF); // Brighten LCD
     startRecording();
     return;
   }
@@ -227,6 +228,7 @@ void wakeupLogic() {
     case ESP_SLEEP_WAKEUP_EXT1: {
       uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
       if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
+        setLcdBrightness(0xFF); // RECボタンでウェイクアップした場合は、常にLCDを明るくする
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
             // This is the fast path to recording. Logging remains disabled until startRecording() enables it.
             startRecording(); // Directly start recording
