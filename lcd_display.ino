@@ -16,7 +16,7 @@ void setLcdBrightness(uint8_t brightness) {
 void initSSD() {
   applog("initSSD");
 
-  Wire.begin(LCD_SDA_GPIO, LCD_SCL_GPIO, 400000L);
+  Wire.begin(LCD_SDA_GPIO, LCD_SCL_GPIO, 100000L);
 
   display.begin();
   display.setRotation(2);       // rotate 180 degrees
