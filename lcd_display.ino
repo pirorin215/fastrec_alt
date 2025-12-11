@@ -46,15 +46,24 @@ void displayLine(uint8_t lineNumber, const char* text) {
 void displayStatus(const char* msg) {
 
   char line1[MAX_CHARS_PER_LINE+1];
-  char rssiStr[4];
-  const char* appStateToDisplay;
 
   if (isBLEConnected()) {
-    appStateToDisplay = "BLE";
+    std::string displayBleCommand = "BLE ";
+    if (!g_lastBleCommand.empty()) {
+      // Ensure the command fits, leaving space for "BLE "
+      int remainingChars = MAX_CHARS_PER_LINE - displayBleCommand.length();
+      if (g_lastBleCommand.length() > remainingChars) {
+        displayBleCommand += g_lastBleCommand.substr(0, remainingChars);
+      } else {
+        displayBleCommand += g_lastBleCommand;
+      }
+    }
+    strncpy(line1, displayBleCommand.c_str(), MAX_CHARS_PER_LINE);
+    line1[MAX_CHARS_PER_LINE] = '\0';
   } else {
-    appStateToDisplay = appStateStrings[g_currentAppState];
+    const char* appStateToDisplay = appStateStrings[g_currentAppState];
+    snprintf(line1, sizeof(line1), "% -*s", MAX_CHARS_PER_LINE, appStateToDisplay);
   }
-  snprintf(line1, sizeof(line1), "% -6s    %2s", appStateToDisplay, rssiStr);
   displayLine(0, line1); 
  
   // 2行目: フラッシュメモリ空き容量と電池残量

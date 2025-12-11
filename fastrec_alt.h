@@ -129,6 +129,7 @@ uint32_t g_totalBytesRecorded = 0;
 // ble setting
 volatile bool g_start_file_transfer = false;
 std::string g_file_to_transfer_name;
+std::string g_lastBleCommand;
 
 // Function Prototypes ---
 

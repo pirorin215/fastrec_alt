@@ -450,6 +450,7 @@ class MyCallbacks : public NimBLECharacteristicCallbacks {
 
     if (pCharacteristic->getUUID().toString() == COMMAND_UUID) {
       applog("BLE Command Received: %s", value.c_str());
+      g_lastBleCommand = value; // Store the last received command
       g_lastActivityTime = millis();  // コマンド受信もアクティビティ
 
       if (g_currentAppState != IDLE) {
