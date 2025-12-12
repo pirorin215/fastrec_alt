@@ -62,11 +62,9 @@ class GoogleTasksManager(
         }
     }
 
-    override fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String) {
-        scope.launch {
-            googleTasksUseCase.syncTranscriptionResultsWithGoogleTasks(audioDirName)
-            logManager.addLog("Google Tasks sync requested.")
-        }
+    override suspend fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String) {
+        googleTasksUseCase.syncTranscriptionResultsWithGoogleTasks(audioDirName)
+        logManager.addLog("Google Tasks sync requested.")
     }
 
     override fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {

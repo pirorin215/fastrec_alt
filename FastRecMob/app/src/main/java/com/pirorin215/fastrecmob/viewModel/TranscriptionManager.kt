@@ -62,8 +62,12 @@ class TranscriptionManager(
             }
             .launchIn(scope)
 
-        // Initial update
-        updateLocalAudioFileCount()
+        audioDirNameFlow
+            .onEach {
+                logManager.addLog("Audio directory name changed. Updating file count.")
+                updateLocalAudioFileCount()
+            }
+            .launchIn(scope)
     }
 
     override fun updateLocalAudioFileCount() {

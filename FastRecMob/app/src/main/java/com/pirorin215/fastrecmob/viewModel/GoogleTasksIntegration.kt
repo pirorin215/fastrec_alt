@@ -11,7 +11,7 @@ interface GoogleTasksIntegration {
     val isLoadingGoogleTasks: StateFlow<Boolean>
     val googleSignInClient: SharedFlow<GoogleSignInClient>
 
-    fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String)
+    suspend fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String)
     suspend fun moveTask(taskId: String, previousTaskId: String?)
     fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit)
     fun signOut()

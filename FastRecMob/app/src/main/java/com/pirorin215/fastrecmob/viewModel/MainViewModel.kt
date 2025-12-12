@@ -117,7 +117,13 @@ class MainViewModel(
     val googleSignInClient: SharedFlow<GoogleSignInClient> = googleTasksIntegration.googleSignInClient
 
     // --- Google Tasks Delegated Functions ---
-    fun syncTranscriptionResultsWithGoogleTasks() = googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
+    fun syncTranscriptionResultsWithGoogleTasks() {
+        viewModelScope.launch {
+            googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
+            transcriptionManager.updateLocalAudioFileCount()
+            logManager.addLog("WAV file count updated after Google Tasks sync.")
+        }
+    }
     fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
     fun signOut() = googleTasksIntegration.signOut()
 
