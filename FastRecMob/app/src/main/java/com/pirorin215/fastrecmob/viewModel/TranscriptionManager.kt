@@ -8,7 +8,6 @@ import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import com.pirorin215.fastrecmob.service.SpeechToTextService
 import com.pirorin215.fastrecmob.data.FileUtil
-import com.pirorin215.fastrecmob.data.SortMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -319,31 +318,6 @@ class TranscriptionManager(
             logManager.addLog("Manual transcription added: $manualFileName")
 
             scope.launch { cleanupTranscriptionResultsAndAudioFiles() }
-        }
-    }
-
-    override fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) {
-        scope.launch {
-            // Update local display order first
-            val updatedList = reorderedList.mapIndexed { index, result ->
-                result.copy(displayOrder = index)
-            }
-            transcriptionResultRepository.updateResults(updatedList)
-            logManager.addLog("Transcription results order updated locally.")
-
-            // Then, sync reordering to Google Tasks if applicable
-            val sortMode = appSettingsRepository.sortModeFlow.first()
-            if (googleTasksIntegration.account.value != null && sortMode == SortMode.CUSTOM) {
-                logManager.addLog("Syncing custom order to Google Tasks.")
-                val syncedItemsInOrder = updatedList.filter { it.googleTaskId != null }
-
-                for ((index, item) in syncedItemsInOrder.withIndex()) {
-                    val taskId = item.googleTaskId!! // Already filtered for non-null
-                    val previousTaskId = if (index > 0) syncedItemsInOrder[index - 1].googleTaskId else null
-                    googleTasksIntegration.moveTask(taskId, previousTaskId)
-                }
-                logManager.addLog("Finished syncing custom order to Google Tasks.")
-            }
         }
     }
 

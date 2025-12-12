@@ -71,7 +71,6 @@ class MainViewModel(
     val transcriptionFontSize: StateFlow<Int> = appSettingsAccessor.transcriptionFontSize
     val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
     val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
-    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsAccessor.sortMode
     val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
     val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
     val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsAccessor.googleTasksSyncIntervalMinutes
@@ -142,12 +141,9 @@ class MainViewModel(
                 list.filter { !it.isSyncedWithGoogleTasks }
             }
         }
-        .combine(sortMode) { list: List<TranscriptionResult>, mode: com.pirorin215.fastrecmob.data.SortMode ->
-            when (mode) {
-                com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.lastEditedTimestamp }
-                com.pirorin215.fastrecmob.data.SortMode.CREATION_TIME -> list.sortedByDescending { com.pirorin215.fastrecmob.data.FileUtil.getTimestampFromFileName(it.fileName) }
-                com.pirorin215.fastrecmob.data.SortMode.CUSTOM -> list.sortedBy { it.displayOrder }
-            }
+        .map { list ->
+            // Sort by creation time, newest first
+            list.sortedByDescending { com.pirorin215.fastrecmob.data.FileUtil.getTimestampFromFileName(it.fileName) }
         }
         .stateIn(
             scope = viewModelScope,
@@ -326,7 +322,6 @@ class MainViewModel(
         Log.d(TAG, "ViewModel cleared, resources released.")
     }
 
-    fun updateDisplayOrder(reorderedList: List<TranscriptionResult>) = transcriptionManager.updateDisplayOrder(reorderedList)
     fun clearTranscriptionResults() = transcriptionManager.clearTranscriptionResults()
     fun removeTranscriptionResult(result: TranscriptionResult) = transcriptionManager.removeTranscriptionResult(result)
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) = transcriptionManager.updateTranscriptionResult(originalResult, newTranscription, newNote)

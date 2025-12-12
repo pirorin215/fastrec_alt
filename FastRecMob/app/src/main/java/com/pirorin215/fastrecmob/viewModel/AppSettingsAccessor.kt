@@ -1,6 +1,5 @@
 package com.pirorin215.fastrecmob.viewModel
 
-import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.ThemeMode
 import kotlinx.coroutines.flow.StateFlow
 
@@ -11,7 +10,6 @@ interface AppSettingsAccessor {
     val transcriptionFontSize: StateFlow<Int>
     val audioDirName: StateFlow<String>
     val themeMode: StateFlow<ThemeMode>
-    val sortMode: StateFlow<SortMode>
     val googleTodoListName: StateFlow<String>
     val googleTaskTitleLength: StateFlow<Int>
     val googleTasksSyncIntervalMinutes: StateFlow<Int>
@@ -22,7 +20,6 @@ interface AppSettingsAccessor {
     fun saveTranscriptionFontSize(size: Int)
     fun saveAudioDirName(name: String)
     fun saveThemeMode(mode: ThemeMode)
-    fun saveSortMode(sortMode: SortMode)
     fun saveGoogleTodoListName(name: String)
     fun saveGoogleTaskTitleLength(length: Int)
     fun saveGoogleTasksSyncIntervalMinutes(minutes: Int)

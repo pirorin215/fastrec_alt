@@ -154,19 +154,6 @@ class AppSettingsViewModel(
         }
     }
 
-    val sortMode: StateFlow<com.pirorin215.fastrecmob.data.SortMode> = appSettingsRepository.sortModeFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP
-        )
-
-    fun saveSortMode(sortMode: com.pirorin215.fastrecmob.data.SortMode) {
-        viewModelScope.launch {
-            appSettingsRepository.saveSortMode(sortMode)
-        }
-    }
-
     fun scanForUnlinkedWavFiles() {
         viewModelScope.launch {
             transcriptionManager.findAndProcessUnlinkedWavFiles()

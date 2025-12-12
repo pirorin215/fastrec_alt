@@ -1,7 +1,6 @@
 package com.pirorin215.fastrecmob.viewModel
 
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
-import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.ThemeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,13 +56,6 @@ class AppSettingsViewModelDelegate(
             initialValue = ThemeMode.SYSTEM // Default to SYSTEM
         )
 
-    override val sortMode: StateFlow<SortMode> = appSettingsRepository.sortModeFlow
-        .stateIn(
-            scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = SortMode.TIMESTAMP
-        )
-
     override val googleTodoListName: StateFlow<String> = appSettingsRepository.googleTodoListNameFlow
         .stateIn(scope, SharingStarted.Eagerly, "")
 
@@ -95,10 +87,6 @@ class AppSettingsViewModelDelegate(
 
     override fun saveThemeMode(mode: ThemeMode) {
         scope.launch { appSettingsRepository.saveThemeMode(mode) }
-    }
-
-    override fun saveSortMode(sortMode: SortMode) {
-        scope.launch { appSettingsRepository.saveSortMode(sortMode) }
     }
 
     override fun saveGoogleTodoListName(name: String) {

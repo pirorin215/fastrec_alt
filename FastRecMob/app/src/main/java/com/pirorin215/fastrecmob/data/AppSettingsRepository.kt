@@ -24,7 +24,6 @@ class AppSettingsRepository(private val context: Context) {
         val AUDIO_DIR_NAME = stringPreferencesKey("audio_dir_name")
         val TRANSCRIPTION_FONT_SIZE = intPreferencesKey("transcription_font_size")
         val THEME_MODE = stringPreferencesKey("theme_mode")
-        val SORT_MODE = stringPreferencesKey("sort_mode") // Add this
         val IS_API_KEY_VERIFIED = booleanPreferencesKey("is_api_key_verified") // Add this
         val GOOGLE_TODO_LIST_NAME = stringPreferencesKey("google_todo_list_name")
         val GOOGLE_TASK_TITLE_LENGTH = intPreferencesKey("google_task_title_length")
@@ -71,13 +70,6 @@ class AppSettingsRepository(private val context: Context) {
         .map { preferences ->
             // デフォルト値をSYSTEMに設定
             ThemeMode.valueOf(preferences[PreferencesKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name)
-        }
-
-    // 並び替えモードの変更を監視するためのFlow
-    val sortModeFlow: Flow<SortMode> = context.dataStore.data
-        .map { preferences ->
-            // デフォルト値をTIMESTAMPに設定
-            SortMode.valueOf(preferences[PreferencesKeys.SORT_MODE] ?: SortMode.TIMESTAMP.name)
         }
 
     val googleTodoListNameFlow: Flow<String> = context.dataStore.data
@@ -140,13 +132,6 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveThemeMode(themeMode: ThemeMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.THEME_MODE] = themeMode.name
-        }
-    }
-
-    // 並び替えモードを保存するsuspend関数
-    suspend fun saveSortMode(sortMode: SortMode) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SORT_MODE] = sortMode.name
         }
     }
 

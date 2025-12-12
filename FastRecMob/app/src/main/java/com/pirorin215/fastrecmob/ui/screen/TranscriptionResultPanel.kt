@@ -22,15 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.pirorin215.fastrecmob.data.FileUtil
-import com.pirorin215.fastrecmob.data.SortMode
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import kotlinx.coroutines.launch
-import org.burnoutcrew.reorderable.ReorderableItem
-import org.burnoutcrew.reorderable.detectReorderAfterLongPress
-import org.burnoutcrew.reorderable.rememberReorderableLazyListState
-import org.burnoutcrew.reorderable.reorderable
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -41,7 +36,6 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
     var showAddManualTranscriptionDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
-    val sortMode by appSettingsViewModel.sortMode.collectAsState()
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState() // Observe isPlaying state
 
@@ -49,42 +43,6 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     val audioDirName by viewModel.audioDirName.collectAsState()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-
-    val localItems = remember { mutableStateListOf<TranscriptionResult>() }
-    val originalOrder = remember { mutableStateOf<List<TranscriptionResult>>(emptyList()) }
-
-    val reorderableState = rememberReorderableLazyListState(
-        onMove = { from, to ->
-            localItems.add(to.index, localItems.removeAt(from.index))
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    )
-
-    val isDragging by remember { derivedStateOf { reorderableState.draggingItemKey != null } }
-
-    LaunchedEffect(transcriptionResults) {
-        if (localItems.toList() != transcriptionResults) {
-            localItems.clear()
-            localItems.addAll(transcriptionResults)
-            if (sortMode == SortMode.CUSTOM) {
-                originalOrder.value = transcriptionResults
-            }
-            scope.launch {
-                reorderableState.listState.animateScrollToItem(0)
-            }
-        }
-    }
-
-    LaunchedEffect(isDragging) {
-        if (isDragging) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-        if (!isDragging && sortMode == SortMode.CUSTOM) {
-            if (localItems.toList() != originalOrder.value) {
-                viewModel.updateDisplayOrder(localItems.toList())
-            }
-        }
-    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -133,57 +91,6 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
                         Icon(Icons.Default.Delete, contentDescription = if (isSelectionMode) "Delete Selected" else "Clear All")
                     }
                     
-                    var showSortModeMenu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { showSortModeMenu = true }) {
-                        val icon = when (sortMode) {
-                            SortMode.CUSTOM -> Icons.Default.SwapVert
-                            SortMode.TIMESTAMP -> Icons.Default.History
-                            SortMode.CREATION_TIME -> Icons.Default.Schedule
-                        }
-                        Icon(icon, contentDescription = "Sort Mode")
-                    }
-                    DropdownMenu(
-                        expanded = showSortModeMenu,
-                        onDismissRequest = { showSortModeMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("編集時刻順") },
-                            onClick = {
-                                appSettingsViewModel.saveSortMode(SortMode.TIMESTAMP)
-                                scope.launch {
-                                    reorderableState.listState.animateScrollToItem(0)
-                                }
-                                showSortModeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
-                            trailingIcon = { if (sortMode == SortMode.TIMESTAMP) Icon(Icons.Default.Check, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("作成時刻順") },
-                            onClick = {
-                                appSettingsViewModel.saveSortMode(SortMode.CREATION_TIME)
-                                scope.launch {
-                                    reorderableState.listState.animateScrollToItem(0)
-                                }
-                                showSortModeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) },
-                            trailingIcon = { if (sortMode == SortMode.CREATION_TIME) Icon(Icons.Default.Check, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("カスタム順") },
-                            onClick = {
-                                appSettingsViewModel.saveSortMode(SortMode.CUSTOM)
-                                scope.launch {
-                                    reorderableState.listState.animateScrollToItem(0)
-                                }
-                                showSortModeMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null) },
-                            trailingIcon = { if (sortMode == SortMode.CUSTOM) Icon(Icons.Default.Check, contentDescription = null) }
-                        )
-                    }
-                    
                     IconButton(onClick = { showAddManualTranscriptionDialog = true }) {
                         Icon(Icons.Filled.Add, "手動で文字起こしを追加")
                     }
@@ -191,42 +98,24 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
             }
             Spacer(modifier = Modifier.height(8.dp)) // Add this Spacer for separation
             LazyColumn(
-                state = reorderableState.listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (sortMode == SortMode.CUSTOM) {
-                            Modifier
-                                .reorderable(reorderableState)
-                                .detectReorderAfterLongPress(reorderableState)
-                        } else {
-                            Modifier
-                        }
-                    )
+                modifier = Modifier.fillMaxSize()
             ) {
-                if (localItems.isEmpty()) {
+                if (transcriptionResults.isEmpty()) {
                     item {
                         Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                             Text("no data")
                         }
                     }
                 } else {
-                    items(items = localItems, key = { it.fileName }) { result ->
-                        ReorderableItem(reorderableState, key = result.fileName) { isDragging ->
-                            val elevation = if (isDragging) 12.dp else 0.dp
-                            Surface(shadowElevation = elevation) {
-                                TranscriptionResultItem(
-                                    result = result,
-                                    fontSize = fontSize,
-                                    isSelected = selectedFileNames.contains(result.fileName),
-                                    isDragging = isDragging,
-                                    onItemClick = { clickedItem -> if (!isDragging) selectedResultForDetail = clickedItem },
-                                    onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) },
-                                    sortMode = sortMode
-                                )
-                            }
-                        }
-                        Divider()
+                    items(items = transcriptionResults, key = { it.fileName }) { result ->
+                        TranscriptionResultItem(
+                            result = result,
+                            fontSize = fontSize,
+                            isSelected = selectedFileNames.contains(result.fileName),
+                            onItemClick = { clickedItem -> selectedResultForDetail = clickedItem },
+                            onToggleSelection = { fileName -> viewModel.toggleSelection(fileName) }
+                        )
+                        HorizontalDivider()
                     }
                 }
             }
@@ -343,13 +232,10 @@ fun TranscriptionResultItem(
     result: TranscriptionResult,
     fontSize: Int,
     isSelected: Boolean,
-    isDragging: Boolean,
     onItemClick: (TranscriptionResult) -> Unit,
-    onToggleSelection: (String) -> Unit,
-    sortMode: SortMode
+    onToggleSelection: (String) -> Unit
 ) {
     val backgroundColor = when {
-        isDragging -> MaterialTheme.colorScheme.tertiaryContainer
         isSelected -> MaterialTheme.colorScheme.primaryContainer
         result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.surfaceVariant
         result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.errorContainer
@@ -357,7 +243,6 @@ fun TranscriptionResultItem(
         else -> MaterialTheme.colorScheme.surface
     }
     val contentColor = when {
-        isDragging -> MaterialTheme.colorScheme.onTertiaryContainer
         isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
         result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.onSurfaceVariant
         result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.onErrorContainer
@@ -383,14 +268,10 @@ fun TranscriptionResultItem(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (sortMode == SortMode.TIMESTAMP || sortMode == SortMode.CREATION_TIME) {
-                val dateTimeInfo = FileUtil.getRecordingDateTimeInfo(result.fileName)
-                Column(modifier = Modifier.padding(horizontal = 8.dp).width(80.dp)) {
-                    Text(text = dateTimeInfo.date, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor)
-                    Text(text = dateTimeInfo.time, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor)
-                }
-            } else {
-                Spacer(modifier = Modifier.width(16.dp))
+            val dateTimeInfo = FileUtil.getRecordingDateTimeInfo(result.fileName)
+            Column(modifier = Modifier.padding(horizontal = 8.dp).width(80.dp)) {
+                Text(text = dateTimeInfo.date, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor)
+                Text(text = dateTimeInfo.time, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = contentColor)
             }
             Text(
                 text = result.transcription,

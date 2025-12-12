@@ -14,7 +14,6 @@ interface TranscriptionManagement {
     fun retranscribe(result: TranscriptionResult)
     fun addPendingTranscription(fileName: String)
     fun addManualTranscription(text: String)
-    fun updateDisplayOrder(reorderedList: List<TranscriptionResult>)
     fun clearTranscriptionResults()
     fun removeTranscriptionResult(result: TranscriptionResult)
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?)
