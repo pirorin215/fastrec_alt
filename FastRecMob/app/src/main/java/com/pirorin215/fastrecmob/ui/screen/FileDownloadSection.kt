@@ -34,7 +34,7 @@ fun FileDownloadSection(
 
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 if (fileTransferState == "Downloading") {
-                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                 }
                 Text(statusText)
             }
@@ -52,7 +52,7 @@ fun FileListCard(title: String, files: List<FileEntry>, onDownloadClick: (String
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
-            Divider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
             if (files.isNotEmpty()) {
                 LazyColumn(

@@ -4,8 +4,8 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -41,7 +41,7 @@ fun GoogleTasksSyncSettingsScreen(
                 title = { Text("Google Tasks 同期設定") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -94,7 +94,7 @@ fun GoogleTasksSyncSettingsScreen(
                                 onClick = { viewModel.signOut() },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign Out")
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("サインアウト")
                             }

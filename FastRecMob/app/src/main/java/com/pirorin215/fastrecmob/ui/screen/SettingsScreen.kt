@@ -4,10 +4,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,7 +52,7 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 title = { Text("マイコン設定") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -60,7 +60,7 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh Settings")
                     }
                     IconButton(onClick = { viewModel.sendSettings() }) {
-                        Icon(Icons.Default.Send, contentDescription = "Send Settings")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send Settings")
                     }
                 }
             )

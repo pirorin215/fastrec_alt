@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -52,7 +52,7 @@ fun LogDownloadScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 title = { Text("ログファイルダウンロード") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -72,7 +72,7 @@ fun LogDownloadScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     if (fileTransferState == "Downloading") {
-                        LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     }
                     Text(statusText)
                     Spacer(modifier = Modifier.height(8.dp))

@@ -75,7 +75,7 @@ fun InfoRow(label: String, value: String) {
         Text(text = label, style = MaterialTheme.typography.bodyMedium)
         Text(text = value, style = MaterialTheme.typography.bodyMedium)
     }
-    Divider()
+    HorizontalDivider()
 }
 
 
