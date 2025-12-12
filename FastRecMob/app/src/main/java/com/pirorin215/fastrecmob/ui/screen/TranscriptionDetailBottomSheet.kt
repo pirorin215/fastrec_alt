@@ -245,29 +245,24 @@ fun TranscriptionDetailBottomSheet(
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Play/Stop Button (Icon)
+                // Play/Stop Button
                 if (audioFileExists) {
-                    IconButton(
-                        onClick = {
-                            if (isPlaying) {
-                                onStop()
-                            } else {
-                                onPlay(result)
-                            }
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
+                    Button(
+                        onClick = { if (isPlaying) onStop() else onPlay(result) },
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        if (isPlaying) {
-                            Icon(Icons.Default.Stop, contentDescription = "Stop Audio")
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Play Audio")
-                        }
+                        val icon = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow
+                        val text = if (isPlaying) "停止" else "再生"
+                        Icon(icon, contentDescription = text)
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text(text)
                     }
                 }
 
-                // Map Button (Icon)
+                // Map Button
                 result.locationData?.let { location ->
-                    IconButton(
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
                         onClick = {
                             val gmmIntentUri = Uri.parse("geo:${location.latitude},${location.longitude}?q=${location.latitude},${location.longitude}(Recorded Location)")
                             val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
@@ -280,9 +275,11 @@ fun TranscriptionDetailBottomSheet(
                                 context.startActivity(webMapIntent)
                             }
                         },
-                        modifier = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Show Location")
+                        Icon(Icons.Default.LocationOn, contentDescription = "地図")
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("地図")
                     }
                 }
                 Spacer(Modifier.weight(1f)) // Pushes the Save button to the end

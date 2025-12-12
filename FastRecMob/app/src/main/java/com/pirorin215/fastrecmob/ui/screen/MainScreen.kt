@@ -184,32 +184,9 @@ fun MainScreen(
                                 onDismissRequest = { expanded = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("マイコン設定") },
-                                    onClick = {
-                                        showSettings = true
-                                        expanded = false
-                                    },
-                                    enabled = connectionState == "Connected"
-                                )
-                                DropdownMenuItem(
                                     text = { Text("アプリ設定") },
                                     onClick = {
                                         showAppSettings = true
-                                        expanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("WAVファイル再スキャン") },
-                                    onClick = {
-                                        appSettingsViewModel.scanForUnlinkedWavFiles()
-                                        expanded = false
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("ログファイルダウンロード") },
-                                    onClick = {
-                                        showLogDownloadScreen = true
                                         expanded = false
                                     }
                                 )
@@ -220,7 +197,28 @@ fun MainScreen(
                                         expanded = false
                                     }
                                 )
-
+                                DropdownMenuItem(
+                                    text = { Text("レコーダ設定") },
+                                    onClick = {
+                                        showSettings = true
+                                        expanded = false
+                                    },
+                                    enabled = connectionState == "Connected"
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("レコーダログ") },
+                                    onClick = {
+                                        showLogDownloadScreen = true
+                                        expanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("WAVファイル再スキャン") },
+                                    onClick = {
+                                        appSettingsViewModel.scanForUnlinkedWavFiles()
+                                        expanded = false
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("アプリログ") },
                                     onClick = {

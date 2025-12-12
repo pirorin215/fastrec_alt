@@ -138,7 +138,7 @@ class MainViewModel(
             if (showCompleted) {
                 list
             } else {
-                list.filter { !it.isSyncedWithGoogleTasks }
+                list.filter { !it.isSyncedWithGoogleTasks || it.transcriptionStatus == "FAILED" }
             }
         }
         .map { list ->
