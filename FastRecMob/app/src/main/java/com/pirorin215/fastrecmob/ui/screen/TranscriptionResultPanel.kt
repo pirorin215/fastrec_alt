@@ -37,7 +37,7 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
     var showAddManualTranscriptionDialog by remember { mutableStateOf(false) }
     val fontSize by viewModel.transcriptionFontSize.collectAsState()
     val selectedFileNames by viewModel.selectedFileNames.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState() // Observe isPlaying state
+    val currentlyPlayingFile by viewModel.currentlyPlayingFile.collectAsState()
 
     var selectedResultForDetail by remember { mutableStateOf<TranscriptionResult?>(null) }
     val audioDirName by viewModel.audioDirName.collectAsState()
@@ -121,12 +121,13 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
             }
     }
         selectedResultForDetail?.let { result ->
+            val audioFile = FileUtil.getAudioFile(context, audioDirName, result.fileName)
             TranscriptionDetailBottomSheet(
                 result = result,
                 fontSize = fontSize,
-                audioFileExists = FileUtil.getAudioFile(context, audioDirName, result.fileName).exists(),
+                audioFileExists = audioFile.exists(),
                 audioDirName = audioDirName,
-                isPlaying = isPlaying, // Pass the isPlaying state
+                isPlaying = currentlyPlayingFile == audioFile.absolutePath,
                 onPlay = { transcriptionResult ->
                     viewModel.playAudioFile(transcriptionResult)
                 },

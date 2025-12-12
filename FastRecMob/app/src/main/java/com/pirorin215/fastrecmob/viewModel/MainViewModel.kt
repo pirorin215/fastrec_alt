@@ -161,10 +161,12 @@ class MainViewModel(
     
     val logs = logManager.logs
 
-    private val _isPlaying = MutableStateFlow(false)
-    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+    // --- Audio Player Manager ---
+    private val audioPlayerManager: AudioPlayerManager by lazy {
+        AudioPlayerManager(application)
+    }
+    val currentlyPlayingFile: StateFlow<String?> = audioPlayerManager.currentlyPlayingFile
 
-    private var currentMediaPlayer: MediaPlayer? = null
 
 
     // --- Location Monitor ---
@@ -261,61 +263,23 @@ class MainViewModel(
     // --- Methods delegated to Transcription Manager ---
     fun resetTranscriptionState() = transcriptionManager.resetTranscriptionState()
     fun playAudioFile(transcriptionResult: TranscriptionResult) {
-        // Stop any currently playing audio
-        stopAudioFile()
-
         val fileToPlay = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(application, audioDirName.value, transcriptionResult.fileName)
         if (fileToPlay.exists()) {
-            try {
-                currentMediaPlayer = MediaPlayer().apply {
-                    setDataSource(fileToPlay.absolutePath)
-                    prepare()
-                    start()
-                    _isPlaying.value = true
-                    logManager.addLog("Started internal audio playback for: ${transcriptionResult.fileName}")
-
-                    setOnCompletionListener { mp ->
-                        mp.release()
-                        currentMediaPlayer = null
-                        _isPlaying.value = false
-                        logManager.addLog("Audio playback completed and resources released for: ${transcriptionResult.fileName}")
-                    }
-                    setOnErrorListener { mp, what, extra ->
-                        logManager.addLog("Error during audio playback (what: $what, extra: $extra) for: ${transcriptionResult.fileName}")
-                        mp.release()
-                        currentMediaPlayer = null
-                        _isPlaying.value = false
-                        false // Indicate that the error was handled
-                    }
-                }
-            } catch (e: Exception) {
-                logManager.addLog("Error playing audio file internally: ${e.message}")
-                e.printStackTrace()
-                _isPlaying.value = false
-                currentMediaPlayer?.release()
-                currentMediaPlayer = null
-            }
+            audioPlayerManager.play(fileToPlay.absolutePath)
+            logManager.addLog("Audio playback requested for: ${transcriptionResult.fileName}")
         } else {
             logManager.addLog("Error: Audio file not found for playback: ${transcriptionResult.fileName}")
-            _isPlaying.value = false
         }
     }
 
     fun stopAudioFile() {
-        currentMediaPlayer?.apply {
-            if (isPlaying) {
-                stop()
-            }
-            release()
-        }
-        currentMediaPlayer = null
-        _isPlaying.value = false
-        logManager.addLog("Audio playback stopped and resources released.")
+        audioPlayerManager.stop()
+        logManager.addLog("Audio playback stopped.")
     }
 
     override fun onCleared() {
         super.onCleared()
-        stopAudioFile() // Ensure MediaPlayer resources are released
+        audioPlayerManager.release() // Release MediaPlayer resources
         bleOrchestrator.stop()
         transcriptionManager.onCleared()
         locationMonitor.onCleared()
