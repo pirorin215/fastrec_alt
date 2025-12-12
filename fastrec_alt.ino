@@ -22,9 +22,6 @@ void serialWait() { // check_unused:ignore
 
 // Define valid state transitions
 const AppState validTransitions[][2] = {
-    {INIT, IDLE},
-    {INIT, REC},
-    {INIT, SETUP},
     {IDLE, REC},
     {REC, IDLE},
     {IDLE, DSLEEP},
@@ -237,23 +234,18 @@ void wakeupLogic() {
             startRecording();
         } else {
             g_enable_logging = true;
-            setAppState(IDLE, false);
         }
       }
       setLcdBrightness(0xFF); // ボタンでウェイクアップした場合はLCDを明るくする
       break;
     }
     case ESP_SLEEP_WAKEUP_EXT0:
-      setAppState(IDLE, false);
       break;
     case ESP_SLEEP_WAKEUP_TIMER:
-      setAppState(IDLE, false);
       break;
     case ESP_SLEEP_WAKEUP_ULP:
-      setAppState(IDLE, false);
       break;
     default:
-      setAppState(IDLE, false);
       startVibrationSync(VIBRA_STARTUP_MS);
       break;
   }
@@ -339,16 +331,6 @@ void loop() {
       break;
     case DSLEEP:
       goDeepSleep();
-      break;
-    case INIT:
-      // If we are in INIT state for too long, transition to IDLE
-      // This acts as a safeguard if setup() doesn't explicitly transition the state
-      // after all initializations are done.
-      static unsigned long initEntryTime = millis();
-      if (millis() - initEntryTime > 1000) { // 1000ms timeout
-        applog("INIT state timeout, transitioning to IDLE.");
-        setAppState(IDLE, false);
-      }
       break;
   }
   g_currentBatteryVoltage = getBatteryVoltage();

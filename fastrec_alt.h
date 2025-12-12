@@ -63,7 +63,6 @@ const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state c
 
 // App States
 #define X_APP_STATES(X) \
-  X(INIT,   "INIT"), \
   X(IDLE,   "IDLE"), \
   X(REC,    "REC"), \
   X(DSLEEP, "DSLEEP"), \
