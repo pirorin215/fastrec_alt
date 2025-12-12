@@ -2,6 +2,7 @@ package com.pirorin215.fastrecmob
 
 import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.MainViewModelFactory
+import com.pirorin215.fastrecmob.LocationTracker
 
 import android.Manifest
 import android.app.Application
@@ -41,12 +42,13 @@ class MainActivity : ComponentActivity() {
             val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
             val bleRepository = com.pirorin215.fastrecmob.data.BleRepository(context.applicationContext)
             val logManager = com.pirorin215.fastrecmob.viewModel.LogManager()
+            val locationTracker = LocationTracker(context.applicationContext)
             
             val deviceStatusViewModelFactory = DeviceStatusViewModelFactory(context.applicationContext as Application, bleRepository, logManager)
             val deviceStatusViewModel: DeviceStatusViewModel = viewModel(factory = deviceStatusViewModelFactory)
 
             // ViewModels are created here to scope them to the Activity
-            val mainViewModelFactory = MainViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent, logManager)
+            val mainViewModelFactory = MainViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent, logManager, locationTracker)
             val mainViewModel: MainViewModel = viewModel(factory = mainViewModelFactory)
 
             val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository, mainViewModel.transcriptionManager)

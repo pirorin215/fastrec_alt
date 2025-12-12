@@ -53,7 +53,8 @@ class MainViewModel(
     private val repository: com.pirorin215.fastrecmob.data.BleRepository,
     private val connectionStateFlow: StateFlow<String>,
     private val onDeviceReadyEvent: SharedFlow<Unit>,
-    private val logManager: LogManager
+    private val logManager: LogManager,
+    private val locationTracker: com.pirorin215.fastrecmob.LocationTracker
 ) : ViewModel() {
 
     companion object {
@@ -168,7 +169,8 @@ class MainViewModel(
             transcriptionCacheLimitFlow = transcriptionCacheLimit,
             logManager = logManager,
             googleTaskTitleLengthFlow = appSettingsAccessor.googleTaskTitleLength, // Pass the new parameter
-            googleTasksIntegration = googleTasksIntegration
+            googleTasksIntegration = googleTasksIntegration,
+            locationTracker = locationTracker
         )
     }
 

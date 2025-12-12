@@ -19,7 +19,8 @@ class MainViewModelFactory(
     private val bleRepository: com.pirorin215.fastrecmob.data.BleRepository,
     private val connectionStateFlow: StateFlow<String>,
     private val onDeviceReadyEvent: SharedFlow<Unit>,
-    private val logManager: LogManager
+    private val logManager: LogManager,
+    private val locationTracker: com.pirorin215.fastrecmob.LocationTracker
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
@@ -33,7 +34,8 @@ class MainViewModelFactory(
                                         bleRepository,
                                         connectionStateFlow,
                                         onDeviceReadyEvent,
-                                        logManager
+                                        logManager,
+                                        locationTracker
                                     ) as T
                 }
         throw IllegalArgumentException("Unknown ViewModel class")

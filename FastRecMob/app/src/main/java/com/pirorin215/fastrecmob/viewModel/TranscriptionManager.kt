@@ -2,6 +2,7 @@ package com.pirorin215.fastrecmob.viewModel
 
 import android.content.Context
 import com.pirorin215.fastrecmob.LocationData
+import com.pirorin215.fastrecmob.LocationTracker
 import com.pirorin215.fastrecmob.data.AppSettingsRepository
 import com.pirorin215.fastrecmob.data.TranscriptionResult
 import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
@@ -32,7 +33,8 @@ class TranscriptionManager(
     private val transcriptionCacheLimitFlow: StateFlow<Int>,
     private val logManager: LogManager,
     private val googleTaskTitleLengthFlow: StateFlow<Int>, // New parameter
-    private val googleTasksIntegration: GoogleTasksIntegration
+    private val googleTasksIntegration: GoogleTasksIntegration,
+    private val locationTracker: LocationTracker
 ) : TranscriptionManagement {
 
     private var speechToTextService: SpeechToTextService? = null
@@ -90,11 +92,15 @@ class TranscriptionManager(
         logManager.addLog("Starting transcription for $filePath")
 
         val currentService = speechToTextService
-        val locationData = currentForegroundLocationFlow.value
+        val locationData = currentForegroundLocationFlow.value ?: run {
+            // If foreground location is not available, try to get a low-power background location
+            logManager.addLog("Foreground location not available. Attempting to get low-power background location.")
+            locationTracker.getLowPowerLocation().getOrNull()
+        }
         if (locationData != null) {
-            logManager.addLog("Using pre-collected location for transcription: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
+            logManager.addLog("Using collected location for transcription: Lat=${locationData.latitude}, Lng=${locationData.longitude}")
         } else {
-            logManager.addLog("Pre-collected location not available. Proceeding without location data.")
+            logManager.addLog("No location data available. Proceeding without location data.")
         }
 
         if (currentService == null) {
