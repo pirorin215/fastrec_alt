@@ -44,6 +44,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.pirorin215.fastrecmob.viewModel.LogManager
 
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @SuppressLint("MissingPermission")
 class MainViewModel(
     private val application: Application,
