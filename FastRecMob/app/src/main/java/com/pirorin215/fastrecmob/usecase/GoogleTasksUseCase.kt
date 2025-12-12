@@ -238,203 +238,83 @@ class GoogleTasksUseCase(
             return
         }
         _isLoadingGoogleTasks.value = true
-        logManager.addLog("Starting Google Tasks synchronization...")
+        logManager.addLog("Starting Google Tasks synchronization (one-way)...")
 
         try {
-            val currentLocalResults = transcriptionResultRepository.transcriptionResultsFlow.first().toMutableList()
-            val successfullyDeletedLocalFiles = mutableSetOf<String>()
-            val updatedLocalResultsAfterDeletionProcessing = mutableListOf<TranscriptionResult>()
+            val localResults = transcriptionResultRepository.transcriptionResultsFlow.first()
+            val updatedResults = mutableListOf<TranscriptionResult>()
 
-            val softDeletedLocalResults = currentLocalResults.filter { it.isDeletedLocally && it.googleTaskId != null }
-            val nonSoftDeletedLocalResults = currentLocalResults.filter { !it.isDeletedLocally || it.googleTaskId == null }
-
-            for (softDeletedResult in softDeletedLocalResults) {
-                if (softDeletedResult.googleTaskId != null) {
-                    logManager.addLog("Attempting to delete Google Task '${softDeletedResult.googleTaskId}' for locally soft-deleted result '${softDeletedResult.fileName}'...")
-                    try {
-                        deleteGoogleTask(softDeletedResult.googleTaskId)
-                        logManager.addLog("Successfully deleted Google Task '${softDeletedResult.googleTaskId}'. Permanently removing local result '${softDeletedResult.fileName}'.")
-                        transcriptionResultRepository.permanentlyRemoveResult(softDeletedResult)
-                        successfullyDeletedLocalFiles.add(softDeletedResult.fileName)
-
-                        val audioFile = FileUtil.getAudioFile(context, audioDirName, softDeletedResult.fileName)
-                        if (audioFile.exists()) {
-                            if (audioFile.delete()) {
-                                logManager.addLog("Deleted associated audio file: ${softDeletedResult.fileName}")
-                            } else {
-                                logManager.addLog("Failed to delete associated audio file: ${softDeletedResult.fileName}")
-                            }
-                        } else {
-                            logManager.addLog("Associated audio file not found for soft-deleted result: ${softDeletedResult.fileName}")
-                        }
-                    } catch (e: Exception) {
-                        logManager.addLog("Error deleting Google Task '${softDeletedResult.googleTaskId}' for local result '${softDeletedResult.fileName}': ${e.message}. Keeping local soft-deleted for retry.")
-                        updatedLocalResultsAfterDeletionProcessing.add(softDeletedResult)
-                    }
+            for (localResult in localResults) {
+                // Skip locally deleted items, do not sync deletion to Google Tasks
+                if (localResult.isDeletedLocally) {
+                    updatedResults.add(localResult)
+                    continue
                 }
-            }
-            updatedLocalResultsAfterDeletionProcessing.addAll(nonSoftDeletedLocalResults)
 
-            val localTranscriptionResults = transcriptionResultRepository.transcriptionResultsFlow.first()
-            val googleTasks = loadGoogleTasks()
-
-            val filteredLocalTranscriptionResults = localTranscriptionResults.filter {
-                !successfullyDeletedLocalFiles.contains(it.fileName)
-            }
-
-            val localMap: MutableMap<String, TranscriptionResult> =
-                filteredLocalTranscriptionResults.associateBy { it.googleTaskId ?: it.fileName }.toMutableMap()
-            val googleMap: Map<String, Task> = googleTasks.associateBy { it.id!! }
-
-            val reconciledTranscriptionResults = mutableListOf<TranscriptionResult>()
-
-            for (localResult in filteredLocalTranscriptionResults) {
-                if (localResult.googleTaskId == null || !localResult.isSyncedWithGoogleTasks) {
+                if (localResult.googleTaskId == null) {
+                    // This is a new item, add it to Google Tasks
+                    logManager.addLog("Local result '${localResult.fileName}' has no Google Task ID. Adding to Google Tasks.")
                     val addedTask = addGoogleTask(
                         title = localResult.transcription,
                         notes = localResult.googleTaskNotes,
                         isCompleted = localResult.isCompleted
                     )
                     if (addedTask != null && addedTask.id != null) {
-                        reconciledTranscriptionResults.add(
+                        updatedResults.add(
                             localResult.copy(
                                 googleTaskId = addedTask.id,
-                                isSyncedWithGoogleTasks = true
+                                isSyncedWithGoogleTasks = true,
+                                googleTaskUpdated = addedTask.updated,
+                                lastEditedTimestamp = FileUtil.parseRfc3339Timestamp(addedTask.updated)
                             )
                         )
                         logManager.addLog("Added local result '${localResult.fileName}' to Google Tasks. New Google ID: ${addedTask.id}")
                     } else {
-                        logManager.addLog("Failed to add local result '${localResult.fileName}' to Google Tasks.")
-                        reconciledTranscriptionResults.add(localResult)
+                        logManager.addLog("Failed to add local result '${localResult.fileName}' to Google Tasks. Will retry on next sync.")
+                        updatedResults.add(localResult.copy(isSyncedWithGoogleTasks = false))
                     }
                 } else {
-                    val correspondingGoogleTask = googleMap[localResult.googleTaskId]
-                    if (correspondingGoogleTask == null) {
-                        logManager.addLog("Google Task '${localResult.googleTaskId}' for local result '${localResult.fileName}' deleted on Google. Permanently deleting local result and audio file.")
-                        transcriptionResultRepository.permanentlyRemoveResult(localResult)
+                    // This item already exists on Google Tasks, check if it needs an update.
+                    // The condition `!localResult.isSyncedWithGoogleTasks` can be a trigger for updates.
+                    // This covers cases like "transcription failed" and then "retry transcription" which updates the content.
+                    val needsUpdate = !localResult.isSyncedWithGoogleTasks ||
+                            localResult.transcription.isNotEmpty() // More specific conditions can be added if needed.
 
-                        val audioFile = FileUtil.getAudioFile(context, audioDirName, localResult.fileName)
-                        if (audioFile.exists()) {
-                            if (audioFile.delete()) {
-                                logManager.addLog("Deleted associated audio file: ${localResult.fileName}")
-                            } else {
-                                logManager.addLog("Failed to delete associated audio file: ${localResult.fileName}")
-                            }
+                    if (needsUpdate) {
+                         logManager.addLog("Local result '${localResult.fileName}' needs update on Google Tasks. Pushing changes.")
+                        val updatedTask = updateGoogleTask(
+                            taskId = localResult.googleTaskId,
+                            title = localResult.transcription,
+                            notes = localResult.googleTaskNotes,
+                            isCompleted = localResult.isCompleted
+                        )
+                         if (updatedTask != null) {
+                            updatedResults.add(
+                                localResult.copy(
+                                    isSyncedWithGoogleTasks = true,
+                                    googleTaskUpdated = updatedTask.updated,
+                                    lastEditedTimestamp = FileUtil.parseRfc3339Timestamp(updatedTask.updated)
+                                )
+                            )
+                             logManager.addLog("Successfully updated Google Task for '${localResult.fileName}'.")
                         } else {
-                            logManager.addLog("Associated audio file not found for remote-deleted result: ${localResult.fileName}")
+                             logManager.addLog("Failed to update Google Task for '${localResult.fileName}'. Will retry on next sync.")
+                            updatedResults.add(localResult.copy(isSyncedWithGoogleTasks = false))
                         }
                     } else {
-                        val googleTaskUpdateTimestamp = FileUtil.parseRfc3339Timestamp(correspondingGoogleTask.updated)
-                        val localLastEditedTimestamp = localResult.lastEditedTimestamp
-
-                        // ローカルでの変更点を検出
-                        val localTranscriptionChanged = localResult.transcription != correspondingGoogleTask.title
-                        val localCompletionChanged = localResult.isCompleted != (correspondingGoogleTask.status == "completed")
-                        val normalizedLocalNotes = localResult.googleTaskNotes.takeIf { !it.isNullOrEmpty() }
-                        val normalizedRemoteNotes = correspondingGoogleTask.notes.takeIf { !it.isNullOrEmpty() }
-                        val contentDiffers = localTranscriptionChanged || localCompletionChanged || (normalizedLocalNotes != normalizedRemoteNotes)
-
-                        if (localLastEditedTimestamp > googleTaskUpdateTimestamp) {
-                            // ローカルが新しい -> リモートにPush
-                            logManager.addLog("Local result '${localResult.fileName}' is newer. Pushing changes to Google Task '${localResult.googleTaskId}'.")
-                            val updatedTask = updateGoogleTask(
-                                taskId = localResult.googleTaskId,
-                                title = localResult.transcription,
-                                notes = if (localResult.googleTaskNotes.isNullOrEmpty()) "" else localResult.googleTaskNotes,
-                                isCompleted = localResult.isCompleted
-                            )
-                            if (updatedTask != null) {
-                                reconciledTranscriptionResults.add(
-                                    localResult.copy(
-                                        isSyncedWithGoogleTasks = true,
-                                        googleTaskUpdated = updatedTask.updated // Push成功後、リモートのタイムスタンプをローカルに反映
-                                    )
-                                )
-                            } else {
-                                logManager.addLog("Failed to push update for newer local result '${localResult.fileName}'.")
-                                reconciledTranscriptionResults.add(localResult) // Sync失敗
-                            }
-                        } else if (googleTaskUpdateTimestamp > localLastEditedTimestamp || contentDiffers) {
-                            // リモートが新しい、またはタイムスタンプが同じだが内容が違う -> ローカルを更新 (Pull)
-                            logManager.addLog("Google Task '${localResult.googleTaskId}' is newer or content differs. Pulling changes to local result '${localResult.fileName}'.")
-                            reconciledTranscriptionResults.add(
-                                localResult.copy(
-                                    transcription = correspondingGoogleTask.title ?: localResult.transcription,
-                                    googleTaskNotes = correspondingGoogleTask.notes,
-                                    isCompleted = (correspondingGoogleTask.status == "completed"),
-                                    googleTaskUpdated = correspondingGoogleTask.updated,
-                                    googleTaskPosition = correspondingGoogleTask.position,
-                                    googleTaskDue = correspondingGoogleTask.due,
-                                    googleTaskWebViewLink = correspondingGoogleTask.webViewLink,
-                                    isSyncedWithGoogleTasks = true,
-                                    lastEditedTimestamp = googleTaskUpdateTimestamp // ローカルのタイムスタンプをリモートに合わせる
-                                )
-                            )
-                        } else {
-                            // 変更なし (タイムスタンプも内容も同じ)
-                            reconciledTranscriptionResults.add(
-                                localResult.copy(isSyncedWithGoogleTasks = true)
-                            )
-                        }
+                        // No changes needed for this item
+                        updatedResults.add(localResult)
                     }
                 }
             }
 
-            for (googleTask in googleTasks) {
-                if (!reconciledTranscriptionResults.any { it.googleTaskId == googleTask.id }) {
-                    logManager.addLog("New Google Task '${googleTask.title}' (ID: ${googleTask.id}) found. Adding to local results.")
-                    val newLocalResult = TranscriptionResult(
-                        fileName = "GT_${googleTask.id}_${System.currentTimeMillis()}.txt",
-                        transcription = googleTask.title ?: "",
-                        lastEditedTimestamp = System.currentTimeMillis(),
-                        locationData = null,
-                        googleTaskId = googleTask.id,
-                        isCompleted = (googleTask.status == "completed"),
-                        googleTaskNotes = googleTask.notes,
-                        googleTaskUpdated = googleTask.updated,
-                        googleTaskPosition = googleTask.position,
-                        googleTaskDue = googleTask.due,
-                        googleTaskWebViewLink = googleTask.webViewLink,
-                        isSyncedWithGoogleTasks = true
-                    )
-                    reconciledTranscriptionResults.add(newLocalResult)
-                }
-            }
+            // Update the local database with the new state
+            transcriptionResultRepository.updateResults(updatedResults)
 
-            // Sort by remote position first, then by local data for stability.
-            // Create a map for quick lookup of Google Task order.
-            val googleTaskOrderMap = googleTasks
-                .sortedBy { it.position }
-                .mapIndexed { index, task -> task.id to index }
-                .toMap()
-
-            // Sort reconciled results:
-            // 1. By Google Task position if available.
-            // 2. Local-only items (no googleTaskId) are placed at the end.
-            // 3. Among local-only items, sort by last edited time (newest first).
-            val sortedReconciledResults = reconciledTranscriptionResults.distinctBy { it.fileName }
-                .sortedWith(
-                    compareBy(
-                        { result -> result.googleTaskId?.let { googleTaskOrderMap[it] } ?: Int.MAX_VALUE },
-                        { result -> -result.lastEditedTimestamp } // Use negative for descending
-                    )
-                )
-                .mapIndexed { index, result ->
-                    result.copy(
-                        displayOrder = index,
-                        // Also update the local position string to match the latest from remote
-                        googleTaskPosition = result.googleTaskId?.let { taskId ->
-                            googleTasks.find { it.id == taskId }?.position
-                        } ?: result.googleTaskPosition
-                    )
-                }
-
-            transcriptionResultRepository.updateResults(sortedReconciledResults)
-
-            logManager.addLog("Google Tasks synchronization completed.")
+            logManager.addLog("Google Tasks one-way synchronization completed.")
 
         } catch (e: Exception) {
-            logManager.addLog("Error during Google Tasks synchronization: ${e.message}")
+            logManager.addLog("Error during Google Tasks one-way synchronization: ${e.message}")
         } finally {
             _isLoadingGoogleTasks.value = false
         }
