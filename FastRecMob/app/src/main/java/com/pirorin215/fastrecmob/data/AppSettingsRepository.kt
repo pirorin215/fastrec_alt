@@ -29,6 +29,7 @@ class AppSettingsRepository(private val context: Context) {
         val GOOGLE_TODO_LIST_NAME = stringPreferencesKey("google_todo_list_name")
         val GOOGLE_TASK_TITLE_LENGTH = intPreferencesKey("google_task_title_length")
         val GOOGLE_TASKS_SYNC_INTERVAL_MINUTES = intPreferencesKey("google_tasks_sync_interval_minutes")
+        val SHOW_COMPLETED_GOOGLE_TASKS = booleanPreferencesKey("show_completed_google_tasks")
     }
 
     // APIキーの変更を監視するためのFlow
@@ -93,6 +94,11 @@ class AppSettingsRepository(private val context: Context) {
     val googleTasksSyncIntervalMinutesFlow: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.GOOGLE_TASKS_SYNC_INTERVAL_MINUTES] ?: 5 // Default to 5 minutes
+        }
+
+    val showCompletedGoogleTasksFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.SHOW_COMPLETED_GOOGLE_TASKS] ?: false
         }
 
     // APIキーを保存するsuspend関数
@@ -162,11 +168,18 @@ class AppSettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun saveShowCompletedGoogleTasks(show: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SHOW_COMPLETED_GOOGLE_TASKS] = show
+        }
+    }
+
     // APIキーの検証済みステータスを監視するためのFlow
     val isApiKeyVerifiedFlow: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.IS_API_KEY_VERIFIED] ?: false // Default to false
         }
+
 
     // APIキーの検証済みステータスを保存するsuspend関数
     suspend fun saveApiKeyVerifiedStatus(isVerified: Boolean) {

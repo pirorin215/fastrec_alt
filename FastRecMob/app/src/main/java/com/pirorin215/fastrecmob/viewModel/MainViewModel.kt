@@ -75,6 +75,12 @@ class MainViewModel(
     val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
     val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
     val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsAccessor.googleTasksSyncIntervalMinutes
+    val showCompletedGoogleTasks: StateFlow<Boolean> = appSettingsRepository.showCompletedGoogleTasksFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
 
     init {
         // Start periodic Google Tasks sync
@@ -129,6 +135,13 @@ class MainViewModel(
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
+        .combine(showCompletedGoogleTasks) { list, showCompleted ->
+            if (showCompleted) {
+                list
+            } else {
+                list.filter { !it.isSyncedWithGoogleTasks }
+            }
+        }
         .combine(sortMode) { list: List<TranscriptionResult>, mode: com.pirorin215.fastrecmob.data.SortMode ->
             when (mode) {
                 com.pirorin215.fastrecmob.data.SortMode.TIMESTAMP -> list.sortedByDescending { it.lastEditedTimestamp }

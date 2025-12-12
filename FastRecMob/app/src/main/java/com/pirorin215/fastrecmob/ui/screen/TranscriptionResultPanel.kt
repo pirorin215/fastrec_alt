@@ -100,15 +100,20 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val isSelectionMode = selectedFileNames.isNotEmpty()
-                    val transcriptionCount by viewModel.transcriptionCount.collectAsState()
-                    val audioFileCount by viewModel.audioFileCount.collectAsState()
+                    val showCompleted by appSettingsViewModel.showCompletedGoogleTasks.collectAsState()
 
                     Text(
-                        "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
+                        "完了を表示",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
+                    Switch(
+                        checked = showCompleted,
+                        onCheckedChange = { appSettingsViewModel.saveShowCompletedGoogleTasks(it) },
+                        modifier = Modifier.height(24.dp)
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
 
                     if (isSelectionMode) {
                         IconButton(onClick = { viewModel.clearSelection() }) {
@@ -344,15 +349,17 @@ fun TranscriptionResultItem(
     val backgroundColor = when {
         isDragging -> MaterialTheme.colorScheme.tertiaryContainer
         isSelected -> MaterialTheme.colorScheme.primaryContainer
-        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.surfaceVariant // PENDING 状態の項目を灰色にする
-        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.errorContainer // FAILED 状態の項目を薄い赤にする
+        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.surfaceVariant
+        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.errorContainer
+        result.isSyncedWithGoogleTasks -> MaterialTheme.colorScheme.surfaceVariant // Synced items
         else -> MaterialTheme.colorScheme.surface
     }
     val contentColor = when {
         isDragging -> MaterialTheme.colorScheme.onTertiaryContainer
         isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
-        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.onSurfaceVariant // PENDING 状態のテキスト色
-        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.onErrorContainer // FAILED 状態のテキスト色
+        result.transcriptionStatus == "PENDING" -> MaterialTheme.colorScheme.onSurfaceVariant
+        result.transcriptionStatus == "FAILED" -> MaterialTheme.colorScheme.onErrorContainer
+        result.isSyncedWithGoogleTasks -> MaterialTheme.colorScheme.onSurfaceVariant // Synced items
         else -> MaterialTheme.colorScheme.onSurface
     }
 
