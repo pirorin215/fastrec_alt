@@ -96,14 +96,24 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
             ) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp), // Added padding for better spacing
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val isSelectionMode = selectedFileNames.isNotEmpty()
                     val showCompleted by appSettingsViewModel.showCompletedGoogleTasks.collectAsState()
+                    val transcriptionCount by viewModel.transcriptionCount.collectAsState()
+                    val audioFileCount by viewModel.audioFileCount.collectAsState()
 
                     Text(
-                        "完了を表示",
+                        "メモ: $transcriptionCount 件, WAV: $audioFileCount 件",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f) // Give it weight to push other elements
+                    )
+
+                    Text(
+                        "同期済表示",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 8.dp)
                     )
@@ -112,14 +122,6 @@ fun TranscriptionResultPanel(viewModel: MainViewModel, appSettingsViewModel: App
                         onCheckedChange = { appSettingsViewModel.saveShowCompletedGoogleTasks(it) },
                         modifier = Modifier.height(24.dp)
                     )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    if (isSelectionMode) {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear Selection")
-                        }
-                    }
                     
                     IconButton(onClick = {
                         if (isSelectionMode) {
