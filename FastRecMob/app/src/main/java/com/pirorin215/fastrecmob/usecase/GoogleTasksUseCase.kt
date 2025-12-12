@@ -179,59 +179,6 @@ class GoogleTasksUseCase(
         }
     }
 
-    private suspend fun deleteGoogleTask(taskId: String) {
-        if (_account.value == null || taskId.isBlank()) return
-        val currentTaskListId = taskListId ?: getTaskListId() ?: return
-        try {
-            makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "DELETE")
-            logManager.addLog("Deleted Google Task ID: $taskId")
-        } catch (e: Exception) {
-            logManager.addLog("Error deleting Google Task ID '$taskId': ${e.message}")
-        }
-    }
-
-    suspend fun moveTask(taskId: String, previousTaskId: String?): Task? {
-        if (_account.value == null || taskId.isBlank()) return null
-        val currentTaskListId = taskListId ?: getTaskListId() ?: return null
-        val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId/move" +
-                (previousTaskId?.let { "?previous=$it" } ?: "")
-        return try {
-            val response = makeApiRequest(urlString = url, method = "POST")
-            logManager.addLog("Moved Google Task ID: $taskId after $previousTaskId")
-            json.decodeFromString<Task>(response)
-        } catch (e: Exception) {
-            logManager.addLog("Error moving Google Task ID '$taskId': ${e.message}")
-            null
-        }
-    }
-
-    private suspend fun loadGoogleTasks(): List<Task> {
-        if (_account.value == null) {
-            logManager.addLog("Not signed in to Google. Cannot load tasks.")
-            return emptyList()
-        }
-        _isLoadingGoogleTasks.value = true
-        try {
-            val currentTaskListId = taskListId ?: getTaskListId()
-            if (currentTaskListId == null) {
-                logManager.addLog("No Google task list found. Cannot load tasks.")
-                return emptyList()
-            }
-
-            val url = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks"
-            val response = makeApiRequest(url)
-
-            val tasksResponse = json.decodeFromString<TasksResponse>(response)
-            return tasksResponse.items ?: emptyList()
-
-        } catch (e: Exception) {
-            logManager.addLog("Error loading Google tasks: ${e.message}")
-            return emptyList()
-        } finally {
-            _isLoadingGoogleTasks.value = false
-        }
-    }
-
     suspend fun syncTranscriptionResultsWithGoogleTasks(audioDirName: String) {
         if (_account.value == null) {
             logManager.addLog("Not signed in to Google. Cannot sync tasks.")
