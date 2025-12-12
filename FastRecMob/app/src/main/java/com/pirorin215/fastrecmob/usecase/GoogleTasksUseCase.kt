@@ -3,8 +3,6 @@ package com.pirorin215.fastrecmob.usecase
 import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.util.Log
-import androidx.lifecycle.viewModelScope
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -12,21 +10,22 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
-import com.pirorin215.fastrecmob.data.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
-
-import kotlinx.coroutines.CoroutineScope
+import com.pirorin215.fastrecmob.data.AppSettingsRepository
+import com.pirorin215.fastrecmob.data.FileUtil
+import com.pirorin215.fastrecmob.data.Task
+import com.pirorin215.fastrecmob.data.TaskList
+import com.pirorin215.fastrecmob.data.TranscriptionResult
+import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
+import com.pirorin215.fastrecmob.network.GoogleTasksApiService
+import com.pirorin215.fastrecmob.network.RetrofitClient
 import com.pirorin215.fastrecmob.viewModel.LogManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 
 class GoogleTasksUseCase(
     private val application: Application,
@@ -47,7 +46,12 @@ class GoogleTasksUseCase(
     private var taskListId: String? = null
     private val tasksScope = "https://www.googleapis.com/auth/tasks"
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val apiService: GoogleTasksApiService by lazy {
+        RetrofitClient.create {
+            val account = _account.value ?: throw IllegalStateException("User not signed in for Google Tasks API.")
+            GoogleAuthUtil.getToken(application, account.account!!, "oauth2:$tasksScope")
+        }
+    }
 
     init {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -68,43 +72,11 @@ class GoogleTasksUseCase(
         }.launchIn(scope)
     }
 
-    private suspend fun makeApiRequest(urlString: String, method: String = "GET", body: String? = null): String = withContext(Dispatchers.IO) {
-        val account = _account.value ?: throw IllegalStateException("User not signed in for Google Tasks API.")
-        val token = GoogleAuthUtil.getToken(application, account.account!!, "oauth2:$tasksScope")
-
-        val url = URL(urlString)
-        (url.openConnection() as HttpURLConnection).run {
-            try {
-                requestMethod = method
-                setRequestProperty("Authorization", "Bearer $token")
-                if (method == "POST" || method == "PUT" || method == "PATCH") {
-                    setRequestProperty("Content-Type", "application/json")
-                }
-
-                if (body != null && (method == "POST" || method == "PUT" || method == "PATCH")) {
-                    doOutput = true
-                    OutputStreamWriter(outputStream).use { it.write(body) }
-                }
-
-                val responseCode = responseCode
-                if (responseCode in 200..299) {
-                    if (responseCode == 204) "" else BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
-                } else {
-                    val error = BufferedReader(InputStreamReader(errorStream)).use { it.readText() }
-                    throw Exception("HTTP Error: $responseCode - $error")
-                }
-            } finally {
-                disconnect()
-            }
-        }
-    }
-
     private suspend fun createGoogleTaskList(listName: String): String? {
         if (_account.value == null || listName.isBlank()) return null
-        val taskListJson = json.encodeToString(TaskList.serializer(), TaskList(id = "", title = listName)) // ID is ignored for creation
+        val taskList = TaskList(id = "", title = listName) // ID is ignored for creation
         return try {
-            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/users/@me/lists", method = "POST", body = taskListJson)
-            val newTaskList = json.decodeFromString<TaskList>(response)
+            val newTaskList = apiService.createTaskList(taskList)
             logManager.addLog("Created new Google Task List: '${newTaskList.title}' (ID: ${newTaskList.id})")
             newTaskList.id
         } catch (e: Exception) {
@@ -123,17 +95,13 @@ class GoogleTasksUseCase(
             return "@default"
         }
         return try {
-            val url = "https://www.googleapis.com/tasks/v1/users/@me/lists"
-            val response = makeApiRequest(url)
-            val taskListsResponse = json.decodeFromString<TaskListsResponse>(response)
+            val taskListsResponse = apiService.getTaskLists()
             var foundList = taskListsResponse.items.find { it.title == listName }
 
             if (foundList == null && listName != "@default") {
                 logManager.addLog("Google Task List '$listName' not found. Attempting to create it.")
                 val newTaskListId = createGoogleTaskList(listName)
                 if (newTaskListId != null) {
-                    // Refetch the list to get the newly created one, or assume the newTaskListId is enough
-                    // For simplicity, we'll just use the newTaskListId directly and update taskListId
                     taskListId = newTaskListId
                     return newTaskListId
                 } else {
@@ -153,11 +121,11 @@ class GoogleTasksUseCase(
         if (_account.value == null || title.isBlank()) return null
         val currentTaskListId = taskListId ?: getTaskListId() ?: return null
         val status = if (isCompleted) "completed" else "needsAction"
-        val taskJson = json.encodeToString(Task.serializer(), Task(title = title, notes = notes, status = status))
+        val task = Task(title = title, notes = notes, status = status)
         return try {
-            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks", method = "POST", body = taskJson)
+            val createdTask = apiService.createTask(currentTaskListId, task)
             logManager.addLog("Added new Google Task: $title")
-            json.decodeFromString<Task>(response)
+            createdTask
         } catch (e: Exception) {
             logManager.addLog("Error adding Google Task '$title': ${e.message}")
             null
@@ -168,11 +136,11 @@ class GoogleTasksUseCase(
         if (_account.value == null || taskId.isBlank()) return null
         val currentTaskListId = taskListId ?: getTaskListId() ?: return null
         val status = if (isCompleted) "completed" else "needsAction"
-        val taskJson = json.encodeToString(Task.serializer(), Task(id = taskId, title = title, notes = notes, status = status))
+        val task = Task(id = taskId, title = title, notes = notes, status = status)
         return try {
-            val response = makeApiRequest(urlString = "https://www.googleapis.com/tasks/v1/lists/$currentTaskListId/tasks/$taskId", method = "PATCH", body = taskJson)
+            val updatedTask = apiService.updateTask(currentTaskListId, taskId, task)
             logManager.addLog("Updated Google Task: $title (ID: $taskId)")
-            json.decodeFromString<Task>(response)
+            updatedTask
         } catch (e: Exception) {
             logManager.addLog("Error updating Google Task '$title' (ID: $taskId): ${e.message}")
             null
@@ -222,8 +190,6 @@ class GoogleTasksUseCase(
                     }
                 } else {
                     // This item already exists on Google Tasks, check if it needs an update.
-                    // The condition `!localResult.isSyncedWithGoogleTasks` can be a trigger for updates.
-                    // This covers cases like "transcription failed" and then "retry transcription" which updates the content.
                     val needsUpdate = !localResult.isSyncedWithGoogleTasks ||
                             localResult.transcription.isNotEmpty() // More specific conditions can be added if needed.
 
@@ -271,8 +237,6 @@ class GoogleTasksUseCase(
         try {
             val task = GoogleSignIn.getSignedInAccountFromIntent(intent)
             _account.value = task.getResult(ApiException::class.java)
-            // viewModelScope is not available here. A scope should be passed or use GlobalScope.
-            // For now, let's assume the caller will handle the coroutine scope.
             logManager.addLog("Google Sign-In successful for: ${_account.value?.displayName}")
             onSuccess()
         } catch (e: ApiException) {
@@ -288,6 +252,4 @@ class GoogleTasksUseCase(
             logManager.addLog("Signed out from Google Tasks.")
         }
     }
-
-
 }
