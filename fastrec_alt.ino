@@ -224,32 +224,35 @@ void handleSetup() {
 void wakeupLogic() {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
+  applog("Wakeup was caused by: %d", wakeup_reason);
+
+  g_enable_logging = true;
+
   switch (wakeup_reason) {
     case ESP_SLEEP_WAKEUP_EXT1: {
       uint64_t wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
       if (wakeup_pin_mask & BUTTON_PIN_BITMASK(REC_BUTTON_GPIO)) {
-        setLcdBrightness(0xFF); // RECボタンでウェイクアップした場合は、常にLCDを明るくする
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) { // If button is currently pressed
-            // This is the fast path to recording. Logging remains disabled until startRecording() enables it.
-            startRecording(); // Directly start recording
-        } else { // If button is not pressed (e.g., was pressed and released quickly)
-            g_enable_logging = true; // Enable logging
-            applog("Wakeup by REC button, but not pressed now. Going to IDLE. Wakeup reason: %d", wakeup_reason);
+            g_enable_logging = false;
+            startRecording();
+        } else {
+            g_enable_logging = true;
             setAppState(IDLE, false);
         }
-      } else {
-        g_enable_logging = true; // Enable logging for other buttons
-        applog("Wakeup was caused by: %d", wakeup_reason);
-
       }
+      setLcdBrightness(0xFF); // ボタンでウェイクアップした場合はLCDを明るくする
       break;
     }
     case ESP_SLEEP_WAKEUP_EXT0:
+      setAppState(IDLE, false);
+      break;
     case ESP_SLEEP_WAKEUP_TIMER:
+      setAppState(IDLE, false);
+      break;
     case ESP_SLEEP_WAKEUP_ULP:
+      setAppState(IDLE, false);
+      break;
     default:
-      g_enable_logging = true; // Enable logging for all other cases
-      applog("Wakeup was caused by: %d", wakeup_reason);
       setAppState(IDLE, false);
       startVibrationSync(VIBRA_STARTUP_MS);
       break;
