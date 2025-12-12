@@ -9,16 +9,17 @@ import android.provider.MediaStore
 import com.pirorin215.fastrecmob.data.BleRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -43,6 +44,7 @@ class FileTransferManager(
         const val MAX_DELETE_RETRIES = 3
         const val DELETE_RETRY_DELAY_MS = 1000L
         const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+        private const val PACKET_TIMEOUT_MS = 30000L // Timeout if no packet is received for this duration
     }
 
     private val _downloadProgress = MutableStateFlow(0)
@@ -62,6 +64,7 @@ class FileTransferManager(
     private var responseBuffer = mutableListOf<Byte>()
     private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null
     private var currentDeleteCompletion: CompletableDeferred<Boolean>? = null
+    private var downloadTimeoutJob: Job? = null
 
     fun resetFileTransferMetrics() {
         _downloadProgress.value = 0
@@ -139,7 +142,20 @@ class FileTransferManager(
         }
     }
 
+    private fun resetAndStartDownloadTimeoutTimer() {
+        downloadTimeoutJob?.cancel()
+        downloadTimeoutJob = scope.launch {
+            delay(PACKET_TIMEOUT_MS)
+            if (isActive) {
+                logManager.addLog("File download timed out: No data received for ${PACKET_TIMEOUT_MS}ms.")
+                currentCommandCompletion?.complete(Pair(false, null))
+            }
+        }
+    }
+
     private fun handleFileDownloadDataInternal(value: ByteArray): String? {
+        resetAndStartDownloadTimeoutTimer() // Reset timer on any received data
+
         when (_fileTransferState.value) {
             "WaitingForStart" -> {
                 if (value.contentEquals("START".toByteArray())) {
@@ -151,16 +167,19 @@ class FileTransferManager(
                     _downloadProgress.value = 0
                 } else {
                     logManager.addLog("Waiting for START, but received: ${value.toString(Charsets.UTF_8)}")
+                    downloadTimeoutJob?.cancel()
                     currentCommandCompletion?.complete(Pair(false, null))
                 }
             }
             "Downloading" -> {
                 if (value.contentEquals("EOF".toByteArray())) {
                     logManager.addLog("End of file transfer signal received.")
+                    downloadTimeoutJob?.cancel() // Success, cancel timeout
                     return saveFile(responseBuffer.toByteArray())
                 } else if (value.toString(Charsets.UTF_8).startsWith("ERROR:")) {
                     val errorMessage = value.toString(Charsets.UTF_8)
                     logManager.addLog("Received error during transfer: $errorMessage")
+                    downloadTimeoutJob?.cancel() // Error, cancel timeout
                     currentCommandCompletion?.complete(Pair(false, null))
                 } else {
                     responseBuffer.addAll(value.toList())
@@ -202,20 +221,19 @@ class FileTransferManager(
                     _currentFileTotalSize.value = fileSize
 
                     logManager.addLog("Requesting file: $fileName (size: $fileSize bytes)")
+                    resetAndStartDownloadTimeoutTimer() // Start the timeout timer
                     sendCommandCallback("GET:file:$fileName")
 
-                    val timeout = 20000L + (fileSize / 1024L) * 100L // Adjusted timeout
-                    downloadResult = withTimeoutOrNull(timeout) {
-                        currentCommandCompletion!!.await()
-                    }
+                    downloadResult = currentCommandCompletion!!.await()
 
                     if (downloadResult?.first != true) {
-                        logManager.addLog("File download failed for: $fileName (or timed out)")
+                        // Log message is now handled by the timeout job or error handler
                     }
                 } catch (e: Exception) {
                     logManager.addLog("An unexpected error occurred during downloadFile: ${e.message}")
                     downloadResult = Pair(false, null)
                 } finally {
+                    downloadTimeoutJob?.cancel()
                     _currentOperation.value = BleOperation.IDLE
                     _fileTransferState.value = "Idle"
                     currentDownloadingFileName = null
@@ -245,6 +263,12 @@ class FileTransferManager(
                 }
             } else {
                 logManager.addLog("Error: File '$fileName' download failed or saved path is null.")
+                // To prevent immediate retry loops on persistent device errors, fetch file list only after failure.
+                // The auto-refresher will eventually handle this, but an immediate fetch can be useful.
+                scope.launch {
+                    delay(1000) // Small delay before refetching
+                    bleDeviceManager.fetchFileList(_connectionState.value)
+                }
             }
         }
     }

@@ -141,6 +141,7 @@ class BleOrchestrator(
     }
     
     override fun stop() {
+        setAutoRefresh(false)
         bleDeviceManager.stopTimeSyncJob()
         addLog("Orchestrator stopped.")
     }
@@ -204,6 +205,9 @@ class BleOrchestrator(
             } else {
                 addLog("No new untranscribed WAV files found on microcontroller. Checking for any pending transcriptions.")
                 transcriptionManager.processPendingTranscriptions()
+            }
+            if (!isAutoRefreshEnabled.value) {
+                setAutoRefresh(true)
             }
         }
     }

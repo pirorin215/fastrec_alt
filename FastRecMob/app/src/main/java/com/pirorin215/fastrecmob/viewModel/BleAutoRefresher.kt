@@ -14,7 +14,7 @@ class BleAutoRefresher(
     private val onRefresh: () -> Unit,
     private val logManager: LogManager
 ) {
-    private val _isAutoRefreshEnabled = MutableStateFlow(true)
+    private val _isAutoRefreshEnabled = MutableStateFlow(false)
     val isAutoRefreshEnabled = _isAutoRefreshEnabled.asStateFlow()
 
     private var autoRefreshJob: Job? = null
