@@ -12,13 +12,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,7 +34,7 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "MainScreen"
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun MainScreen(
@@ -73,13 +70,7 @@ fun MainScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
-
-    val isRefreshing = isLoadingGoogleTasks
-    val pullRefreshState = rememberPullRefreshState(
-        refreshing = isRefreshing,
-        onRefresh = { viewModel.syncTranscriptionResultsWithGoogleTasks() }
-    )
+    val isRefreshing by viewModel.isLoadingGoogleTasks.collectAsState()
 
     LaunchedEffect(fileTransferState) {
         if (fileTransferState.startsWith("Success")) {
@@ -234,7 +225,11 @@ fun MainScreen(
             ) { innerPadding ->
                 val apiKeyStatus by appSettingsViewModel.apiKeyStatus.collectAsState()
 
-                Box(modifier = Modifier.fillMaxSize().padding(innerPadding).pullRefresh(pullRefreshState)) {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.syncTranscriptionResultsWithGoogleTasks() },
+                    modifier = Modifier.fillMaxSize().padding(innerPadding)
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize(),
@@ -258,7 +253,6 @@ fun MainScreen(
                         // TranscriptionResultPanel now takes flexible space
                         TranscriptionResultScreen(viewModel = viewModel, appSettingsViewModel = appSettingsViewModel, onBack = { })
                     }
-                    PullRefreshIndicator(isRefreshing, pullRefreshState, Modifier.align(Alignment.TopCenter))
                     // AppLogCard as an overlay at the bottom
                     if (showAppLogPanel) {
                         Box(

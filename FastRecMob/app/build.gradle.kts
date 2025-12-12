@@ -69,32 +69,26 @@ dependencies {
     implementation(libs.retrofit.converter.kotlinx.serialization)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging.interceptor)
-    implementation("androidx.compose.material:material:1.6.8")
 
     // Google Play Services Location
-    implementation("com.google.android.gms:play-services-location:21.2.0")
+    implementation(libs.google.play.services.location)
     // Add this for Task.await() extension function
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation(libs.kotlinx.coroutines.play.services)
 
     // Google Sign-In
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation(libs.google.play.services.auth)
 
     // Google Cloud
-    val librariesBomVersion = "26.36.0"
-    implementation(platform("com.google.cloud:libraries-bom:$librariesBomVersion"))
-    implementation("com.google.cloud:google-cloud-speech")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava")
+    implementation(platform(libs.google.cloud.libraries.bom))
+    implementation(libs.google.cloud.speech)
+    implementation(libs.kotlinx.coroutines.guava)
 
     // gRPCトランスポートを追加 (Google Cloud Libraries BOMがバージョンを管理)
-    implementation("io.grpc:grpc-okhttp")
+    implementation(libs.grpc.okhttp)
 
     // DataStore for persistent settings
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("org.burnoutcrew.composereorderable:reorderable:0.9.6")
-
-
-
-
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.composereorderable)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
