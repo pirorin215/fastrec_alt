@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import com.pirorin215.fastrecmob.data.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull // Add this import
 import com.pirorin215.fastrecmob.viewModel.LogManager
 
 
@@ -57,7 +58,8 @@ class MainViewModel(
     private val connectionStateFlow: StateFlow<String>,
     private val onDeviceReadyEvent: SharedFlow<Unit>,
     private val logManager: LogManager,
-    private val locationTracker: com.pirorin215.fastrecmob.LocationTracker
+    private val locationTracker: com.pirorin215.fastrecmob.LocationTracker,
+    private val bleConnectionManager: BleConnectionManager
 ) : ViewModel() {
 
     companion object {
@@ -132,8 +134,11 @@ class MainViewModel(
             logManager.addLog("WAV file count updated after Google Tasks sync.")
         }
     }
+
+// ...
     fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
     fun signOut() = googleTasksIntegration.signOut()
+    suspend fun getGoogleSignInIntent(): Intent? = googleTasksIntegration.googleSignInClient.firstOrNull()?.signInIntent
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
         .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
@@ -227,6 +232,7 @@ class MainViewModel(
     // val logs = bleOrchestrator.logs // Commented out as ViewModel has its own logs
     val currentOperation: StateFlow<BleOperation> = bleOrchestrator.currentOperation
     val navigationEvent: SharedFlow<NavigationEvent> = bleOrchestrator.navigationEvent
+    val connectionState: StateFlow<String> = connectionStateFlow
     
     val audioFileCount = transcriptionManager.audioFileCount
     val transcriptionState = transcriptionManager.transcriptionState
@@ -262,6 +268,7 @@ class MainViewModel(
     fun downloadFile(fileName: String) = bleOrchestrator.downloadFile(fileName)
     fun sendCommand(command: String) = bleOrchestrator.sendCommand(command)
     fun clearLogs() = bleOrchestrator.clearLogs() // This will call orchestrator's clearLogs, which in turn logs to ViewModel's addLog
+    fun forceReconnectBle() = bleConnectionManager.forceReconnect()
 
     // --- Methods delegated to Transcription Manager ---
     fun resetTranscriptionState() = transcriptionManager.resetTranscriptionState()

@@ -29,7 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.BleOperation
 import com.pirorin215.fastrecmob.viewModel.MainViewModel
-import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel
+// import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel // Removed
 import kotlinx.coroutines.launch
 
 private const val TAG = "MainScreen"
@@ -38,14 +38,12 @@ private const val TAG = "MainScreen"
 @SuppressLint("MissingPermission")
 @Composable
 fun MainScreen(
-    appSettingsViewModel: AppSettingsViewModel,
-    deviceStatusViewModel: DeviceStatusViewModel,
-    onSignInClick: (Intent) -> Unit
+    appSettingsViewModel: AppSettingsViewModel
 ) {
     val context = LocalContext.current
     val viewModel: MainViewModel = viewModel() // ViewModel is already created and provided by compositionLocal in MainActivity's setContent
-    val connectionState by deviceStatusViewModel.connectionState.collectAsState()
-    val deviceInfo by deviceStatusViewModel.deviceInfo.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState() // Use viewModel
+    val deviceInfo by viewModel.deviceInfo.collectAsState() // Use viewModel
     val logs: List<String> by viewModel.logs.collectAsState()
     val fileList by viewModel.fileList.collectAsState()
     val fileTransferState by viewModel.fileTransferState.collectAsState()
@@ -71,6 +69,20 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
 
     val isRefreshing by viewModel.isLoadingGoogleTasks.collectAsState()
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.let { intent ->
+                viewModel.handleSignInResult(intent, onSuccess = {
+                    scope.launch { snackbarHostState.showSnackbar("Google サインイン成功！") }
+                }, onFailure = { e ->
+                    scope.launch { snackbarHostState.showSnackbar("Google サインイン失敗: ${e.message}") }
+                })
+            }
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Google サインインキャンセルされました。") }
+        }
+    }
 
     LaunchedEffect(fileTransferState) {
         if (fileTransferState.startsWith("Success")) {
@@ -121,7 +133,7 @@ fun MainScreen(
                 viewModel = viewModel,
                 appSettingsViewModel = appSettingsViewModel,
                 onBack = { showGoogleTasksSyncSettings = false },
-                onSignInClick = onSignInClick
+                onSignInIntent = { intent -> googleSignInLauncher.launch(intent) } // Provide new callback
             )
         }
         else -> {
@@ -157,7 +169,7 @@ fun MainScreen(
                                 Spacer(modifier = Modifier.width(8.dp)) // Add this line for spacing
                                 IconButton(
                                     onClick = {
-                                        deviceStatusViewModel.forceReconnectBle()
+                                        viewModel.forceReconnectBle() // Use viewModel
                                     },
                                     modifier = Modifier.size(24.dp)
                                 ) {
@@ -267,3 +279,4 @@ fun MainScreen(
         }
     }
 }
+

@@ -29,8 +29,11 @@ import com.pirorin215.fastrecmob.ui.screen.MainScreen
 import com.pirorin215.fastrecmob.ui.theme.FastRecMobTheme
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModelFactory
-import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel
-import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModelFactory
+import com.pirorin215.fastrecmob.viewModel.BleConnectionManager // Add this import
+
+import kotlinx.coroutines.flow.MutableSharedFlow // Add this import
+import kotlinx.coroutines.flow.MutableStateFlow // Add this import
+import kotlinx.coroutines.launch // Add this import
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,42 +41,53 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
-            val appSettingsRepository = AppSettingsRepository(context.applicationContext as Application)
-            val lastKnownLocationRepository = LastKnownLocationRepository(context.applicationContext as Application)
-            val bleRepository = com.pirorin215.fastrecmob.data.BleRepository(context.applicationContext)
+            val application = context.applicationContext as Application
+            val appSettingsRepository = AppSettingsRepository(application)
+            val lastKnownLocationRepository = LastKnownLocationRepository(application)
+            val bleRepository = com.pirorin215.fastrecmob.data.BleRepository(application)
             val logManager = com.pirorin215.fastrecmob.viewModel.LogManager()
-            val locationTracker = LocationTracker(context.applicationContext)
-            
-            val deviceStatusViewModelFactory = DeviceStatusViewModelFactory(context.applicationContext as Application, bleRepository, logManager)
-            val deviceStatusViewModel: DeviceStatusViewModel = viewModel(factory = deviceStatusViewModelFactory)
+            val locationTracker = LocationTracker(application)
+
+            val scope = rememberCoroutineScope() // Moved inside setContent
+
+            // These flows will be managed by BleConnectionManager and observed by MainViewModel
+            val connectionStateMutableFlow = remember { MutableStateFlow("Disconnected") }
+            val onDeviceReadyMutableEvent = remember { MutableSharedFlow<Unit>() }
+
+            val bleConnectionManager = remember {
+                BleConnectionManager(
+                    context = application,
+                    scope = scope, // Use the Composable scope
+                    repository = bleRepository,
+                    logManager = logManager,
+                    _connectionStateFlow = connectionStateMutableFlow,
+                    _onDeviceReadyEvent = onDeviceReadyMutableEvent
+                )
+            }
 
             // ViewModels are created here to scope them to the Activity
-            val mainViewModelFactory = MainViewModelFactory(appSettingsRepository, lastKnownLocationRepository, context.applicationContext as Application, bleRepository, deviceStatusViewModel.connectionState, deviceStatusViewModel.onDeviceReadyEvent, logManager, locationTracker)
+            val mainViewModelFactory = MainViewModelFactory(
+                appSettingsRepository,
+                lastKnownLocationRepository,
+                application,
+                bleRepository,
+                connectionStateMutableFlow, // Pass the mutable flow (as StateFlow)
+                onDeviceReadyMutableEvent, // Pass the mutable shared flow (as SharedFlow)
+                logManager,
+                locationTracker,
+                bleConnectionManager
+            )
             val mainViewModel: MainViewModel = viewModel(factory = mainViewModelFactory)
 
-            val appSettingsViewModelFactory = AppSettingsViewModelFactory(context.applicationContext as Application, appSettingsRepository, mainViewModel.transcriptionManager)
+            val appSettingsViewModelFactory = AppSettingsViewModelFactory(application, appSettingsRepository, mainViewModel.transcriptionManager)
             val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
 
             val themeMode by mainViewModel.themeMode.collectAsState()
 
-            val googleSignInLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-                if (result.resultCode == Activity.RESULT_OK) {
-                    val intent = result.data ?: return@rememberLauncherForActivityResult
-                    mainViewModel.handleSignInResult(intent,
-                        onSuccess = { Toast.makeText(context, "Google Sign-In Success!", Toast.LENGTH_SHORT).show() },
-                        onFailure = { e -> Toast.makeText(context, "Google Sign-In Failed: ${e.message}", Toast.LENGTH_LONG).show() }
-                    )
-                } else {
-                    Toast.makeText(context, "Google Sign-In Cancelled.", Toast.LENGTH_SHORT).show()
-                }
-            }
-
             FastRecMobTheme(themeMode = themeMode) {
                 BleApp(
                     modifier = Modifier.fillMaxSize(),
-                    appSettingsViewModel = appSettingsViewModel,
-                    deviceStatusViewModel = deviceStatusViewModel,
-                    onSignInClick = { signInIntent -> googleSignInLauncher.launch(signInIntent) }
+                    appSettingsViewModel = appSettingsViewModel
                 )
             }
         }
@@ -90,7 +104,7 @@ class MainActivity : ComponentActivity() {
 private const val TAG = "BleApp"
 
 @Composable
-fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel, deviceStatusViewModel: DeviceStatusViewModel, onSignInClick: (Intent) -> Unit) {
+fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewModel) { // Updated signature
     val context = LocalContext.current
     
     // Permission handling
@@ -126,5 +140,5 @@ fun BleApp(modifier: Modifier = Modifier, appSettingsViewModel: AppSettingsViewM
     }
 
     // Main Screen Logic
-    MainScreen(appSettingsViewModel = appSettingsViewModel, deviceStatusViewModel = deviceStatusViewModel, onSignInClick = onSignInClick)
+    MainScreen(appSettingsViewModel = appSettingsViewModel) // Updated call site
 }

@@ -334,7 +334,6 @@ class BleDeviceCommandManager(
                     try {
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
                         _deviceInfo.value = parsedResponse
-                        logManager.addLog("Parsed DeviceInfo: Battery=${parsedResponse.batteryLevel}%, WAVs=${parsedResponse.wavCount}") // Log WAV count
                         currentDeviceCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         logManager.addLog("Error parsing DeviceInfo: ${e.message}")

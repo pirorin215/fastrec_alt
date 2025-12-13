@@ -20,20 +20,25 @@ import androidx.compose.ui.unit.dp
 import com.pirorin215.fastrecmob.viewModel.MainViewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+// ...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoogleTasksSyncSettingsScreen(
     viewModel: MainViewModel,
     appSettingsViewModel: AppSettingsViewModel,
     onBack: () -> Unit,
-    onSignInClick: (Intent) -> Unit
+    onSignInIntent: suspend (Intent) -> Unit // New callback
 ) {
     BackHandler(onBack = onBack)
     val googleAccount by viewModel.account.collectAsState()
     val isLoadingGoogleTasks by viewModel.isLoadingGoogleTasks.collectAsState()
-    val googleSignInClient by viewModel.googleSignInClient.collectAsState(initial = null)
+    // val googleSignInClient by viewModel.googleSignInClient.collectAsState(initial = null) // No longer directly used here
     val currentGoogleTodoListName by appSettingsViewModel.googleTodoListName.collectAsState()
     var googleTodoListNameText by remember(currentGoogleTodoListName) { mutableStateOf(currentGoogleTodoListName) }
+
+    val scope = rememberCoroutineScope() // Add coroutine scope
 
     Scaffold(
         topBar = {
@@ -60,7 +65,13 @@ fun GoogleTasksSyncSettingsScreen(
             // Google Sign-In/Out Button
             if (googleAccount == null) {
                 Button(
-                    onClick = { googleSignInClient?.signInIntent?.let { onSignInClick(it) } },
+                    onClick = {
+                        scope.launch { // Use coroutine scope
+                            viewModel.getGoogleSignInIntent()?.let { intent ->
+                                onSignInIntent(intent)
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Google Tasks にサインイン")

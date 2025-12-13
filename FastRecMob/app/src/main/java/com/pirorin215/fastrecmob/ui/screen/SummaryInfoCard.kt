@@ -17,7 +17,7 @@ private const val TAG = "SummaryInfoCard"
 
 @Composable
 fun SummaryInfoCard(deviceInfo: DeviceInfoResponse?) {
-    Log.d(TAG, "SummaryInfoCard recomposing with DeviceInfo: $deviceInfo")
+    Log.d(TAG, "SummaryInfoCard received DeviceInfo: Battery=${deviceInfo?.batteryLevel ?: "N/A"}%, WAVs=${deviceInfo?.wavCount ?: "N/A"}") // Added log
     var expanded by remember { mutableStateOf(false) }
 
     Card(

@@ -18,15 +18,17 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
+import kotlinx.coroutines.flow.MutableSharedFlow // Add this import
+
 @SuppressLint("MissingPermission")
 class BleConnectionManager(
     private val context: Context,
     private val scope: CoroutineScope,
     private val repository: BleRepository,
-    private val onStateChange: (ConnectionState) -> Unit,
-    private val onReady: () -> Unit,
     private val logManager: LogManager,
-    private val bleDeviceCommandManager: BleDeviceCommandManager
+    // These flows are now mutable and passed in from the ViewModel/Activity
+    private val _connectionStateFlow: MutableStateFlow<String>,
+    private val _onDeviceReadyEvent: MutableSharedFlow<Unit>
 ) {
 
     companion object {
@@ -36,14 +38,27 @@ class BleConnectionManager(
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
 
-    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val connectionState = _connectionState.asStateFlow()
+    // The internal _connectionState is removed, as we update the external _connectionStateFlow
+    // private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    // val connectionState = _connectionState.asStateFlow() // No longer exposed
 
     init {
         // Collect connection state from the repository
         repository.connectionState.onEach { state ->
-            _connectionState.value = state
-            onStateChange(state) // Propagate state change up
+            // Update the external flow directly
+            _connectionStateFlow.value = when (state) {
+                is ConnectionState.Connected -> "Connected"
+                is ConnectionState.Disconnected -> {
+                    // No longer calling bleDeviceCommandManager.stopTimeSyncJob() here
+                    "Disconnected"
+                }
+                is ConnectionState.Error -> {
+                    // No longer calling bleDeviceCommandManager.stopTimeSyncJob() here
+                    "Disconnected"
+                }
+                is ConnectionState.Paired -> "Paired"
+                is ConnectionState.Pairing -> "Pairing..."
+            }
 
             when (state) {
                 is ConnectionState.Connected -> {
@@ -52,11 +67,9 @@ class BleConnectionManager(
                 }
                 is ConnectionState.Disconnected -> {
                     logManager.addLog("Disconnected. Handling reconnection based on app foreground state.")
-                    bleDeviceCommandManager.stopTimeSyncJob() // Stop time sync on disconnect
                 }
                 is ConnectionState.Error -> {
                     logManager.addLog("Connection Error: ${state.message}. Forcibly disconnecting and cleaning up before recovery.")
-                    bleDeviceCommandManager.stopTimeSyncJob() // Stop time sync on error
                     // Ensure full disconnection and cleanup
                     repository.disconnect()
                     repository.close()
@@ -81,9 +94,9 @@ class BleConnectionManager(
                 }
                 is com.pirorin215.fastrecmob.data.BleEvent.Ready -> {
                     logManager.addLog("Device is ready for communication.")
-                    onReady() // Notify that the device is ready
+                    _onDeviceReadyEvent.emit(Unit) // Emit event to the external flow
                 }
-                // Characteristic changes are handled by the viewmodel that owns the operation
+                // Characteristic changes are handled by the viewmodel that owns the operation (BleOrchestrator)
                 else -> { /* Other events can be handled here if needed */ }
             }
         }.launchIn(scope)
@@ -92,7 +105,8 @@ class BleConnectionManager(
         scope.launch {
             BleScanServiceManager.deviceFoundFlow.onEach { device ->
                 logManager.addLog("Device found by service: ${device.name} (${device.address}). Initiating connection.")
-                if (_connectionState.value is ConnectionState.Disconnected) {
+                // Use the external connection state flow to check current state
+                if (_connectionStateFlow.value == "Disconnected") { // Compare against String value
                     connect(device)
                 } else {
                     logManager.addLog("Already connected or connecting. Skipping new connection attempt.")
@@ -108,7 +122,7 @@ class BleConnectionManager(
     }
 
     fun restartScan(forceScan: Boolean = false) {
-        if (!forceScan && _connectionState.value !is ConnectionState.Disconnected) {
+        if (!forceScan && _connectionStateFlow.value != "Disconnected") { // Use external flow
             logManager.addLog("Not restarting scan, already connected or connecting. (forceScan=false)")
             return
         }
