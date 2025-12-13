@@ -408,50 +408,7 @@ class TranscriptionManager(
     }
 
 
-    override fun findAndProcessUnlinkedWavFiles() {
-        scope.launch {
-            logManager.addLog("Starting to find and process unlinked WAV files...")
 
-            val audioDirName = audioDirNameFlow.value
-            val audioDir = context.getExternalFilesDir(audioDirName)
-            if (audioDir == null || !audioDir.exists()) {
-                logManager.addLog("Audio directory not found: $audioDirName. No WAV files to process.")
-                return@launch
-            }
-
-            val localWavFiles = audioDir.listFiles { _, name ->
-                name.matches(Regex("""R\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.wav"""))
-            }?.map { it.name }?.toSet() ?: emptySet()
-
-            if (localWavFiles.isEmpty()) {
-                logManager.addLog("No local WAV files found in $audioDirName.")
-                return@launch
-            }
-
-            val recordedFileNames = transcriptionResultRepository.transcriptionResultsFlow.first()
-                .map { it.fileName }
-                .toSet()
-
-            val unlinkedWavFiles = localWavFiles.filter { it !in recordedFileNames }
-
-            if (unlinkedWavFiles.isEmpty()) {
-                logManager.addLog("No unlinked WAV files found.")
-            } else {
-                logManager.addLog("Found ${unlinkedWavFiles.size} unlinked WAV file(s). Adding to pending transcriptions.")
-                unlinkedWavFiles.forEach { fileName ->
-                    addPendingTranscription(fileName)
-                }
-                logManager.addLog("Finished adding unlinked WAV files to pending transcriptions.")
-                processPendingTranscriptions()
-            }
-
-            // Ensure cleanup and count update after processing
-            cleanupTranscriptionResultsAndAudioFiles()
-            updateLocalAudioFileCount()
-
-            logManager.addLog("Finished finding and processing unlinked WAV files.")
-        }
-    }
 
     override fun resetTranscriptionState() {
         _transcriptionState.value = "Idle"

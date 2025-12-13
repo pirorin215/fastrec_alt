@@ -203,13 +203,7 @@ fun MainScreen(
                                         expanded = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("WAVファイル再スキャン") },
-                                    onClick = {
-                                        appSettingsViewModel.scanForUnlinkedWavFiles()
-                                        expanded = false
-                                    }
-                                )
+
                                 DropdownMenuItem(
                                     text = { Text("アプリログ") },
                                     onClick = {

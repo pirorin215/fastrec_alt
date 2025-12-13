@@ -154,11 +154,7 @@ class AppSettingsViewModel(
         }
     }
 
-    fun scanForUnlinkedWavFiles() {
-        viewModelScope.launch {
-            transcriptionManager.findAndProcessUnlinkedWavFiles()
-        }
-    }
+
 
     private var lastCheckedApiKey: String = ""
 
