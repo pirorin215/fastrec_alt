@@ -4,27 +4,33 @@ import android.content.Context
 import com.pirorin215.fastrecmob.data.DeviceInfoResponse
 import com.pirorin215.fastrecmob.data.FileEntry
 import com.pirorin215.fastrecmob.data.parseFileEntries
+import com.pirorin215.fastrecmob.data.DeviceSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import java.util.UUID // Only if needed for handling specific UUIDs directly
 
-class BleDeviceManager(
+class BleDeviceCommandManager(
     private val scope: CoroutineScope,
-    private val context: Context,
+    private val context: Context, // Potentially not needed if BleRepository handles context
     private val sendCommand: (String) -> Unit,
     private val logManager: LogManager,
     private val _currentOperation: MutableStateFlow<BleOperation>,
     private val bleMutex: Mutex,
-    private val onFileListUpdated: () -> Unit // Callback to trigger checking for new files
+    private val onFileListUpdated: () -> Unit, // Callback from BleDeviceManager
+    private val _navigationEvent: MutableSharedFlow<NavigationEvent> // From BleSettingsManager
 ) {
+    // --- Properties from BleDeviceManager ---
     private val _deviceInfo = MutableStateFlow<DeviceInfoResponse?>(null)
     val deviceInfo = _deviceInfo.asStateFlow()
 
@@ -32,14 +38,32 @@ class BleDeviceManager(
     val fileList = _fileList.asStateFlow()
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val responseBuffer = mutableListOf<Byte>()
-    private var currentCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null
+    private val deviceResponseBuffer = mutableListOf<Byte>() // Differentiate response buffers
+    private var currentDeviceCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null
     private var timeSyncJob: Job? = null
 
     companion object {
         const val TIME_SYNC_INTERVAL_MS = 300000L // 5 minutes
+        // Moved from BleOrchestrator, if only used by device manager
+        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
     }
 
+    // --- Properties from BleSettingsManager ---
+    private val _deviceSettings = MutableStateFlow(DeviceSettings())
+    val deviceSettings = _deviceSettings.asStateFlow()
+
+    private val _remoteDeviceSettings = MutableStateFlow<DeviceSettings?>(null)
+    val remoteDeviceSettings = _remoteDeviceSettings.asStateFlow()
+
+    private val _settingsDiff = MutableStateFlow<String?>(null)
+    val settingsDiff = _settingsDiff.asStateFlow()
+
+    private val settingsResponseBuffer = mutableListOf<Byte>() // Differentiate response buffers
+    private var currentSettingsCommandCompletion: CompletableDeferred<Pair<Boolean, String?>>? = null
+    // Settings commands don't use mutex in BleSettingsManager, so need to consider if it should be added here
+    // For now, let's assume they share the bleMutex via _currentOperation
+
+    // --- Methods from BleDeviceManager ---
     suspend fun syncTime(connectionState: String): Boolean {
         if (connectionState != "Connected") {
             logManager.addLog("Cannot sync time, not connected.")
@@ -54,9 +78,9 @@ class BleDeviceManager(
 
             try {
                 _currentOperation.value = BleOperation.SENDING_TIME
-                responseBuffer.clear()
+                deviceResponseBuffer.clear()
                 val timeCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-                currentCommandCompletion = timeCompletion
+                currentDeviceCommandCompletion = timeCompletion
 
                 val currentTimestampSec = System.currentTimeMillis() / 1000
                 val timeCommand = "SET:time:$currentTimestampSec"
@@ -78,7 +102,7 @@ class BleDeviceManager(
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
-                currentCommandCompletion = null
+                currentDeviceCommandCompletion = null
             }
         }
     }
@@ -131,11 +155,11 @@ class BleDeviceManager(
 
             try {
                 _currentOperation.value = BleOperation.FETCHING_DEVICE_INFO
-                responseBuffer.clear()
+                deviceResponseBuffer.clear()
                 logManager.addLog("Requesting device info from device...")
 
                 val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-                currentCommandCompletion = commandCompletion
+                currentDeviceCommandCompletion = commandCompletion
 
                 sendCommand("GET:info")
 
@@ -154,7 +178,7 @@ class BleDeviceManager(
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
-                currentCommandCompletion = null
+                currentDeviceCommandCompletion = null
             }
         }
     }
@@ -173,11 +197,11 @@ class BleDeviceManager(
 
             try {
                 _currentOperation.value = BleOperation.FETCHING_FILE_LIST
-                responseBuffer.clear()
+                deviceResponseBuffer.clear()
                 logManager.addLog("Requesting file list (GET:ls:$extension)...")
 
                 val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
-                currentCommandCompletion = commandCompletion
+                currentDeviceCommandCompletion = commandCompletion
 
                 sendCommand("GET:ls:$extension")
 
@@ -199,7 +223,7 @@ class BleDeviceManager(
                 false
             } finally {
                 _currentOperation.value = BleOperation.IDLE
-                currentCommandCompletion = null
+                currentDeviceCommandCompletion = null
             }
         }
     }
@@ -211,75 +235,167 @@ class BleDeviceManager(
         onFileListUpdated() // Callback to trigger checking for new files
     }
 
-    fun handleResponse(value: ByteArray) {
-        when (_currentOperation.value) {
+    // --- Methods from BleSettingsManager ---
+    fun getSettings(connectionState: String) {
+        // This method was not suspend in BleSettingsManager, so it cannot use mutex.withLock.
+        // It relies on _currentOperation to prevent concurrent calls.
+        if (_currentOperation.value != BleOperation.IDLE || connectionState != "Connected") {
+            logManager.addLog("Cannot get settings, busy or not connected.")
+            return
+        }
+        _currentOperation.value = BleOperation.FETCHING_SETTINGS
+        settingsResponseBuffer.clear()
+        logManager.addLog("Requesting settings from device...")
+        sendCommand("GET:setting_ini")
+        // No CompletableDeferred for settings in original, relies on timeout.
+        // If we want to await a response, we need to introduce one here.
+        // For now, let's keep it consistent with BleSettingsManager and rely on _currentOperation update.
+    }
+
+    fun applyRemoteSettings() {
+        _remoteDeviceSettings.value?.let {
+            _deviceSettings.value = it
+            logManager.addLog("Applied remote settings to local state.")
+        }
+        dismissSettingsDiff()
+    }
+
+    fun dismissSettingsDiff() {
+        _remoteDeviceSettings.value = null
+        _settingsDiff.value = null
+    }
+
+    fun sendSettings(connectionState: String) {
+        if (_currentOperation.value != BleOperation.IDLE || connectionState != "Connected") {
+            logManager.addLog("Cannot send settings, busy or not connected.")
+            return
+        }
+        val settings = _deviceSettings.value
+        dismissSettingsDiff()
+        _currentOperation.value = BleOperation.SENDING_SETTINGS
+        val iniString = settings.toIniString()
+        logManager.addLog("Sending settings to device:\n$iniString")
+        sendCommand("SET:setting_ini:$iniString")
+        scope.launch {
+            // Original BleSettingsManager had a delay here.
+            // Consider if this navigation event should be triggered by a response to SET:setting_ini
+            // rather than immediately after sending, to confirm success.
+            // For now, mirroring original behavior.
+            delay(500) // Small delay to allow command to be sent over BLE
+            _navigationEvent.emit(NavigationEvent.NavigateBack)
+            _currentOperation.value = BleOperation.IDLE // Reset operation after sending
+        }
+    }
+
+    fun updateSettings(updater: (DeviceSettings) -> DeviceSettings) {
+        dismissSettingsDiff()
+        _deviceSettings.value = updater(_deviceSettings.value)
+    }
+
+    // --- Combined handleResponse method ---
+    fun handleResponse(value: ByteArray, operation: BleOperation) {
+        when (operation) {
             BleOperation.FETCHING_DEVICE_INFO -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
-                if (responseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
+                if (deviceResponseBuffer.isEmpty() && !incomingString.startsWith("{") && !incomingString.startsWith("ERROR:")) {
                     return
                 }
-                responseBuffer.addAll(value.toList())
-                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                deviceResponseBuffer.addAll(value.toList())
+                val currentBufferAsString = deviceResponseBuffer.toByteArray().toString(Charsets.UTF_8)
 
                 if (currentBufferAsString.trim().endsWith("}")) {
                     try {
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
                         _deviceInfo.value = parsedResponse
                         logManager.addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
-                        currentCommandCompletion?.complete(Pair(true, null))
+                        currentDeviceCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         logManager.addLog("Error parsing DeviceInfo: ${e.message}")
-                        currentCommandCompletion?.complete(Pair(false, e.message))
+                        currentDeviceCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
                     logManager.addLog("Error response GET:info: $currentBufferAsString")
-                    currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
+                    currentDeviceCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
             }
             BleOperation.FETCHING_FILE_LIST -> {
                 val incomingString = value.toString(Charsets.UTF_8).trim()
-                if (responseBuffer.isEmpty() && !incomingString.startsWith("[") && !incomingString.startsWith("ERROR:")) {
+                if (deviceResponseBuffer.isEmpty() && !incomingString.startsWith("[") && !incomingString.startsWith("ERROR:")) {
                     if (incomingString == "[]") {
                         _fileList.value = emptyList()
-                        currentCommandCompletion?.complete(Pair(true, null))
+                        currentDeviceCommandCompletion?.complete(Pair(true, null))
                     }
                     return
                 }
-                responseBuffer.addAll(value.toList())
-                val currentBufferAsString = responseBuffer.toByteArray().toString(Charsets.UTF_8)
+                deviceResponseBuffer.addAll(value.toList())
+                val currentBufferAsString = deviceResponseBuffer.toByteArray().toString(Charsets.UTF_8)
 
                 if (currentBufferAsString.trim().endsWith("]")) {
                     try {
                         _fileList.value = parseFileEntries(currentBufferAsString)
                         logManager.addLog("Parsed FileList. Count: ${_fileList.value.size}")
-                        currentCommandCompletion?.complete(Pair(true, null))
+                        currentDeviceCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         logManager.addLog("Error parsing FileList: ${e.message}")
-                        currentCommandCompletion?.complete(Pair(false, e.message))
+                        currentDeviceCommandCompletion?.complete(Pair(false, e.message))
                     }
                 } else if (currentBufferAsString.startsWith("ERROR:")) {
                     logManager.addLog("Error response GET:ls: $currentBufferAsString")
                     _fileList.value = emptyList()
-                    currentCommandCompletion?.complete(Pair(false, currentBufferAsString))
+                    currentDeviceCommandCompletion?.complete(Pair(false, currentBufferAsString))
                 }
             }
             BleOperation.SENDING_TIME -> {
                 val response = value.toString(Charsets.UTF_8).trim()
                 if (response.startsWith("OK: Time")) {
-                    currentCommandCompletion?.complete(Pair(true, null))
-                    responseBuffer.clear()
+                    currentDeviceCommandCompletion?.complete(Pair(true, null))
+                    deviceResponseBuffer.clear()
                 } else if (response.startsWith("ERROR:")) {
-                    currentCommandCompletion?.complete(Pair(false, response))
-                    responseBuffer.clear()
+                    currentDeviceCommandCompletion?.complete(Pair(false, response))
+                    deviceResponseBuffer.clear()
                 } else {
                     logManager.addLog("Unexpected response during SET:time: $response")
-                    // Don't complete here, maybe the message is fragmented.
-                    // Timeout will handle the failure.
                 }
             }
+            BleOperation.FETCHING_SETTINGS -> {
+                settingsResponseBuffer.addAll(value.toList())
+                scope.launch {
+                    delay(200) // Delay to ensure full response is received, as in original BleSettingsManager
+                    if (_currentOperation.value == BleOperation.FETCHING_SETTINGS) {
+                        val settingsString = settingsResponseBuffer.toByteArray().toString(Charsets.UTF_8)
+                        logManager.addLog("Assembled remote settings: $settingsString")
+                        try {
+                            val remoteSettings = DeviceSettings.fromIniString(settingsString)
+                            _remoteDeviceSettings.value = remoteSettings
+
+                            val diff = remoteSettings.diff(_deviceSettings.value)
+
+                            if (diff.isNotBlank()) {
+                                _settingsDiff.value = diff
+                                logManager.addLog("Settings have differences.")
+                            } else {
+                                _settingsDiff.value = "差分はありません。"
+                                logManager.addLog("Settings are identical.")
+                            }
+                            // Original BleSettingsManager did not have a CompletableDeferred for GET:setting_ini
+                            // It just updated the state flows and then _currentOperation.
+                            // If a caller needs to await completion, currentSettingsCommandCompletion needs to be used.
+                            // For now, reset _currentOperation here as it's the end of this specific operation.
+                        } catch (e: Exception) {
+                            logManager.addLog("Error parsing settings: ${e.message}")
+                        } finally {
+                            _currentOperation.value = BleOperation.IDLE
+                            settingsResponseBuffer.clear()
+                        }
+                    }
+                }
+            }
+            // BleOperation.SENDING_SETTINGS does not have a direct handleResponse logic in original.
+            // It just sends command and then navigates back and resets _currentOperation after a delay.
+            // If response is expected, it should be handled here.
             else -> {
-                // This can happen if a response from a previous operation arrives late.
-                // logManager.addLog("handleResponse called in non-listening state: ${_currentOperation.value}")
+                // Responses for other operations are handled by other managers (e.g., FileTransferManager)
+                // or are not awaited in this manager.
             }
         }
     }

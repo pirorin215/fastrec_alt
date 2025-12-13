@@ -36,7 +36,7 @@ class FileTransferManager(
     private val sendCommandCallback: (String) -> Unit,
     private val sendAckCallback: (ByteArray) -> Unit,
     private val _currentOperation: MutableStateFlow<BleOperation>,
-    private val bleDeviceManager: BleDeviceManager, // Modified
+    private val bleDeviceCommandManager: BleDeviceCommandManager,
     private val _connectionState: StateFlow<String>
 ) {
 
@@ -216,7 +216,7 @@ class FileTransferManager(
                     currentDownloadingFileName = fileName
                     currentCommandCompletion = CompletableDeferred()
 
-                    val fileEntry = bleDeviceManager.fileList.value.find { it.name == fileName }
+                    val fileEntry = bleDeviceCommandManager.fileList.value.find { it.name == fileName }
                     val fileSize = fileEntry?.size ?: 0L
                     _currentFileTotalSize.value = fileSize
 
@@ -267,7 +267,7 @@ class FileTransferManager(
                 // The auto-refresher will eventually handle this, but an immediate fetch can be useful.
                 scope.launch {
                     delay(1000) // Small delay before refetching
-                    bleDeviceManager.fetchFileList(_connectionState.value)
+                    bleDeviceCommandManager.fetchFileList(_connectionState.value)
                 }
             }
         }
@@ -311,7 +311,7 @@ class FileTransferManager(
                     if (success) {
                         logManager.addLog("Successfully deleted file: $fileName.")
                         // Instead of re-fetching the list, remove it from the local state
-                        bleDeviceManager.removeFileFromList(fileName)
+                        bleDeviceCommandManager.removeFileFromList(fileName)
                         transcriptionManager.updateLocalAudioFileCount()
                         break
                     } else if (i < MAX_DELETE_RETRIES) {

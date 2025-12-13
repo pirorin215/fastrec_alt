@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import java.util.UUID
+import com.pirorin215.fastrecmob.viewModel.BleDeviceCommandManager
+import com.pirorin215.fastrecmob.viewModel.BleConnectionManager
 
 class DeviceStatusViewModel(
     private val application: Application,
@@ -43,19 +45,21 @@ class DeviceStatusViewModel(
     val deviceInfo = _deviceInfo.asStateFlow()
 
     private val bleConnectionManager: BleConnectionManager
-    private val bleDeviceManager: BleDeviceManager
+    private val bleDeviceCommandManager: BleDeviceCommandManager
+    private val _bleDeviceCommandNavigationEvent = MutableSharedFlow<NavigationEvent>()
 
 
     init {
-        // BleDeviceManager instantiation - first
-        bleDeviceManager = BleDeviceManager(
+        // BleDeviceCommandManager instantiation
+        bleDeviceCommandManager = BleDeviceCommandManager(
             scope = viewModelScope,
-            context = context,
+            context = application, // Context is usually application context for ViewModels
             sendCommand = { command -> sendCommand(command) },
             logManager = logManager,
             _currentOperation = _currentOperation,
             bleMutex = bleMutex,
-            onFileListUpdated = { /* Handled by MainViewModel */ }
+            onFileListUpdated = { /* DeviceStatusViewModel does not process file lists directly */ },
+            _navigationEvent = _bleDeviceCommandNavigationEvent // Pass the local navigation event flow
         )
 
         // bleConnectionManager initialized after bleDeviceManager
@@ -69,13 +73,12 @@ class DeviceStatusViewModel(
                     is ConnectionState.Connected -> "Connected"
                     is ConnectionState.Disconnected -> {
                         resetOperationStates()
-                        // Stop time sync job when disconnected
-                        bleDeviceManager.stopTimeSyncJob()
+                        bleDeviceCommandManager.stopTimeSyncJob()
                         "Disconnected"
                     }
                     is ConnectionState.Error -> {
                         resetOperationStates()
-                        bleDeviceManager.stopTimeSyncJob()
+                        bleDeviceCommandManager.stopTimeSyncJob()
                         "Disconnected"
                     }
                     is ConnectionState.Paired -> "Paired"
@@ -84,14 +87,15 @@ class DeviceStatusViewModel(
             },
             onReady = {
                 viewModelScope.launch {
-                    val timeSyncSuccess = bleDeviceManager.syncTime(_connectionState.value)
+                    val timeSyncSuccess = bleDeviceCommandManager.syncTime(_connectionState.value)
                     if (timeSyncSuccess) {
-                        bleDeviceManager.startTimeSyncJob() // Start periodic sync
-                        bleDeviceManager.fetchDeviceInfo(_connectionState.value)
+                        bleDeviceCommandManager.startTimeSyncJob() // Start periodic sync
+                        bleDeviceCommandManager.fetchDeviceInfo(_connectionState.value)
                     }
                     _onDeviceReadyEvent.emit(Unit) // Emit event when device is ready
                 }
-            }
+            },
+            bleDeviceCommandManager = bleDeviceCommandManager
         )
 
         // Collect characteristic changes from the repository
@@ -105,8 +109,7 @@ class DeviceStatusViewModel(
             }
         }.launchIn(viewModelScope)
 
-        // Observe bleDeviceManager's deviceInfo and update our own
-        bleDeviceManager.deviceInfo
+        bleDeviceCommandManager.deviceInfo
             .onEach {
                 _deviceInfo.value = it
             }
@@ -132,7 +135,7 @@ class DeviceStatusViewModel(
 
     fun fetchDeviceInfo() {
         viewModelScope.launch {
-            bleDeviceManager.fetchDeviceInfo(connectionState = connectionState.value)
+            bleDeviceCommandManager.fetchDeviceInfo(connectionState = connectionState.value)
         }
     }
 
@@ -145,8 +148,8 @@ class DeviceStatusViewModel(
         if (characteristic.uuid.toString() != RESPONSE_UUID_STRING) return
 
         when (_currentOperation.value) {
-            BleOperation.FETCHING_DEVICE_INFO, BleOperation.SENDING_TIME -> { // SENDING_TIME also updates device info
-                bleDeviceManager.handleResponse(value)
+            BleOperation.FETCHING_DEVICE_INFO, BleOperation.SENDING_TIME -> {
+                bleDeviceCommandManager.handleResponse(value, _currentOperation.value)
             }
             else -> {
                 // Ignore other operations for this ViewModel

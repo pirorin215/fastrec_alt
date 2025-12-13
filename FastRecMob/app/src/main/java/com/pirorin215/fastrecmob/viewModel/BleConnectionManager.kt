@@ -25,7 +25,8 @@ class BleConnectionManager(
     private val repository: BleRepository,
     private val onStateChange: (ConnectionState) -> Unit,
     private val onReady: () -> Unit,
-    private val logManager: LogManager
+    private val logManager: LogManager,
+    private val bleDeviceCommandManager: BleDeviceCommandManager
 ) {
 
     companion object {
@@ -51,9 +52,11 @@ class BleConnectionManager(
                 }
                 is ConnectionState.Disconnected -> {
                     logManager.addLog("Disconnected. Handling reconnection based on app foreground state.")
+                    bleDeviceCommandManager.stopTimeSyncJob() // Stop time sync on disconnect
                 }
                 is ConnectionState.Error -> {
                     logManager.addLog("Connection Error: ${state.message}. Forcibly disconnecting and cleaning up before recovery.")
+                    bleDeviceCommandManager.stopTimeSyncJob() // Stop time sync on error
                     // Ensure full disconnection and cleanup
                     repository.disconnect()
                     repository.close()
