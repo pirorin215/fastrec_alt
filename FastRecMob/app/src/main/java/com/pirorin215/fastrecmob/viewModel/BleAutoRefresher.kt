@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 class BleAutoRefresher(
     private val scope: CoroutineScope,
     private val refreshIntervalSecondsFlow: StateFlow<Int>,
-    private val onRefresh: () -> Unit,
+    private val onRefresh: suspend () -> Unit,
     private val logManager: LogManager
 ) {
     private val _isAutoRefreshEnabled = MutableStateFlow(false)
@@ -23,7 +23,9 @@ class BleAutoRefresher(
         _isAutoRefreshEnabled.value = enabled
         if (enabled) {
             logManager.addLog("Auto-refresh enabled.")
-            onRefresh() // Immediate refresh
+            scope.launch { // Launch a coroutine for the initial suspend call
+                onRefresh() // Immediate refresh
+            }
             startAutoRefresh()
         } else {
             logManager.addLog("Auto-refresh disabled.")

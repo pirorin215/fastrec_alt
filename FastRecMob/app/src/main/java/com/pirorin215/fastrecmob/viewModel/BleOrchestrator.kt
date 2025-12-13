@@ -71,8 +71,10 @@ class BleOrchestrator(
                     started = SharingStarted.WhileSubscribed(5000),
                     initialValue = 30
                 ),
-            onRefresh = {
+            onRefresh = suspend {
                 fetchFileList()
+                bleDeviceCommandManager.fetchDeviceInfo(connectionStateFlow.value)
+                Unit // Explicitly return Unit
             },
             logManager = logManager
         )
@@ -243,7 +245,7 @@ class BleOrchestrator(
         }
     }
 
-    override fun getSettings() {
+    override suspend fun getSettings() {
         bleDeviceCommandManager.getSettings(connectionStateFlow.value)
     }
 

@@ -236,20 +236,46 @@ class BleDeviceCommandManager(
     }
 
     // --- Methods from BleSettingsManager ---
-    fun getSettings(connectionState: String) {
-        // This method was not suspend in BleSettingsManager, so it cannot use mutex.withLock.
-        // It relies on _currentOperation to prevent concurrent calls.
-        if (_currentOperation.value != BleOperation.IDLE || connectionState != "Connected") {
-            logManager.addLog("Cannot get settings, busy or not connected.")
-            return
+    suspend fun getSettings(connectionState: String): Boolean {
+        if (connectionState != "Connected") {
+            logManager.addLog("Cannot get settings, not connected.")
+            return false
         }
-        _currentOperation.value = BleOperation.FETCHING_SETTINGS
-        settingsResponseBuffer.clear()
-        logManager.addLog("Requesting settings from device...")
-        sendCommand("GET:setting_ini")
-        // No CompletableDeferred for settings in original, relies on timeout.
-        // If we want to await a response, we need to introduce one here.
-        // For now, let's keep it consistent with BleSettingsManager and rely on _currentOperation update.
+
+        return bleMutex.withLock {
+            if (_currentOperation.value != BleOperation.IDLE) {
+                logManager.addLog("Cannot get settings, busy: ${_currentOperation.value}")
+                return@withLock false
+            }
+
+            try {
+                _currentOperation.value = BleOperation.FETCHING_SETTINGS
+                settingsResponseBuffer.clear()
+                logManager.addLog("Requesting settings from device...")
+
+                val commandCompletion = CompletableDeferred<Pair<Boolean, String?>>()
+                currentSettingsCommandCompletion = commandCompletion // Use specific settings completion
+
+                sendCommand("GET:setting_ini")
+
+                val (success, _) = withTimeoutOrNull(15000L) { // Timeout for response
+                    commandCompletion.await()
+                } ?: Pair(false, "Timeout")
+
+                if (success) {
+                    logManager.addLog("GET:setting_ini command completed successfully.")
+                } else {
+                    logManager.addLog("GET:setting_ini command failed or timed out.")
+                }
+                success
+            } catch (e: Exception) {
+                logManager.addLog("Error getSettings: ${e.message}")
+                false
+            } finally {
+                _currentOperation.value = BleOperation.IDLE
+                currentSettingsCommandCompletion = null // Clear completion object
+            }
+        }
     }
 
     fun applyRemoteSettings() {
@@ -304,10 +330,11 @@ class BleDeviceCommandManager(
                 val currentBufferAsString = deviceResponseBuffer.toByteArray().toString(Charsets.UTF_8)
 
                 if (currentBufferAsString.trim().endsWith("}")) {
+                    logManager.addLog("Raw DeviceInfo JSON: $currentBufferAsString") // Log raw JSON
                     try {
                         val parsedResponse = json.decodeFromString<DeviceInfoResponse>(currentBufferAsString)
                         _deviceInfo.value = parsedResponse
-                        logManager.addLog("Parsed DeviceInfo: ${parsedResponse.batteryLevel}%")
+                        logManager.addLog("Parsed DeviceInfo: Battery=${parsedResponse.batteryLevel}%, WAVs=${parsedResponse.wavCount}") // Log WAV count
                         currentDeviceCommandCompletion?.complete(Pair(true, null))
                     } catch (e: Exception) {
                         logManager.addLog("Error parsing DeviceInfo: ${e.message}")
@@ -359,34 +386,46 @@ class BleDeviceCommandManager(
             }
             BleOperation.FETCHING_SETTINGS -> {
                 settingsResponseBuffer.addAll(value.toList())
+                
+                // Launch a coroutine to handle the response after a small delay,
+                // allowing time for multi-packet responses to arrive.
+                // This mimics the original BleSettingsManager's implicit handling.
                 scope.launch {
-                    delay(200) // Delay to ensure full response is received, as in original BleSettingsManager
+                    delay(200) // Original BleSettingsManager had a delay.
+
+                    // Only process if still in FETCHING_SETTINGS state and command completion is active
+                    // And ensure currentSettingsCommandCompletion is not null (should be handled by try-finally in getSettings)
                     if (_currentOperation.value == BleOperation.FETCHING_SETTINGS) {
-                        val settingsString = settingsResponseBuffer.toByteArray().toString(Charsets.UTF_8)
-                        logManager.addLog("Assembled remote settings: $settingsString")
-                        try {
-                            val remoteSettings = DeviceSettings.fromIniString(settingsString)
-                            _remoteDeviceSettings.value = remoteSettings
+                        val settingsString = settingsResponseBuffer.toByteArray().toString(Charsets.UTF_8).trim()
+                        logManager.addLog("Assembled remote settings (GET:setting_ini): $settingsString")
 
-                            val diff = remoteSettings.diff(_deviceSettings.value)
+                        // Check for explicit ERROR response from device
+                        if (settingsString.startsWith("ERROR:")) {
+                            logManager.addLog("Error response GET:setting_ini: $settingsString")
+                            currentSettingsCommandCompletion?.complete(Pair(false, settingsString))
+                        } else {
+                            try {
+                                val remoteSettings = DeviceSettings.fromIniString(settingsString)
+                                _remoteDeviceSettings.value = remoteSettings
 
-                            if (diff.isNotBlank()) {
-                                _settingsDiff.value = diff
-                                logManager.addLog("Settings have differences.")
-                            } else {
-                                _settingsDiff.value = "差分はありません。"
-                                logManager.addLog("Settings are identical.")
+                                val diff = remoteSettings.diff(_deviceSettings.value)
+
+                                if (diff.isNotBlank()) {
+                                    _settingsDiff.value = diff
+                                    logManager.addLog("Settings have differences.")
+                                } else {
+                                    _settingsDiff.value = "差分はありません。"
+                                    logManager.addLog("Settings are identical.")
+                                }
+                                currentSettingsCommandCompletion?.complete(Pair(true, null))
+                            } catch (e: Exception) {
+                                logManager.addLog("Error parsing settings (GET:setting_ini): ${e.message}")
+                                currentSettingsCommandCompletion?.complete(Pair(false, e.message))
                             }
-                            // Original BleSettingsManager did not have a CompletableDeferred for GET:setting_ini
-                            // It just updated the state flows and then _currentOperation.
-                            // If a caller needs to await completion, currentSettingsCommandCompletion needs to be used.
-                            // For now, reset _currentOperation here as it's the end of this specific operation.
-                        } catch (e: Exception) {
-                            logManager.addLog("Error parsing settings: ${e.message}")
-                        } finally {
-                            _currentOperation.value = BleOperation.IDLE
-                            settingsResponseBuffer.clear()
                         }
+                        // Reset operation and buffer after completion, whether successful or not
+                        _currentOperation.value = BleOperation.IDLE
+                        settingsResponseBuffer.clear()
                     }
                 }
             }

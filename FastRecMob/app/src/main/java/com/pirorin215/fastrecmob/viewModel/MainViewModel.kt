@@ -254,7 +254,7 @@ class MainViewModel(
     // --- Methods delegated to Orchestrator ---
     fun setAutoRefresh(enabled: Boolean) = bleOrchestrator.setAutoRefresh(enabled)
     fun fetchFileList(extension: String = "wav") = bleOrchestrator.fetchFileList(extension)
-    fun getSettings() = bleOrchestrator.getSettings()
+    suspend fun getSettings() = bleOrchestrator.getSettings()
     fun applyRemoteSettings() = bleOrchestrator.applyRemoteSettings()
     fun dismissSettingsDiff() = bleOrchestrator.dismissSettingsDiff()
     fun sendSettings() = bleOrchestrator.sendSettings()

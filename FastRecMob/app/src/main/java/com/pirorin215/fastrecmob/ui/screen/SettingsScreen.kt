@@ -23,10 +23,15 @@ import com.pirorin215.fastrecmob.viewModel.NavigationEvent
 
 import androidx.activity.compose.BackHandler
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+// ...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
+
+    val scope = rememberCoroutineScope() // Add this line
 
     val settings: DeviceSettings? by viewModel.deviceSettings.collectAsState()
     val operation: BleOperation by viewModel.currentOperation.collectAsState()
@@ -34,7 +39,7 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) {
         if (settings == null) {
-            viewModel.getSettings()
+            viewModel.getSettings() // This is already in a coroutine scope
         }
     }
 
@@ -56,7 +61,7 @@ fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.getSettings() }) {
+                    IconButton(onClick = { scope.launch { viewModel.getSettings() } }) { // Wrap with scope.launch
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh Settings")
                     }
                     IconButton(onClick = { viewModel.sendSettings() }) {

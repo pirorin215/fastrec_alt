@@ -25,7 +25,7 @@ interface BleOrchestration {
     fun clearLogs()
     fun sendCommand(command: String)
     fun fetchFileList(extension: String = "wav")
-    fun getSettings()
+    suspend fun getSettings()
     fun applyRemoteSettings()
     fun dismissSettingsDiff()
     fun sendSettings()
