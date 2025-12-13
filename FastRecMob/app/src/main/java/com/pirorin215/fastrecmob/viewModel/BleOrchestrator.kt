@@ -185,18 +185,27 @@ class BleOrchestrator(
             val currentWavFilesOnMicrocontroller = bleDeviceCommandManager.fileList.value.filter { it.name.endsWith(".wav", ignoreCase = true) }
             val transcribedFileNames = this@BleOrchestrator.transcriptionResults.value.map { it.fileName }.toSet() // Using passed transcriptionResults
 
-            val filesToProcess = currentWavFilesOnMicrocontroller.filter { fileEntry ->
+            val filesToDownload = currentWavFilesOnMicrocontroller.filter { fileEntry ->
                 !transcribedFileNames.contains(fileEntry.name)
             }
 
-            if (filesToProcess.isNotEmpty()) {
-                val fileEntry = filesToProcess.first()
-                addLog("Found untranscribed WAV file: ${fileEntry.name}. Starting automatic download.")
-                downloadFile(fileEntry.name)
+            if (filesToDownload.isNotEmpty()) {
+                addLog("Found ${filesToDownload.size} untranscribed WAV file(s). Starting automatic download sequence.")
+                // Download all files sequentially
+                filesToDownload.forEach { fileEntry ->
+                    addLog("Downloading untranscribed WAV file: ${fileEntry.name}.")
+                    fileTransferManager.downloadFileAndProcess(fileEntry.name)
+                    // fileTransferManager.downloadFileAndProcess is a suspend function,
+                    // it will wait for each download to complete before proceeding to the next.
+                    // This ensures sequential download.
+                }
+                addLog("Automatic download sequence completed for all untranscribed WAV files.")
             } else {
-                addLog("No new untranscribed WAV files found on microcontroller. Checking for any pending transcriptions.")
-                transcriptionManager.processPendingTranscriptions()
+                addLog("No new untranscribed WAV files found on microcontroller.")
             }
+
+            addLog("Checking for any pending transcriptions.")
+            transcriptionManager.processPendingTranscriptions()
             if (!isAutoRefreshEnabled.value) {
                 setAutoRefresh(true)
             }

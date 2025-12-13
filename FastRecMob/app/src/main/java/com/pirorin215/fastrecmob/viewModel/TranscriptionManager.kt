@@ -328,27 +328,30 @@ class TranscriptionManager(
 
             val updatedListForRepo = mutableListOf<TranscriptionResult>()
 
-            // Process existing results
+            // First, delete all associated WAV files
             currentTranscriptionResults.forEach { result ->
-                if (result.googleTaskId == null) {
-                    // Local-only item: permanently delete now
-                    transcriptionResultRepository.permanentlyRemoveResult(result) // This will remove it from the DataStore
-                    val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
-                    if (audioFile.exists()) {
-                        if (audioFile.delete()) {
-                            logManager.addLog("Deleted local-only audio file during clear all: ${result.fileName}")
-                        } else {
-                            logManager.addLog("Failed to delete local-only audio file during clear all: ${result.fileName}")
-                        }
+                val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
+                if (audioFile.exists()) {
+                    if (audioFile.delete()) {
+                        logManager.addLog("Deleted associated audio file during clear all: ${result.fileName}")
+                    } else {
+                        logManager.addLog("Failed to delete associated audio file during clear all: ${result.fileName}")
                     }
+                } else {
+                    logManager.addLog("Associated audio file not found for: ${result.fileName}")
+                }
+
+                if (result.googleTaskId == null) {
+                    // Local-only item: permanently delete now (from DataStore)
+                    transcriptionResultRepository.permanentlyRemoveResult(result)
                 } else {
                     // Synced item: soft delete (mark for remote deletion during next sync)
                     updatedListForRepo.add(result.copy(isDeletedLocally = true))
                 }
             }
-            transcriptionResultRepository.updateResults(updatedListForRepo)
+            transcriptionResultRepository.updateResults(updatedListForRepo) // Only updates for synced items
 
-            logManager.addLog("All local-only transcription results permanently deleted. Synced results marked for soft deletion.")
+            logManager.addLog("All local-only transcription results permanently deleted and all associated WAV files deleted. Synced results marked for soft deletion.")
             updateLocalAudioFileCount() // Update count after deletions
         }
     }
@@ -361,21 +364,21 @@ class TranscriptionManager(
                 transcriptionResultRepository.removeResult(result) // This now sets isDeletedLocally = true
                 logManager.addLog("Soft-deleted transcription result (synced with Google Tasks): ${result.fileName}")
             } else {
-                // If not synced with Google Tasks, permanently delete locally and its audio file immediately.
+                // If not synced with Google Tasks, permanently delete locally.
                 transcriptionResultRepository.permanentlyRemoveResult(result)
                 logManager.addLog("Permanently deleted local-only transcription result: ${result.fileName}")
+            }
 
-                val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
-                if (audioFile.exists()) {
-                    if (audioFile.delete()) {
-                        logManager.addLog("Associated audio file deleted: ${result.fileName}")
-                        updateLocalAudioFileCount()
-                    } else {
-                        logManager.addLog("Failed to delete associated audio file: ${result.fileName}")
-                    }
+            val audioFile = FileUtil.getAudioFile(context, audioDirNameFlow.value, result.fileName)
+            if (audioFile.exists()) {
+                if (audioFile.delete()) {
+                    logManager.addLog("Associated audio file deleted: ${result.fileName}")
+                    updateLocalAudioFileCount()
                 } else {
-                    logManager.addLog("Associated audio file not found for local-only result: ${result.fileName}")
+                    logManager.addLog("Failed to delete associated audio file: ${result.fileName}")
                 }
+            } else {
+                logManager.addLog("Associated audio file not found for: ${result.fileName}")
             }
         }
     }
