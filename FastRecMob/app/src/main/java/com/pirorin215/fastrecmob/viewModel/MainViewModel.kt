@@ -199,7 +199,7 @@ class MainViewModel(
         )
     }
 
-    private val bleSelectionManager: BleSelection by lazy {
+    private val bleSelectionManager: BleSelectionManager by lazy {
         BleSelectionManager(
             logManager = logManager
         )

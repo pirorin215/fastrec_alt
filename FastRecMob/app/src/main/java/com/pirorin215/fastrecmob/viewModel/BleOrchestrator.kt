@@ -33,7 +33,7 @@ class BleOrchestrator(
     private val transcriptionManager: TranscriptionManagement,
     private val locationMonitor: LocationTracking,
     private val appSettingsRepository: AppSettingsRepository,
-    private val bleSelectionManager: BleSelection,
+    private val bleSelectionManager: BleSelectionManager,
     private val transcriptionResults: StateFlow<List<TranscriptionResult>>,
     private val logManager: LogManager
 ) : BleOrchestration {

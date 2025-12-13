@@ -1,9 +1,15 @@
 package com.pirorin215.fastrecmob.viewModel
 
-import com.pirorin215.fastrecmob.data.TranscriptionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+internal interface BleSelection {
+    val selectedFileNames: StateFlow<Set<String>>
+    fun toggleSelection(fileName: String)
+    fun clearSelection()
+    fun getSelectedFileNames(): Set<String>
+}
 
 class BleSelectionManager(
     private val logManager: LogManager
