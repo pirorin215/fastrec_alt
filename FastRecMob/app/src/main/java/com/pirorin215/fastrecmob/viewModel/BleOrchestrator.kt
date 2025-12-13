@@ -69,7 +69,7 @@ class BleOrchestrator(
 ) : BleOrchestration {
     companion object {
         const val TAG = "BleOrchestrator"
-        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+
     }
 
     private val _currentOperation = MutableStateFlow(BleOperation.IDLE)
@@ -245,7 +245,7 @@ class BleOrchestrator(
     }
 
     private fun handleCharacteristicChanged(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-        if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
+        if (characteristic.uuid != UUID.fromString(BleRepository.RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
             BleOperation.FETCHING_FILE_LIST, BleOperation.FETCHING_DEVICE_INFO, BleOperation.SENDING_TIME, BleOperation.FETCHING_SETTINGS, BleOperation.SENDING_SETTINGS -> {

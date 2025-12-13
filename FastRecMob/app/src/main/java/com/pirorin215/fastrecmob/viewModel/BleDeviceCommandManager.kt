@@ -45,7 +45,7 @@ class BleDeviceCommandManager(
     companion object {
         const val TIME_SYNC_INTERVAL_MS = 300000L // 5 minutes
         // Moved from BleOrchestrator, if only used by device manager
-        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+
     }
 
     // --- Properties from BleSettingsManager ---

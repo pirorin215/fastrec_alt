@@ -43,7 +43,7 @@ class FileTransferManager(
     companion object {
         const val MAX_DELETE_RETRIES = 3
         const val DELETE_RETRY_DELAY_MS = 1000L
-        const val RESPONSE_UUID_STRING = "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+
         private const val PACKET_TIMEOUT_MS = 30000L // Timeout if no packet is received for this duration
     }
 
@@ -117,7 +117,7 @@ class FileTransferManager(
         characteristic: android.bluetooth.BluetoothGattCharacteristic,
         value: ByteArray
     ) {
-        if (characteristic.uuid != UUID.fromString(RESPONSE_UUID_STRING)) return
+        if (characteristic.uuid != UUID.fromString(BleRepository.RESPONSE_UUID_STRING)) return
 
         when (_currentOperation.value) {
             BleOperation.DOWNLOADING_FILE -> {
