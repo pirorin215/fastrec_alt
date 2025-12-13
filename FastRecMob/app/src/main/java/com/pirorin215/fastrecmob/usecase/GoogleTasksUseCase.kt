@@ -19,6 +19,12 @@ import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
 import com.pirorin215.fastrecmob.network.GoogleTasksApiService
 import com.pirorin215.fastrecmob.network.RetrofitClient
 import com.pirorin215.fastrecmob.viewModel.LogManager
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -117,11 +123,11 @@ class GoogleTasksUseCase(
         }
     }
 
-    private suspend fun addGoogleTask(title: String, notes: String?, isCompleted: Boolean): Task? {
+    private suspend fun addGoogleTask(title: String, notes: String?, isCompleted: Boolean, due: String?): Task? {
         if (_account.value == null || title.isBlank()) return null
         val currentTaskListId = taskListId ?: getTaskListId() ?: return null
         val status = if (isCompleted) "completed" else "needsAction"
-        val task = Task(title = title, notes = notes, status = status)
+        val task = Task(title = title, notes = notes, status = status, due = due)
         return try {
             val createdTask = apiService.createTask(currentTaskListId, task)
             logManager.addLog("Added new Google Task: $title")
@@ -154,7 +160,8 @@ class GoogleTasksUseCase(
                 id = taskId,
                 title = localResult.transcription,
                 notes = localResult.googleTaskNotes,
-                status = status
+                status = status,
+                due = remoteTask.due
             )
 
             val updatedTask = apiService.updateTask(currentTaskListId, taskId, taskToUpdate)
@@ -189,10 +196,18 @@ class GoogleTasksUseCase(
                 if (localResult.googleTaskId == null) {
                     // This is a new item, add it to Google Tasks
                     logManager.addLog("Local result '${localResult.fileName}' has no Google Task ID. Adding to Google Tasks.")
+
+                    // JSTの今日の日付をUTCの00:00:00のRFC3339タイムスタンプとして生成
+                    val dueTime = LocalDate.now(ZoneId.of("Asia/Tokyo"))
+                        .atStartOfDay()
+                        .atOffset(ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
                     val addedTask = addGoogleTask(
                         title = localResult.transcription,
                         notes = localResult.googleTaskNotes,
-                        isCompleted = localResult.isCompleted
+                        isCompleted = localResult.isCompleted,
+                        due = dueTime
                     )
                     if (addedTask != null && addedTask.id != null) {
                         updatedResults.add(
@@ -200,6 +215,7 @@ class GoogleTasksUseCase(
                                 googleTaskId = addedTask.id,
                                 isSyncedWithGoogleTasks = true,
                                 googleTaskUpdated = addedTask.updated,
+                                googleTaskDue = addedTask.due, // dueを追加
                                 lastEditedTimestamp = FileUtil.parseRfc3339Timestamp(addedTask.updated)
                             )
                         )
@@ -228,6 +244,7 @@ class GoogleTasksUseCase(
                                         googleTaskNotes = updatedTask.notes,
                                         isSyncedWithGoogleTasks = true,
                                         googleTaskUpdated = updatedTask.updated,
+                                        googleTaskDue = updatedTask.due, // dueを追加
                                         lastEditedTimestamp = remoteTimestamp
                                     )
                                 )
@@ -238,6 +255,7 @@ class GoogleTasksUseCase(
                                     localResult.copy(
                                         isSyncedWithGoogleTasks = true,
                                         googleTaskUpdated = updatedTask.updated,
+                                        googleTaskDue = updatedTask.due, // dueを追加
                                         lastEditedTimestamp = remoteTimestamp
                                     )
                                 )
