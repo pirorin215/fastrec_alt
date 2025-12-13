@@ -132,18 +132,38 @@ class GoogleTasksUseCase(
         }
     }
 
-    private suspend fun updateGoogleTask(taskId: String, title: String, notes: String?, isCompleted: Boolean): Task? {
-        if (_account.value == null || taskId.isBlank()) return null
+    private suspend fun updateGoogleTask(localResult: TranscriptionResult): Task? {
+        val taskId = localResult.googleTaskId ?: return null
+        if (_account.value == null) return null
         val currentTaskListId = taskListId ?: getTaskListId() ?: return null
-        val status = if (isCompleted) "completed" else "needsAction"
-        val task = Task(id = taskId, title = title, notes = notes, status = status)
-        return try {
-            val updatedTask = apiService.updateTask(currentTaskListId, taskId, task)
-            logManager.addLog("Updated Google Task: $title (ID: $taskId)")
-            updatedTask
+
+        try {
+            // Fetch the current state of the task from Google Tasks
+            val remoteTask = apiService.getTask(currentTaskListId, taskId)
+            val remoteTimestamp = FileUtil.parseRfc3339Timestamp(remoteTask.updated)
+            val localTimestamp = localResult.lastEditedTimestamp
+
+            if (localTimestamp < remoteTimestamp) {
+                logManager.addLog("Skipping update for task '${localResult.transcription}' (ID: $taskId). Remote version is newer.")
+                return remoteTask // Return remote task to signal that remote is newer
+            }
+
+            // Proceed with the update if the local version is newer
+            val status = if (localResult.isCompleted) "completed" else "needsAction"
+            val taskToUpdate = Task(
+                id = taskId,
+                title = localResult.transcription,
+                notes = localResult.googleTaskNotes,
+                status = status
+            )
+
+            val updatedTask = apiService.updateTask(currentTaskListId, taskId, taskToUpdate)
+            logManager.addLog("Updated Google Task: ${localResult.transcription} (ID: $taskId)")
+            return updatedTask
+
         } catch (e: Exception) {
-            logManager.addLog("Error updating Google Task '$title' (ID: $taskId): ${e.message}")
-            null
+            logManager.addLog("Error updating or checking Google Task '${localResult.transcription}' (ID: $taskId): ${e.message}")
+            return null
         }
     }
 
@@ -153,7 +173,7 @@ class GoogleTasksUseCase(
             return
         }
         _isLoadingGoogleTasks.value = true
-        logManager.addLog("Starting Google Tasks synchronization (one-way)...")
+        logManager.addLog("Starting Google Tasks synchronization...")
 
         try {
             val localResults = transcriptionResultRepository.transcriptionResultsFlow.first()
@@ -190,28 +210,40 @@ class GoogleTasksUseCase(
                     }
                 } else {
                     // This item already exists on Google Tasks, check if it needs an update.
-                    val needsUpdate = !localResult.isSyncedWithGoogleTasks ||
-                            localResult.transcription.isNotEmpty() // More specific conditions can be added if needed.
+                    val googleTaskUpdatedTimestamp = FileUtil.parseRfc3339Timestamp(localResult.googleTaskUpdated)
+                    val needsUpdate = !localResult.isSyncedWithGoogleTasks || localResult.lastEditedTimestamp > googleTaskUpdatedTimestamp
 
                     if (needsUpdate) {
-                         logManager.addLog("Local result '${localResult.fileName}' needs update on Google Tasks. Pushing changes.")
-                        val updatedTask = updateGoogleTask(
-                            taskId = localResult.googleTaskId,
-                            title = localResult.transcription,
-                            notes = localResult.googleTaskNotes,
-                            isCompleted = localResult.isCompleted
-                        )
-                         if (updatedTask != null) {
-                            updatedResults.add(
-                                localResult.copy(
-                                    isSyncedWithGoogleTasks = true,
-                                    googleTaskUpdated = updatedTask.updated,
-                                    lastEditedTimestamp = FileUtil.parseRfc3339Timestamp(updatedTask.updated)
+                        val updatedTask = updateGoogleTask(localResult)
+
+                        if (updatedTask != null) {
+                            val remoteTimestamp = FileUtil.parseRfc3339Timestamp(updatedTask.updated)
+                            // Check if the remote was newer
+                            if (localResult.lastEditedTimestamp < remoteTimestamp) {
+                                logManager.addLog("Updating local task '${localResult.fileName}' with newer remote data.")
+                                updatedResults.add(
+                                    localResult.copy(
+                                        transcription = updatedTask.title ?: "",
+                                        isCompleted = updatedTask.status == "completed",
+                                        googleTaskNotes = updatedTask.notes,
+                                        isSyncedWithGoogleTasks = true,
+                                        googleTaskUpdated = updatedTask.updated,
+                                        lastEditedTimestamp = remoteTimestamp
+                                    )
                                 )
-                            )
-                             logManager.addLog("Successfully updated Google Task for '${localResult.fileName}'.")
+                            } else {
+                                // Local was newer, and we successfully updated the remote
+                                logManager.addLog("Successfully pushed local changes to Google Task for '${localResult.fileName}'.")
+                                updatedResults.add(
+                                    localResult.copy(
+                                        isSyncedWithGoogleTasks = true,
+                                        googleTaskUpdated = updatedTask.updated,
+                                        lastEditedTimestamp = remoteTimestamp
+                                    )
+                                )
+                            }
                         } else {
-                             logManager.addLog("Failed to update Google Task for '${localResult.fileName}'. Will retry on next sync.")
+                            logManager.addLog("Failed to sync Google Task for '${localResult.fileName}'. Will retry on next sync.")
                             updatedResults.add(localResult.copy(isSyncedWithGoogleTasks = false))
                         }
                     } else {
@@ -224,10 +256,10 @@ class GoogleTasksUseCase(
             // Update the local database with the new state
             transcriptionResultRepository.updateResults(updatedResults)
 
-            logManager.addLog("Google Tasks one-way synchronization completed.")
+            logManager.addLog("Google Tasks synchronization completed.")
 
         } catch (e: Exception) {
-            logManager.addLog("Error during Google Tasks one-way synchronization: ${e.message}")
+            logManager.addLog("Error during Google Tasks synchronization: ${e.message}")
         } finally {
             _isLoadingGoogleTasks.value = false
         }

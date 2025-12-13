@@ -7,9 +7,8 @@ import com.pirorin215.fastrecmob.data.TasksResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
-import retrofit2.http.Query
-import retrofit2.http.PATCH
 
 interface GoogleTasksApiService {
     @GET("tasks/v1/users/@me/lists")
@@ -21,10 +20,16 @@ interface GoogleTasksApiService {
     @GET("tasks/v1/lists/{taskListId}/tasks")
     suspend fun getTasks(@Path("taskListId") taskListId: String): TasksResponse
 
+    @GET("tasks/v1/lists/{taskListId}/tasks/{taskId}")
+    suspend fun getTask(
+        @Path("taskListId") taskListId: String,
+        @Path("taskId") taskId: String
+    ): Task
+
     @POST("tasks/v1/lists/{taskListId}/tasks")
     suspend fun createTask(@Path("taskListId") taskListId: String, @Body task: Task): Task
 
-    @PATCH("tasks/v1/lists/{taskListId}/tasks/{taskId}")
+    @PUT("tasks/v1/lists/{taskListId}/tasks/{taskId}")
     suspend fun updateTask(
         @Path("taskListId") taskListId: String,
         @Path("taskId") taskId: String,
