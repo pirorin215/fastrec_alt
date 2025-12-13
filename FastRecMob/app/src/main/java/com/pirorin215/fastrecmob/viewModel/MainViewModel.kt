@@ -212,7 +212,7 @@ class MainViewModel(
     fun clearSelection() = bleSelectionManager.clearSelection()
 
     // --- BLE Orchestrator ---
-    private val bleOrchestrator: BleOrchestration by lazy {
+    private val bleOrchestrator by lazy {
         BleOrchestrator(
             scope = viewModelScope,
             context = application,
