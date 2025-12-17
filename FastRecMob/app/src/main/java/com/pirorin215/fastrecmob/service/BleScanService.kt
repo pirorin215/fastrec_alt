@@ -148,16 +148,17 @@ class BleScanService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
-                "BLE Scan Service Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
+                            "BLE Scan Service Channel",
+                            NotificationManager.IMPORTANCE_DEFAULT            )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(serviceChannel)
         }
     }
 
     private fun buildNotification(): NotificationCompat.Builder {
-        val notificationIntent = Intent(this, MainActivity::class.java)
+        val notificationIntent = Intent(this, MainActivity::class.java).apply {
+            action = "SHOW_UI" // Custom action
+        }
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -169,6 +170,6 @@ class BleScanService : Service() {
             .setContentText("バックグラウンドでBLEデバイスをスキャン中...")
             .setSmallIcon(R.mipmap.ic_launcher_round) // 適切なアイコンを設定
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
     }
 } // Final closing brace for BleScanService class.

@@ -1,263 +1,114 @@
 package com.pirorin215.fastrecmob.viewModel
 
-import com.pirorin215.fastrecmob.data.TaskListsResponse
-import com.pirorin215.fastrecmob.data.TaskList
-import com.pirorin215.fastrecmob.data.TasksResponse
-import com.pirorin215.fastrecmob.usecase.GoogleTasksUseCase
-import com.pirorin215.fastrecmob.data.Task
-
-
 import android.annotation.SuppressLint
-import android.content.Context
-import android.util.Log
 import android.app.Application
 import android.content.Intent
-import android.media.MediaPlayer
-import androidx.core.content.FileProvider
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import com.pirorin215.fastrecmob.LocationData
-import kotlinx.coroutines.Dispatchers
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.pirorin215.fastrecmob.BleScanServiceManager
+import com.pirorin215.fastrecmob.MainApplication // Add this import
+import com.pirorin215.fastrecmob.data.FileEntry
+import com.pirorin215.fastrecmob.data.ThemeMode
+import com.pirorin215.fastrecmob.data.TranscriptionResult
+import com.pirorin215.fastrecmob.service.BleScanService
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.pirorin215.fastrecmob.viewModel.LocationMonitor
-import com.pirorin215.fastrecmob.data.AppSettingsRepository
-import com.pirorin215.fastrecmob.data.LastKnownLocationRepository
-import com.pirorin215.fastrecmob.data.TranscriptionResult
-import com.pirorin215.fastrecmob.data.TranscriptionResultRepository
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.emptyFlow
-import com.pirorin215.fastrecmob.data.ThemeMode
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull // Add this import
-import com.pirorin215.fastrecmob.viewModel.LogManager
 
-
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-
-@OptIn(ExperimentalCoroutinesApi::class)
 @SuppressLint("MissingPermission")
 class MainViewModel(
-    private val application: Application,
-    private val appSettingsRepository: AppSettingsRepository,
-    private val transcriptionResultRepository: TranscriptionResultRepository, // Keep this
-    private val lastKnownLocationRepository: LastKnownLocationRepository,
-    private val repository: com.pirorin215.fastrecmob.data.BleRepository,
-    private val connectionStateFlow: StateFlow<String>,
-    private val onDeviceReadyEvent: SharedFlow<Unit>,
-    private val logManager: LogManager,
-    private val locationTracker: com.pirorin215.fastrecmob.LocationTracker,
-    private val bleConnectionManager: BleConnectionManager
+    private val application: Application
 ) : ViewModel() {
 
     companion object {
         const val TAG = "MainViewModel"
     }
 
-    private val appSettingsAccessor: AppSettingsAccessor by lazy {
-        AppSettingsViewModelDelegate(appSettingsRepository, viewModelScope)
-    }
+    private val mainApplication = application as MainApplication
 
-    val apiKey: StateFlow<String> = appSettingsAccessor.apiKey
-    val refreshIntervalSeconds: StateFlow<Int> = appSettingsAccessor.refreshIntervalSeconds
-    val transcriptionCacheLimit: StateFlow<Int> = appSettingsAccessor.transcriptionCacheLimit
-    val transcriptionFontSize: StateFlow<Int> = appSettingsAccessor.transcriptionFontSize
-    val audioDirName: StateFlow<String> = appSettingsAccessor.audioDirName
-    val themeMode: StateFlow<ThemeMode> = appSettingsAccessor.themeMode
-    val googleTodoListName: StateFlow<String> = appSettingsAccessor.googleTodoListName
-    val googleTaskTitleLength: StateFlow<Int> = appSettingsAccessor.googleTaskTitleLength
-    val googleTasksSyncIntervalMinutes: StateFlow<Int> = appSettingsAccessor.googleTasksSyncIntervalMinutes
+    // --- Core components from MainApplication ---
+    private val appSettingsRepository = mainApplication.appSettingsRepository
+    private val transcriptionResultRepository = mainApplication.transcriptionResultRepository
+    private val logManager = mainApplication.logManager
+    private val bleConnectionManager = mainApplication.bleConnectionManager
+    private val bleOrchestrator = mainApplication.bleOrchestrator
+    private val transcriptionManager = mainApplication.transcriptionManager
+    private val bleSelectionManager = mainApplication.bleSelectionManager
+    private val googleTasksIntegration = mainApplication.googleTasksIntegration
+    private val locationMonitor = mainApplication.locationMonitor
+
+    // --- UI State Flows ---
+    val themeMode: StateFlow<ThemeMode> = appSettingsRepository.themeModeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ThemeMode.SYSTEM)
+
+    val transcriptionFontSize: StateFlow<Int> = appSettingsRepository.transcriptionFontSizeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 14)
+
+    val audioDirName: StateFlow<String> = appSettingsRepository.audioDirNameFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "FastRecRecordings")
+
     val showCompletedGoogleTasks: StateFlow<Boolean> = appSettingsRepository.showCompletedGoogleTasksFlow
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
-    init {
-        // Start periodic Google Tasks sync
-        viewModelScope.launch {
-            googleTasksSyncIntervalMinutes.flatMapLatest { minutes ->
-                if (minutes > 0) {
-                    // Create a flow that emits every `minutes`
-                    flow {
-                        while(true) {
-                            delay(minutes * 60 * 1000L)
-                            emit(minutes)
-                        }
-                    }
-                } else {
-                    // If minutes is 0 or less, return an empty flow that does nothing
-                    emptyFlow()
-                }
-            }.collect { minuteValue ->
-                logManager.addLog("Triggering periodic Google Tasks sync ($minuteValue min).")
-                googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
-            }
-        }
-    }
-
-    // --- Google Tasks Manager ---
-    private val googleTasksIntegration: GoogleTasksIntegration by lazy {
-        GoogleTasksManager(
-            application = application,
-            appSettingsRepository = appSettingsRepository,
-            transcriptionResultRepository = transcriptionResultRepository,
-            context = application,
-            scope = viewModelScope,
-            logManager = logManager
-        )
-    }
-
-    // --- Exposing Google Tasks Manager State ---
-    val account: StateFlow<GoogleSignInAccount?> = googleTasksIntegration.account
-    val isLoadingGoogleTasks: StateFlow<Boolean> = googleTasksIntegration.isLoadingGoogleTasks
-    val googleSignInClient: SharedFlow<GoogleSignInClient> = googleTasksIntegration.googleSignInClient
-
-    // --- Google Tasks Delegated Functions ---
-    fun syncTranscriptionResultsWithGoogleTasks() {
-        viewModelScope.launch {
-            googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
-            transcriptionManager.updateLocalAudioFileCount()
-            logManager.addLog("WAV file count updated after Google Tasks sync.")
-        }
-    }
-
-// ...
-    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
-    fun signOut() = googleTasksIntegration.signOut()
-    suspend fun getGoogleSignInIntent(): Intent? = googleTasksIntegration.googleSignInClient.firstOrNull()?.signInIntent
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val transcriptionResults: StateFlow<List<TranscriptionResult>> = transcriptionResultRepository.transcriptionResultsFlow
-        .map { list -> list.filter { !it.isDeletedLocally } } // Filter out soft-deleted items
+        .map { list -> list.filter { !it.isDeletedLocally } }
         .combine(showCompletedGoogleTasks) { list, showCompleted ->
-            if (showCompleted) {
-                list
-            } else {
-                list.filter { !it.isSyncedWithGoogleTasks || it.transcriptionStatus == "FAILED" }
-            }
+            if (showCompleted) list else list.filter { !it.isSyncedWithGoogleTasks || it.transcriptionStatus == "FAILED" }
         }
-        .map { list ->
-            // Sort by creation time, newest first
-            list.sortedByDescending { com.pirorin215.fastrecmob.data.FileUtil.getTimestampFromFileName(it.fileName) }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .map { list -> list.sortedByDescending { com.pirorin215.fastrecmob.data.FileUtil.getTimestampFromFileName(it.fileName) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val transcriptionCount: StateFlow<Int> = transcriptionResults
         .map { it.size }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 0
-        )
-    
-    val logs = logManager.logs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    // --- Audio Player Manager ---
+    val logs = logManager.logs
+    val selectedFileNames = bleSelectionManager.selectedFileNames
+
+    // --- State exposed from orchestrator and managers ---
+    val connectionState: StateFlow<String> = bleConnectionManager.connectionState
+    val currentOperation: StateFlow<BleOperation> = bleOrchestrator.currentOperation
+    val navigationEvent: SharedFlow<NavigationEvent> = bleOrchestrator.navigationEvent
+    val audioFileCount = transcriptionManager.audioFileCount
+    val transcriptionState = transcriptionManager.transcriptionState
+    val transcriptionResult = transcriptionManager.transcriptionResult
+    val fileList: StateFlow<List<FileEntry>> = bleOrchestrator.fileList
+    val deviceInfo: StateFlow<com.pirorin215.fastrecmob.data.DeviceInfoResponse?> = bleOrchestrator.deviceInfo
+    val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> = bleOrchestrator.deviceSettings
+    val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> = bleOrchestrator.remoteDeviceSettings
+    val settingsDiff: StateFlow<String?> = bleOrchestrator.settingsDiff
+    val isAutoRefreshEnabled: StateFlow<Boolean> = bleOrchestrator.isAutoRefreshEnabled
+    val downloadProgress: StateFlow<Int> = bleOrchestrator.downloadProgress
+    val currentFileTotalSize: StateFlow<Long> = bleOrchestrator.currentFileTotalSize
+    val fileTransferState: StateFlow<String> = bleOrchestrator.fileTransferState
+    val transferKbps: StateFlow<Float> = bleOrchestrator.transferKbps
+    val currentForegroundLocation = locationMonitor.currentForegroundLocation
+    
+    // --- Audio Player Manager (scoped to ViewModel) ---
     private val audioPlayerManager: AudioPlayerManager by lazy {
         AudioPlayerManager(application)
     }
     val currentlyPlayingFile: StateFlow<String?> = audioPlayerManager.currentlyPlayingFile
 
-
-
-    // --- Location Monitor ---
-    private val locationMonitor: LocationTracking by lazy {
-        LocationMonitor(application, viewModelScope, lastKnownLocationRepository, logManager)
+    // --- Google Tasks State & Methods ---
+    val account: StateFlow<GoogleSignInAccount?> = googleTasksIntegration.account
+    val isLoadingGoogleTasks: StateFlow<Boolean> = googleTasksIntegration.isLoadingGoogleTasks
+    fun handleSignInResult(intent: Intent, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) = googleTasksIntegration.handleSignInResult(intent, onSuccess, onFailure)
+    fun signOut() = googleTasksIntegration.signOut()
+    suspend fun getGoogleSignInIntent(): Intent? = googleTasksIntegration.googleSignInClient.firstOrNull()?.signInIntent
+    fun syncTranscriptionResultsWithGoogleTasks() = viewModelScope.launch {
+        googleTasksIntegration.syncTranscriptionResultsWithGoogleTasks(audioDirName.value)
     }
 
-    // --- Transcription Manager ---
-    val transcriptionManager: TranscriptionManagement by lazy {
-        TranscriptionManager(
-            context = application,
-            scope = viewModelScope,
-            appSettingsRepository = appSettingsRepository,
-            transcriptionResultRepository = transcriptionResultRepository,
-            currentForegroundLocationFlow = locationMonitor.currentForegroundLocation,
-            audioDirNameFlow = audioDirName,
-            transcriptionCacheLimitFlow = transcriptionCacheLimit,
-            logManager = logManager,
-            googleTaskTitleLengthFlow = appSettingsAccessor.googleTaskTitleLength, // Pass the new parameter
-            googleTasksIntegration = googleTasksIntegration,
-            locationTracker = locationTracker
-        )
-    }
-
-    private val bleSelectionManager: BleSelectionManager by lazy {
-        BleSelectionManager(
-            logManager = logManager
-        )
-    }
-
-    val selectedFileNames = bleSelectionManager.selectedFileNames
-
-    // --- Methods delegated to Selection Manager ---
-    fun toggleSelection(fileName: String) = bleSelectionManager.toggleSelection(fileName)
-    fun clearSelection() = bleSelectionManager.clearSelection()
-
-    // --- BLE Orchestrator ---
-    private val bleOrchestrator by lazy {
-        BleOrchestrator(
-            scope = viewModelScope,
-            context = application,
-            repository = repository,
-            connectionStateFlow = connectionStateFlow,
-            onDeviceReadyEvent = onDeviceReadyEvent,
-            transcriptionManager = transcriptionManager,
-            locationMonitor = locationMonitor,
-            appSettingsRepository = appSettingsRepository,
-            bleSelectionManager = bleSelectionManager,
-            transcriptionResults = transcriptionResults, // Pass ViewModel's transcriptionResults
-            logManager = logManager
-        )
-    }
-
-    // --- State exposed from orchestrator and managers ---
-    // val logs = bleOrchestrator.logs // Commented out as ViewModel has its own logs
-    val currentOperation: StateFlow<BleOperation> = bleOrchestrator.currentOperation
-    val navigationEvent: SharedFlow<NavigationEvent> = bleOrchestrator.navigationEvent
-    val connectionState: StateFlow<String> = connectionStateFlow
-    
-    val audioFileCount = transcriptionManager.audioFileCount
-    val transcriptionState = transcriptionManager.transcriptionState
-    val transcriptionResult = transcriptionManager.transcriptionResult
-
-    val fileList: StateFlow<List<com.pirorin215.fastrecmob.data.FileEntry>> = bleOrchestrator.fileList
-    val deviceInfo: StateFlow<com.pirorin215.fastrecmob.data.DeviceInfoResponse?> = bleOrchestrator.deviceInfo
-    val deviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings> = bleOrchestrator.deviceSettings
-    val remoteDeviceSettings: StateFlow<com.pirorin215.fastrecmob.data.DeviceSettings?> = bleOrchestrator.remoteDeviceSettings
-    val settingsDiff: StateFlow<String?> = bleOrchestrator.settingsDiff
-
-    val isAutoRefreshEnabled: StateFlow<Boolean> = bleOrchestrator.isAutoRefreshEnabled
-
-
-    val downloadProgress: StateFlow<Int> = bleOrchestrator.downloadProgress
-    val currentFileTotalSize: StateFlow<Long> = bleOrchestrator.currentFileTotalSize
-    val fileTransferState: StateFlow<String> = bleOrchestrator.fileTransferState
-    val transferKbps: StateFlow<Float> = bleOrchestrator.transferKbps
-
-    // --- Location Monitor Delegation ---
-    val currentForegroundLocation = locationMonitor.currentForegroundLocation
-    fun startLowPowerLocationUpdates() = locationMonitor.startLowPowerLocationUpdates()
-    fun stopLowPowerLocationUpdates() = locationMonitor.stopLowPowerLocationUpdates()
-
-    // --- Methods delegated to Orchestrator ---
+    // --- Methods delegated to orchestrator and managers ---
     fun setAutoRefresh(enabled: Boolean) = bleOrchestrator.setAutoRefresh(enabled)
     fun fetchFileList(extension: String = "wav") = bleOrchestrator.fetchFileList(extension)
     suspend fun getSettings() = bleOrchestrator.getSettings()
@@ -267,35 +118,33 @@ class MainViewModel(
     fun updateSettings(updater: (com.pirorin215.fastrecmob.data.DeviceSettings) -> com.pirorin215.fastrecmob.data.DeviceSettings) = bleOrchestrator.updateSettings(updater)
     fun downloadFile(fileName: String) = bleOrchestrator.downloadFile(fileName)
     fun sendCommand(command: String) = bleOrchestrator.sendCommand(command)
-    fun clearLogs() = bleOrchestrator.clearLogs() // This will call orchestrator's clearLogs, which in turn logs to ViewModel's addLog
+    fun clearLogs() = logManager.clearLogs()
     fun forceReconnectBle() = bleConnectionManager.forceReconnect()
+    fun toggleSelection(fileName: String) = bleSelectionManager.toggleSelection(fileName)
+    fun clearSelection() = bleSelectionManager.clearSelection()
+
+    // --- Location Monitor Delegation ---
+    fun startLowPowerLocationUpdates() = locationMonitor.startLowPowerLocationUpdates()
+    fun stopLowPowerLocationUpdates() = locationMonitor.stopLowPowerLocationUpdates()
 
     // --- Methods delegated to Transcription Manager ---
     fun resetTranscriptionState() = transcriptionManager.resetTranscriptionState()
     fun playAudioFile(transcriptionResult: TranscriptionResult) {
-        val fileToPlay = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(application, audioDirName.value, transcriptionResult.fileName)
-        if (fileToPlay.exists()) {
-            audioPlayerManager.play(fileToPlay.absolutePath)
-            logManager.addLog("Audio playback requested for: ${transcriptionResult.fileName}")
-        } else {
-            logManager.addLog("Error: Audio file not found for playback: ${transcriptionResult.fileName}")
+        viewModelScope.launch {
+            val audioDir = appSettingsRepository.audioDirNameFlow.firstOrNull() ?: "FastRecRecordings"
+            val fileToPlay = com.pirorin215.fastrecmob.data.FileUtil.getAudioFile(application, audioDir, transcriptionResult.fileName)
+            if (fileToPlay.exists()) {
+                audioPlayerManager.play(fileToPlay.absolutePath)
+                logManager.addLog("Audio playback requested for: ${transcriptionResult.fileName}")
+            } else {
+                logManager.addLog("Error: Audio file not found for playback: ${transcriptionResult.fileName}")
+            }
         }
     }
-
     fun stopAudioFile() {
         audioPlayerManager.stop()
         logManager.addLog("Audio playback stopped.")
     }
-
-    override fun onCleared() {
-        super.onCleared()
-        audioPlayerManager.release() // Release MediaPlayer resources
-        bleOrchestrator.stop()
-        transcriptionManager.onCleared()
-        locationMonitor.onCleared()
-        Log.d(TAG, "ViewModel cleared, resources released.")
-    }
-
     fun clearTranscriptionResults() = transcriptionManager.clearTranscriptionResults()
     fun removeTranscriptionResult(result: TranscriptionResult) = transcriptionManager.removeTranscriptionResult(result)
     fun updateTranscriptionResult(originalResult: TranscriptionResult, newTranscription: String, newNote: String?) = transcriptionManager.updateTranscriptionResult(originalResult, newTranscription, newNote)
@@ -306,4 +155,37 @@ class MainViewModel(
     }
     fun retranscribe(result: TranscriptionResult) = transcriptionManager.retranscribe(result)
     fun addManualTranscription(text: String) = transcriptionManager.addManualTranscription(text)
+    
+    fun stopAppServices() {
+        Log.d(TAG, "Stopping all app services...")
+        // Stop BLE connection and release resources
+        bleConnectionManager.disconnect()
+        bleConnectionManager.close()
+        
+        // Stop the background BLE scanning service
+        val serviceIntent = Intent(application, BleScanService::class.java)
+        application.stopService(serviceIntent)
+        Log.d(TAG, "BleScanService stopped.")
+
+        // Stop transcription processes and release resources
+        transcriptionManager.resetTranscriptionState()
+        Log.d(TAG, "TranscriptionManager state reset.")
+
+        // Stop location updates
+        locationMonitor.stopLowPowerLocationUpdates()
+        Log.d(TAG, "Location updates stopped.")
+
+        // Stop audio playback and release resources
+        audioPlayerManager.stop()
+        audioPlayerManager.release()
+        Log.d(TAG, "Audio player released.")
+
+        logManager.addLog("All services stopped. App is shutting down.")
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        audioPlayerManager.release() // Release player resources
+        Log.d(TAG, "ViewModel cleared.")
+    }
 }

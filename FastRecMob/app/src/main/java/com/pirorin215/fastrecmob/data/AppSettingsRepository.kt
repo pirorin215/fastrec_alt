@@ -29,6 +29,7 @@ class AppSettingsRepository(private val context: Context) {
         val GOOGLE_TASK_TITLE_LENGTH = intPreferencesKey("google_task_title_length")
         val GOOGLE_TASKS_SYNC_INTERVAL_MINUTES = intPreferencesKey("google_tasks_sync_interval_minutes")
         val SHOW_COMPLETED_GOOGLE_TASKS = booleanPreferencesKey("show_completed_google_tasks")
+        val AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot") // New preference key
     }
 
     // APIキーの変更を監視するためのFlow
@@ -91,6 +92,12 @@ class AppSettingsRepository(private val context: Context) {
     val showCompletedGoogleTasksFlow: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.SHOW_COMPLETED_GOOGLE_TASKS] ?: false
+        }
+    
+    // 自動起動設定の変更を監視するためのFlow (New)
+    val autoStartOnBootFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.AUTO_START_ON_BOOT] ?: false // Default to false
         }
 
     // APIキーを保存するsuspend関数
@@ -156,6 +163,13 @@ class AppSettingsRepository(private val context: Context) {
     suspend fun saveShowCompletedGoogleTasks(show: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SHOW_COMPLETED_GOOGLE_TASKS] = show
+        }
+    }
+    
+    // 自動起動設定を保存するsuspend関数 (New)
+    suspend fun saveAutoStartOnBoot(enable: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.AUTO_START_ON_BOOT] = enable
         }
     }
 

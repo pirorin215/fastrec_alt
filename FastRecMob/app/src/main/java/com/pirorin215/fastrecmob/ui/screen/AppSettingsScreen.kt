@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch // Import Switch
+import androidx.compose.material3.SwitchDefaults // Import SwitchDefaults
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
@@ -53,6 +55,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     val currentFontSize by appSettingsViewModel.transcriptionFontSize.collectAsState()
     val currentThemeMode by appSettingsViewModel.themeMode.collectAsState()
     val currentGoogleTaskTitleLength by appSettingsViewModel.googleTaskTitleLength.collectAsState()
+    val currentAutoStartOnBoot by appSettingsViewModel.autoStartOnBoot.collectAsState() // New: Auto-start setting
 
 
     // TextFieldの状態を管理
@@ -62,7 +65,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
     var fontSizeSliderValue by remember(currentFontSize) { mutableStateOf(currentFontSize.toFloat()) }
     var selectedThemeMode by remember(currentThemeMode) { mutableStateOf(currentThemeMode) }
     var googleTaskTitleLengthText by remember(currentGoogleTaskTitleLength) { mutableStateOf(currentGoogleTaskTitleLength.toString()) }
-
+    var autoStartOnBootChecked by remember(currentAutoStartOnBoot) { mutableStateOf(currentAutoStartOnBoot) } // New: Auto-start checked state
 
 
     Scaffold(
@@ -147,6 +150,21 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
             }
             Spacer(modifier = Modifier.height(16.dp))
 
+            // New: Auto-start on boot setting
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("OS起動時に自動開始", fontSize = 16.sp)
+                Switch(
+                    checked = autoStartOnBootChecked,
+                    onCheckedChange = { autoStartOnBootChecked = it },
+                    colors = SwitchDefaults.colors()
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
             Button(
                 onClick = {
                     appSettingsViewModel.saveApiKey(apiKeyText)
@@ -160,6 +178,7 @@ fun AppSettingsScreen(appSettingsViewModel: AppSettingsViewModel, onBack: () -> 
                     appSettingsViewModel.saveThemeMode(selectedThemeMode)
                     val googleTaskTitleLength = googleTaskTitleLengthText.toIntOrNull() ?: 20
                     appSettingsViewModel.saveGoogleTaskTitleLength(googleTaskTitleLength)
+                    appSettingsViewModel.saveAutoStartOnBoot(autoStartOnBootChecked) // New: Save auto-start setting
 
                     onBack() // 保存後に前の画面に戻る
                 },

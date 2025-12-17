@@ -95,6 +95,13 @@ class AppSettingsViewModel(
             initialValue = false
         )
 
+    val autoStartOnBoot: StateFlow<Boolean> = appSettingsRepository.autoStartOnBootFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
     fun saveApiKey(apiKey: String) {
         viewModelScope.launch {
             appSettingsRepository.saveApiKey(apiKey)
@@ -151,6 +158,12 @@ class AppSettingsViewModel(
     fun saveShowCompletedGoogleTasks(show: Boolean) {
         viewModelScope.launch {
             appSettingsRepository.saveShowCompletedGoogleTasks(show)
+        }
+    }
+
+    fun saveAutoStartOnBoot(enable: Boolean) {
+        viewModelScope.launch {
+            appSettingsRepository.saveAutoStartOnBoot(enable)
         }
     }
 

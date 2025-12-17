@@ -39,48 +39,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         setContent {
             val context = LocalContext.current
             val application = context.applicationContext as Application
-            val appSettingsRepository = AppSettingsRepository(application)
-            val lastKnownLocationRepository = LastKnownLocationRepository(application)
-            val bleRepository = com.pirorin215.fastrecmob.data.BleRepository(application)
-            val logManager = com.pirorin215.fastrecmob.viewModel.LogManager()
-            val locationTracker = LocationTracker(application)
 
-            val scope = rememberCoroutineScope() // Moved inside setContent
-
-            // These flows will be managed by BleConnectionManager and observed by MainViewModel
-            val connectionStateMutableFlow = remember { MutableStateFlow("Disconnected") }
-            val onDeviceReadyMutableEvent = remember { MutableSharedFlow<Unit>() }
-
-            val bleConnectionManager = remember {
-                BleConnectionManager(
-                    context = application,
-                    scope = scope, // Use the Composable scope
-                    repository = bleRepository,
-                    logManager = logManager,
-                    _connectionStateFlow = connectionStateMutableFlow,
-                    _onDeviceReadyEvent = onDeviceReadyMutableEvent
+            // ViewModelの生成をFactoryに集約
+            val mainViewModel: MainViewModel = viewModel(factory = MainViewModelFactory(application))
+            val appSettingsViewModel: AppSettingsViewModel = viewModel(
+                factory = AppSettingsViewModelFactory(
+                    application,
+                    (application as MainApplication).appSettingsRepository,
+                    (application as MainApplication).transcriptionManager
                 )
-            }
-
-            // ViewModels are created here to scope them to the Activity
-            val mainViewModelFactory = MainViewModelFactory(
-                appSettingsRepository,
-                lastKnownLocationRepository,
-                application,
-                bleRepository,
-                connectionStateMutableFlow, // Pass the mutable flow (as StateFlow)
-                onDeviceReadyMutableEvent, // Pass the mutable shared flow (as SharedFlow)
-                logManager,
-                locationTracker,
-                bleConnectionManager
             )
-            val mainViewModel: MainViewModel = viewModel(factory = mainViewModelFactory)
-
-            val appSettingsViewModelFactory = AppSettingsViewModelFactory(application, appSettingsRepository, mainViewModel.transcriptionManager)
-            val appSettingsViewModel: AppSettingsViewModel = viewModel(factory = appSettingsViewModelFactory)
 
             val themeMode by mainViewModel.themeMode.collectAsState()
 
@@ -95,9 +67,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Stop service when app is destroyed (if that's the desired behavior)
-        val serviceIntent = Intent(this, BleScanService::class.java)
-        stopService(serviceIntent)
+        // バックグラウンドで処理を継続させるため、Activity破棄時にサービスを停止しないように変更
+        // val serviceIntent = Intent(this, BleScanService::class.java)
+        // stopService(serviceIntent)
     }
 }
 

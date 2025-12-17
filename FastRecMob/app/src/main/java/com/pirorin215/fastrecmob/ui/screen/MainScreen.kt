@@ -28,6 +28,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pirorin215.fastrecmob.viewModel.AppSettingsViewModel
 import com.pirorin215.fastrecmob.viewModel.BleOperation
+import com.pirorin215.fastrecmob.service.BleScanService
 import com.pirorin215.fastrecmob.viewModel.MainViewModel
 // import com.pirorin215.fastrecmob.viewModel.DeviceStatusViewModel // Removed
 import kotlinx.coroutines.launch
@@ -157,23 +158,32 @@ fun MainScreen(
                                     text = if (connectionState == "Connected") "（接続中）" else "（未接続）",
                                     style = MaterialTheme.typography.titleMedium
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = {
+                                        viewModel.stopAppServices()
+                                        (context as? Activity)?.finish()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Stop, contentDescription = "Stop App")
+                                }
+                                Spacer(modifier = Modifier.width(24.dp))
+                                IconButton(
+                                    onClick = {
+                                        viewModel.forceReconnectBle()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Autorenew, contentDescription = "Force Reconnect BLE")
+                                }
+                                Spacer(modifier = Modifier.width(24.dp))
                                 IconButton(
                                     onClick = {
                                         showLastKnownLocationScreen = true
                                     },
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(32.dp)
                                 ) {
                                     Icon(Icons.Default.LocationOn, contentDescription = "Show Last Known Location")
-                                }
-                                Spacer(modifier = Modifier.width(8.dp)) // Add this line for spacing
-                                IconButton(
-                                    onClick = {
-                                        viewModel.forceReconnectBle() // Use viewModel
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(Icons.Default.Autorenew, contentDescription = "Force Reconnect BLE")
                                 }
                             }
                         },

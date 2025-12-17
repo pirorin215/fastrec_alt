@@ -31,6 +31,8 @@ class BleConnectionManager(
     private val _onDeviceReadyEvent: MutableSharedFlow<Unit>
 ) {
 
+    val connectionState = _connectionStateFlow.asStateFlow()
+
     companion object {
         const val DEVICE_NAME = "fastrec"
     }
