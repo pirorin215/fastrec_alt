@@ -23,6 +23,33 @@ void writeWavHeader(File& file, uint32_t dataSize) {
   file.write((uint8_t*)&header, sizeof(WavHeader));
 }
 
+void writeWavHeaderADPCM(File& file) {
+    AdpcmWavHeader header;
+    const int samplesPerBlock = 505;
+    const int blockAlign = 256;
+
+    memcpy(header.riff, "RIFF", 4);
+    header.chunkSize = 0; // Update later
+    memcpy(header.wave, "WAVE", 4);
+    memcpy(header.fmt, "fmt ", 4);
+    header.subchunk1Size = 20;
+    header.audioFormat = 0x0011; // IMA ADPCM
+    header.numChannels = 1;
+    header.sampleRate = I2S_SAMPLE_RATE;
+    header.byteRate = (long)(I2S_SAMPLE_RATE * blockAlign + samplesPerBlock - 1) / samplesPerBlock;
+    header.blockAlign = blockAlign;
+    header.bitsPerSample = 4;
+    header.extraDataSize = 2;
+    header.samplesPerBlock = samplesPerBlock;
+    memcpy(header.fact, "fact", 4);
+    header.factChunkSize = 4;
+    header.totalSamples = 0; // Update later
+    memcpy(header.data, "data", 4);
+    header.subchunk2Size = 0; // Update later
+
+    file.write((uint8_t*)&header, sizeof(AdpcmWavHeader));
+}
+
 // Function to update the WAV header with the actual data size
 void updateWavHeader(File& file, uint32_t dataSize) {
   uint32_t chunkSize = dataSize + 36;
@@ -32,6 +59,16 @@ void updateWavHeader(File& file, uint32_t dataSize) {
   file.write((uint8_t*)&chunkSize, 4);
   file.seek(40);  // Seek to subchunk2Size
   file.write((uint8_t*)&subchunk2Size, 4);
+}
+
+void updateWavHeaderADPCM(File& file, uint32_t dataSize, uint32_t totalSamples) {
+    uint32_t chunkSize = dataSize + sizeof(AdpcmWavHeader) - 8;
+    file.seek(offsetof(AdpcmWavHeader, chunkSize));
+    file.write((uint8_t*)&chunkSize, 4);
+    file.seek(offsetof(AdpcmWavHeader, totalSamples));
+    file.write((uint8_t*)&totalSamples, 4);
+    file.seek(offsetof(AdpcmWavHeader, subchunk2Size));
+    file.write((uint8_t*)&dataSize, 4);
 }
 
 void initI2SMicrophone() {
@@ -99,6 +136,8 @@ void startRecording() {
   xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
   g_buffer_head = 0;
   g_buffer_tail = 0;
+  g_adpcm_state = ImaAdpcmState();
+  g_totalSamplesRecorded = 0;
   xSemaphoreGive(g_buffer_mutex);
   g_is_buffering = true; // Signal I2S task to start buffering
 
@@ -117,22 +156,47 @@ void startRecording() {
     return;
   }
 
-  writeWavHeader(g_audioFile, 0); // Write a placeholder header
+  if (USE_ADPCM) {
+    writeWavHeaderADPCM(g_audioFile);
+  } else {
+    writeWavHeader(g_audioFile, 0); // Write a placeholder header
+  }
   g_audioFileCount = countAudioFiles();
 
   g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
   g_totalBytesRecorded = 0;
+  
+  xTaskCreatePinnedToCore(audio_writer_task, "AudioWriterTask", 4096, NULL, 5, &g_audio_writer_task_handle, 0);
 }
 
 void stopRecording() {
   applog("Stopping recording...");
-  g_is_buffering = false; // Signal I2S task to stop writing to the buffer
-  
-  flushAudioBufferToFile(); // Write any remaining data from the buffer to the file
+  g_is_buffering = false; // Signal I2S & writer task to stop
+
+  // Wait for writer task to finish processing the buffer
+  if (g_audio_writer_task_handle != NULL) {
+      unsigned long wait_start = millis();
+      while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 2000)) {
+          vTaskDelay(pdMS_TO_TICKS(50));
+      }
+      if (g_audio_writer_task_handle != NULL) {
+          applog("Audio writer task did not terminate, deleting it.");
+          vTaskDelete(g_audio_writer_task_handle);
+          g_audio_writer_task_handle = NULL;
+          // Force flush if task was deleted
+          if (g_buffer_head != g_buffer_tail) {
+              if(USE_ADPCM) flushAudioBufferToFileADPCM(); else flushAudioBufferToFile();
+          }
+      }
+  }
 
   onboard_led(false);
   if (g_audioFile) {
-    updateWavHeader(g_audioFile, g_totalBytesRecorded);
+    if (USE_ADPCM) {
+      updateWavHeaderADPCM(g_audioFile, g_totalBytesRecorded, g_totalSamplesRecorded);
+    } else {
+      updateWavHeader(g_audioFile, g_totalBytesRecorded);
+    }
     g_audioFile.close();
     applog("File closed. Total bytes recorded: %u", g_totalBytesRecorded);
     finalizeRecording(); // Check file size and delete if too short
@@ -210,8 +274,10 @@ void i2s_read_task(void *pvParameters) { // check_unused:ignore
 }
 
 void updateMinAudioFileSize() {
-  // Assuming 16-bit, mono audio, plus 44-byte WAV header
-  // bitsPerSample is 16, numChannels is 1
-  MIN_AUDIO_FILE_SIZE_BYTES = (size_t)REC_MIN_S * I2S_SAMPLE_RATE * (16 / 8) * 1 + 44;
+  if (USE_ADPCM) {
+    MIN_AUDIO_FILE_SIZE_BYTES = (size_t)REC_MIN_S * I2S_SAMPLE_RATE / 4 + sizeof(AdpcmWavHeader);
+  } else {
+    MIN_AUDIO_FILE_SIZE_BYTES = (size_t)REC_MIN_S * I2S_SAMPLE_RATE * (16 / 8) * 1 + sizeof(WavHeader);
+  }
   applog("MIN_AUDIO_FILE_SIZE_BYTES updated to: %u bytes (for %d seconds)", MIN_AUDIO_FILE_SIZE_BYTES, REC_MIN_S);
 }

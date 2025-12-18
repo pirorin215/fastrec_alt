@@ -704,6 +704,9 @@ bool loadSettingsFromLittleFS() {
       DEEP_SLEEP_CYCLE_MINUTES = atol(value);
       DEEP_SLEEP_CYCLE_MS = DEEP_SLEEP_CYCLE_MINUTES * 60 * 1000;
       applog("Setting DEEP_SLEEP_CYCLE_MINUTES to %lu (which is %lu ms)", DEEP_SLEEP_CYCLE_MINUTES, DEEP_SLEEP_CYCLE_MS);
+    } else if (strcmp(key, "USE_ADPCM") == 0) {
+      USE_ADPCM = (strcmp(value, "true") == 0);
+      applog("Setting USE_ADPCM to %s", USE_ADPCM ? "true" : "false");
     } else {
       applog("Unknown setting in setting.ini: %s", key);
     }

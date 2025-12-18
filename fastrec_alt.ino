@@ -143,6 +143,62 @@ void writeAudioBufferToFile() {
   xSemaphoreGive(g_buffer_mutex);
 }
 
+// --- ADPCM Block-based Encoding ---
+const int ADPCM_SAMPLES_PER_BLOCK = 505;
+const int ADPCM_BLOCK_SIZE = 256;
+int16_t pcm_block_buffer[ADPCM_SAMPLES_PER_BLOCK];
+int pcm_block_idx = 0;
+
+void encode_and_write_adpcm_block(int16_t* pcm_samples, int num_samples) {
+    uint8_t adpcm_block[ADPCM_BLOCK_SIZE];
+    memset(adpcm_block, 0, ADPCM_BLOCK_SIZE);
+
+    ImaAdpcmState block_state;
+    block_state.predictor = pcm_samples[0];
+    block_state.step_index = 0; // Reset step index for each block
+
+    adpcm_block[0] = block_state.predictor & 0xFF;
+    adpcm_block[1] = (block_state.predictor >> 8) & 0xFF;
+    adpcm_block[2] = block_state.step_index;
+    adpcm_block[3] = 0; // Reserved
+
+    bool high_nibble = true;
+    int adpcm_idx = 4; // Start after header
+    for (int i = 1; i < num_samples; i++) {
+        uint8_t code = ima_adpcm_encode(pcm_samples[i], block_state);
+        if (high_nibble) {
+            adpcm_block[adpcm_idx] = code;
+        } else {
+            adpcm_block[adpcm_idx] |= (code << 4);
+            adpcm_idx++;
+        }
+        high_nibble = !high_nibble;
+    }
+
+    g_audioFile.write(adpcm_block, ADPCM_BLOCK_SIZE);
+    g_totalBytesRecorded += ADPCM_BLOCK_SIZE;
+}
+
+void writeAudioBufferToFileADPCM() {
+    xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+    if (g_buffer_tail == g_buffer_head) {
+        xSemaphoreGive(g_buffer_mutex);
+        return; // No data to write
+    }
+
+    while (g_buffer_tail != g_buffer_head) {
+        pcm_block_buffer[pcm_block_idx++] = g_audio_buffer[g_buffer_tail];
+        g_buffer_tail = (g_buffer_tail + 1) % g_audio_buffer.size();
+        g_totalSamplesRecorded++;
+
+        if (pcm_block_idx == ADPCM_SAMPLES_PER_BLOCK) {
+            encode_and_write_adpcm_block(pcm_block_buffer, ADPCM_SAMPLES_PER_BLOCK);
+            pcm_block_idx = 0; // Reset for next block
+        }
+    }
+    xSemaphoreGive(g_buffer_mutex);
+}
+
 void flushAudioBufferToFile() {
   applog("Flushing audio buffer to file...");
   while (g_buffer_head != g_buffer_tail) {
@@ -150,6 +206,60 @@ void flushAudioBufferToFile() {
     vTaskDelay(pdMS_TO_TICKS(10)); // Give some time for the file write to happen
   }
   applog("Buffer flushed.");
+}
+
+void flushAudioBufferToFileADPCM() {
+  applog("Flushing ADPCM audio buffer to file...");
+  while (g_buffer_head != g_buffer_tail) {
+    writeAudioBufferToFileADPCM();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+
+  // Handle the last partial block
+  if (pcm_block_idx > 0) {
+      applog("Writing last partial block with %d samples.", pcm_block_idx);
+      // Pad the rest of the block with silence (last sample value)
+      for (int i = pcm_block_idx; i < ADPCM_SAMPLES_PER_BLOCK; i++) {
+          pcm_block_buffer[i] = pcm_block_buffer[pcm_block_idx - 1];
+      }
+      encode_and_write_adpcm_block(pcm_block_buffer, pcm_block_idx);
+      pcm_block_idx = 0;
+  }
+  applog("ADPCM Buffer flushed.");
+}
+
+void audio_writer_task(void *pvParameters) {
+    applog("Audio writer task started on core %d", xPortGetCoreID());
+    while (g_is_buffering) {
+        if (g_buffer_head != g_buffer_tail) {
+            if (USE_ADPCM) {
+                writeAudioBufferToFileADPCM();
+            } else {
+                writeAudioBufferToFile();
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    // After buffering stops, drain the remaining samples
+    applog("Draining final audio buffer...");
+    while (g_buffer_head != g_buffer_tail) {
+        if (USE_ADPCM) {
+            writeAudioBufferToFileADPCM();
+        } else {
+            writeAudioBufferToFile();
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    // Final flush for any partial ADPCM block
+    if (USE_ADPCM) {
+        flushAudioBufferToFileADPCM();
+    }
+
+    applog("Audio writer task finished.");
+    g_audio_writer_task_handle = NULL;
+    vTaskDelete(NULL);
 }
 
 void handleIdle() {
@@ -195,10 +305,8 @@ void handleRec() {
     applog("Scheduled stop time reached. Stopping recording.");
     stopRecording();
     g_scheduledStopTimeMillis = 0;  // Reset for next recording
-  } else {
-    // Continuously write buffered data to the file
-    writeAudioBufferToFile();
   }
+  // Writing is now handled by audio_writer_task
   g_lastActivityTime = millis();  // Reset activity timer while recording
 }
 

@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "ima_adpcm.h"
+#include <cstddef>
 
 // GPIO settings
 #define REC_BUTTON_GPIO    GPIO_NUM_1
@@ -41,6 +43,7 @@ float AUDIO_GAIN = 8.0f;
 size_t MIN_AUDIO_FILE_SIZE_BYTES; // Calculated based on REC_MIN_S
 unsigned long MAX_REC_DURATION_MS = REC_MAX_S * 1000;  // Max recording duration in milliseconds
 const size_t I2S_BUFFER_SIZE = 1024; // Defined here as it's a constant
+bool USE_ADPCM = false;
 
 // LittleFS
 const unsigned long MIN_FREE_SPACE_MB = 1;  // Minimum 1MB free space required on LittleFS
@@ -98,6 +101,28 @@ typedef struct {
   uint32_t subchunk2Size;
 } WavHeader;
 
+typedef struct {
+    char     riff[4];
+    uint32_t chunkSize;
+    char     wave[4];
+    char     fmt[4];
+    uint32_t subchunk1Size;
+    uint16_t audioFormat;
+    uint16_t numChannels;
+    uint32_t sampleRate;
+    uint32_t byteRate;
+    uint16_t blockAlign;
+    uint16_t bitsPerSample;
+    uint16_t extraDataSize;
+    uint16_t samplesPerBlock;
+    char     fact[4];
+    uint32_t factChunkSize;
+    uint32_t totalSamples;
+    char     data[4];
+    uint32_t subchunk2Size;
+} AdpcmWavHeader;
+
+
 // --- Global Variables (Declarations only, definitions will remain in .ino) ---
 
 // fastrec_alt
@@ -119,6 +144,9 @@ volatile size_t g_buffer_tail;
 SemaphoreHandle_t g_buffer_mutex;
 TaskHandle_t g_i2s_reader_task_handle;
 volatile bool g_is_buffering;
+TaskHandle_t g_audio_writer_task_handle = NULL;
+ImaAdpcmState g_adpcm_state;
+uint32_t g_totalSamplesRecorded = 0;
 
 File g_audioFile;
 char g_audio_filename[64];
