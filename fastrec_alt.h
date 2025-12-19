@@ -62,6 +62,9 @@ bool VIBRA = true;
 // Other Timings/Debounce
 const unsigned long STATE_CHANGE_DEBOUNCE_MS = 200; // Debounce time for state changes
 
+// BLE Transfer
+
+
 // --- End Configuration Constants ---
 
 // App States
@@ -156,6 +159,7 @@ uint32_t g_totalBytesRecorded = 0;
 // ble setting
 volatile bool g_start_file_transfer = false;
 std::string g_file_to_transfer_name;
+int g_chunk_burst_size = 8; 
 std::string g_lastBleCommand;
 
 // Function Prototypes ---

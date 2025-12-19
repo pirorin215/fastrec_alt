@@ -82,17 +82,39 @@ void transferFileChunked() {
           break;
         }
 
-        bytesRead = file.read(buffer, chunkSize);
-        if (bytesRead <= 0) {
-          break;  // End of file
+        int chunksSentInBurst = 0;
+        bool eofReachedInBurst = false;
+          int chunk_burst_size_local = g_chunk_burst_size;
+  for (int i = 0; i < chunk_burst_size_local; ++i) {
+          bytesRead = file.read(buffer, chunkSize);
+          if (bytesRead <= 0) {
+            eofReachedInBurst = true;
+            break;  // End of file
+          }
+          chunksSentInBurst++;
+
+          pResponseCharacteristic->setValue(buffer, bytesRead);
+          while (!pResponseCharacteristic->notify()) {
+            delay(10); // Wait a bit for the buffer to clear
+          }
+          delay(10); // Add a small delay between burst packets to prevent client-side reordering
         }
 
-        pResponseCharacteristic->setValue(buffer, bytesRead);
-        pResponseCharacteristic->notify();
+        if (chunksSentInBurst == 0) {
+          break; // No more data to send
+        }
 
+        // If we reached the end of the file in this burst, don't wait for the final ACK.
+        // Break out and send EOF. The client will receive the last data and then the EOF.
+        if (eofReachedInBurst) {
+          break;
+        }
+
+        // After sending the burst, wait for a single ACK.
+        xSemaphoreTake(ackSemaphore, 0);  // Clear any pending (stale) semaphore
         unsigned long ackWaitStartTime = millis();
         bool ackReceived = false;
-        while (millis() - ackWaitStartTime < 2000) {  // 2-second total timeout for chunk ACK
+        while (millis() - ackWaitStartTime < 2000) {  // 2-second total timeout for burst ACK
           if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
             applog("Recording button pressed during ACK wait. Aborting.");
             transferAborted = true;
@@ -109,13 +131,13 @@ void transferFileChunked() {
         }
 
         if (!ackReceived) {
-          applog("ACK timeout for chunk %d. Aborting file transfer.", chunkIndex);
+          applog("ACK timeout for chunk burst starting at %d. Aborting file transfer.", chunkIndex);
           transferAborted = true;  // Mark as aborted due to timeout
           break;
         }
 
-        chunkIndex++;
-        g_lastActivityTime = millis();  // アクティビティタイマーをリセット
+        chunkIndex += chunksSentInBurst;
+        g_lastActivityTime = millis();  // Reset activity timer
       }
       file.close();
 
@@ -148,10 +170,26 @@ void transferFileChunked() {
 }
 
 // --- Command Handlers ---
-
 static void handle_get_file(const std::string& value) {
-  g_file_to_transfer_name = "/";
-  g_file_to_transfer_name += value.substr(std::string("GET:file:").length());
+  std::string file_info = value.substr(std::string("GET:file:").length());
+  size_t last_colon_pos = file_info.rfind(':');
+
+  if (last_colon_pos != std::string::npos) {
+    // CHUNK_BURST_SIZE is provided
+    std::string filename_str = file_info.substr(0, last_colon_pos);
+    std::string chunk_burst_size_str = file_info.substr(last_colon_pos + 1);
+    g_file_to_transfer_name = "/";
+    g_file_to_transfer_name += filename_str;
+    g_chunk_burst_size = atoi(chunk_burst_size_str.c_str());
+    if (g_chunk_burst_size <= 0) { // Ensure it's a valid number
+      g_chunk_burst_size = 8; // Default if invalid
+    }
+  } else {
+    // CHUNK_BURST_SIZE is not provided, use default and entire string as filename
+    g_file_to_transfer_name = "/";
+    g_file_to_transfer_name += file_info;
+    g_chunk_burst_size = 8; // Default value
+  }
   g_start_file_transfer = true;
 }
 
@@ -707,6 +745,7 @@ bool loadSettingsFromLittleFS() {
     } else if (strcmp(key, "USE_ADPCM") == 0) {
       USE_ADPCM = (strcmp(value, "true") == 0);
       applog("Setting USE_ADPCM to %s", USE_ADPCM ? "true" : "false");
+
     } else {
       applog("Unknown setting in setting.ini: %s", key);
     }

@@ -6,6 +6,7 @@ import argparse
 import sys
 import tty
 import termios
+from datetime import datetime
 from bleak import BleakClient, BleakScanner
 from bleak.backends.characteristic import BleakGATTCharacteristic
 
@@ -29,14 +30,19 @@ DEVICE_ADDRESS = None # Global device address
 g_total_file_size_for_transfer = 0 
 file_transfer_start_time = 0.0
 
+# For ACK chunking
+g_ack_chunk_size = 1 # Default to 1 (ACK every chunk)
+received_chunk_count_for_ack = 0
+
 # Notification handler function
 async def notification_handler(characteristic: BleakGATTCharacteristic, data: bytearray):
     global received_response_data, is_receiving_file, g_client, total_received_bytes
-    global g_total_file_size_for_transfer, file_transfer_start_time
+    global g_total_file_size_for_transfer, file_transfer_start_time, received_chunk_count_for_ack, g_ack_chunk_size
     if is_receiving_file:
         if data == b'START':
             print("Received START signal.")
             start_transfer_event.set()
+            received_chunk_count_for_ack = 0 # Reset chunk counter for new transfer
         elif data == b'EOF' or data.startswith(b'ERROR:'):  # End of file transfer or error
             if data.startswith(b'ERROR:'):
                 print(f"\n{RED}マイコンからエラーを受信: {data.decode()}{RESET}")
@@ -45,8 +51,11 @@ async def notification_handler(characteristic: BleakGATTCharacteristic, data: by
             response_event.set()
             g_total_file_size_for_transfer = 0 # Reset after transfer
             file_transfer_start_time = 0.0 # Reset start time
+            received_chunk_count_for_ack = 0 # Reset after transfer
         else:
             total_received_bytes += len(data) # Update total received bytes
+            received_response_data.extend(data)
+            received_chunk_count_for_ack += 1
             
             elapsed_time = time.time() - file_transfer_start_time
             kbps = 0.0
@@ -60,9 +69,9 @@ async def notification_handler(characteristic: BleakGATTCharacteristic, data: by
             else:
                 print(f"\r受信: {total_received_bytes} byte, {kbps:.2f} kbps, {elapsed_time:.0f} sec", end="", flush=True)
 
-            received_response_data.extend(data)
-            if g_client:
+            if g_client and (received_chunk_count_for_ack % g_ack_chunk_size == 0):
                 await g_client.write_gatt_char(ACK_UUID, b'ACK', response=True)
+                received_chunk_count_for_ack = 0 # Reset after sending ACK to count for the next batch
     else:
         received_response_data = data
         response_event.set()
@@ -291,6 +300,23 @@ async def get_device_info(verbose: bool = False, silent: bool = False):
             print(f"{RED}各種情報の取得に失敗しました。{RESET}")
         return None
 
+async def synchronize_time(verbose: bool = False):
+    print("デバイスの時刻を同期中...")
+    current_time = datetime.now()
+    # Calculate Unix timestamp (seconds since epoch)
+    # Convert datetime object to Unix timestamp
+    unix_timestamp = int(current_time.timestamp())
+    
+    # Change command prefix from CMD:set_time: to SET:time:
+    command = f"SET:time:{unix_timestamp}"
+    
+    response = await run_ble_command(command, verbose)
+    if response:
+        print(f"{GREEN}時刻同期コマンドがデバイスに送信されました。デバイスからの応答: {response}{RESET}")
+    else:
+        print(f"{RED}時刻同期に失敗しました。{RESET}")
+
+
 async def list_files(extension: str, verbose: bool = False):
     """Executes GET:ls command and prints the result."""
     if not extension:
@@ -327,9 +353,10 @@ async def list_files(extension: str, verbose: bool = False):
         print(f"{RED}エラー: 受信した情報がJSON形式ではありません。{RESET}")
     
 
-async def get_file_from_device(file_extension_filter: str, verbose: bool = False):
-    global received_chunk_count, g_total_file_size_for_transfer
-    received_chunk_count = 0 
+async def get_file_from_device(file_extension_filter: str, verbose: bool = False, ack_chunk_size: int = 1):
+    global received_chunk_count_for_ack, g_total_file_size_for_transfer, g_ack_chunk_size
+    g_ack_chunk_size = ack_chunk_size # Set the global ACK chunk size
+    received_chunk_count_for_ack = 0 
 
     # Allow users to enter with or without a dot
     ext_for_command = file_extension_filter.replace(".", "")
@@ -386,7 +413,7 @@ async def get_file_from_device(file_extension_filter: str, verbose: bool = False
     g_total_file_size_for_transfer = selected_file_size 
 
     print(f"デバイスから {selected_filename} を要求中... (予想サイズ: {selected_file_size} bytes)")
-    command = f"GET:file:{selected_filename}"
+    command = f"GET:file:{selected_filename}:{g_ack_chunk_size}"
     file_content = await run_ble_command_for_file(command, verbose)
 
     if file_content is not None:
@@ -399,6 +426,83 @@ async def get_file_from_device(file_extension_filter: str, verbose: bool = False
             print(f"{RED}ファイル '{selected_filename}' の保存中にエラーが発生しました: {e}{RESET}")
     else:
         print(f"{RED}{selected_filename} の取得に失敗しました。{RESET}")
+
+async def delete_wav_files(verbose: bool = False):
+    print("WAVファイルを削除します...")
+    
+    # List WAV files first
+    ext_for_command = "wav"
+    command = f"GET:ls:{ext_for_command}"
+    file_list_json_str = await run_ble_command(command, verbose)
+
+    if not file_list_json_str or file_list_json_str.startswith("ERROR:"):
+        print(f"{RED}該当するWAVファイルが見つかりませんでした。({file_list_json_str}){RESET}")
+        return
+
+    try:
+        files_data = json.loads(file_list_json_str)
+    except json.JSONDecodeError:
+        print(f"{RED}エラー: 受信したファイルリストがJSON形式ではありません。{RESET}")
+        return
+
+    if not files_data:
+        print(f"{RED}該当するWAVファイルが見つかりませんでした。{RESET}")
+        return
+
+    print(f"\n削除するファイルを選択してください:")
+    for i, file_entry in enumerate(files_data):
+        name = file_entry.get("name", "N/A")
+        size = file_entry.get("size", 0)
+        print(f"{i + 1}. {name} ({size} bytes)")
+    print("A. 全てのWAVファイルを削除")
+    print("0. キャンセル")
+
+    sys.stdout.write("Enter your choice: ")
+    sys.stdout.flush()
+    choice = getch()
+    print(choice)
+
+    selected_filenames = []
+
+    if choice.lower() == 'a':
+        print(f"{RED}本当に全てのWAVファイルを削除しますか？ (y/N){RESET}")
+        sys.stdout.write("Enter your choice: ")
+        sys.stdout.flush()
+        confirm = getch()
+        print(confirm)
+        if confirm.lower() == 'y':
+            for file_entry in files_data:
+                selected_filenames.append(file_entry.get("name"))
+        else:
+            print("\nキャンセルしました。")
+            return
+    elif choice == '0':
+        print("\nキャンセルしました。")
+        return
+    else:
+        try:
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(files_data):
+                selected_filenames.append(files_data[choice_num - 1].get("name"))
+            else:
+                print(f"{RED}無効な選択です。もう一度お試しください。{RESET}")
+                return
+        except ValueError:
+            print(f"{RED}無効な入力です。もう一度お試しください。{RESET}")
+            return
+            
+    if not selected_filenames:
+        print("削除対象のファイルがありません。")
+        return
+
+    for filename in selected_filenames:
+        print(f"デバイスから {filename} を削除中...")
+        delete_command = f"DEL:file:{filename}"
+        response = await run_ble_command(delete_command, verbose)
+        if response and "OK" in response: # Assuming "OK" for success
+            print(f"{GREEN}{filename} を正常に削除しました。{RESET}")
+        else:
+            print(f"{RED}{filename} の削除に失敗しました: {response}{RESET}")
 
 async def reset_all(verbose: bool = False):
     print(f"\n{RED}デバイスを完全にリセット。続行しますか？ (y/N){RESET}")
@@ -431,6 +535,7 @@ async def reset_all(verbose: bool = False):
 async def main():
     parser = argparse.ArgumentParser(description='BLE Tool for fastrec device. Run without arguments for interactive menu.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output.')
+    parser.add_argument('-a', '--ack-size', type=int, default=1, help='Set the ACK chunk size for file transfers (default: 1).')
     
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
 
@@ -451,6 +556,9 @@ async def main():
 
     args = parser.parse_args()
     verbose = args.verbose
+    
+    global g_ack_chunk_size
+    g_ack_chunk_size = args.ack_size
     
     global g_client
     try:
@@ -476,7 +584,7 @@ async def main():
             elif args.command == 'ls':
                 await list_files(args.extension, verbose)
             elif args.command == 'get':
-                await get_file_from_device(args.extension, verbose)
+                await get_file_from_device(args.extension, verbose, ack_chunk_size=g_ack_chunk_size)
             elif args.command == 'get_ini':
                 await get_setting_ini(verbose)
             elif args.command == 'set_ini':
@@ -497,7 +605,7 @@ async def main():
 
 
 async def main_loop(verbose: bool = False):
-    global g_client
+    global g_client, g_ack_chunk_size
     try:
         print(f"BLEデバイス '{DEVICE_NAME}' をスキャン中...")
         device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=10.0)
@@ -522,7 +630,10 @@ async def main_loop(verbose: bool = False):
             print("3. 録音レコーダの情報取得")
             print("4. 録音レコーダのログファイルを取得")
             print("5. 録音レコーダのWAVファイルを取得")
-            print(f"{RED}6. デバイスの初期化{RESET}")
+            print("6. 録音レコーダのWAVファイルを削除")
+            print("7. 録音レコーダの時刻合わせ")
+            print("8. ACKチャンクサイズを設定")
+            print(f"{RED}9. デバイスの初期化{RESET}")
             print("0. 終了")
             sys.stdout.write("Enter your choice: ")
             sys.stdout.flush()
@@ -536,10 +647,28 @@ async def main_loop(verbose: bool = False):
             elif choice == '3':
                 await get_device_info(verbose)
             elif choice == '4':
-                await get_file_from_device("txt", verbose)
+                await get_file_from_device("txt", verbose, ack_chunk_size=g_ack_chunk_size)
             elif choice == '5':
-                await get_file_from_device("wav", verbose)
+                await get_file_from_device("wav", verbose, ack_chunk_size=g_ack_chunk_size)
             elif choice == '6':
+                await delete_wav_files(verbose)
+            elif choice == '7':
+                await synchronize_time(verbose)
+            elif choice == '8':
+                print(f"ACKチャンクサイズを入力してください (現在の設定: {g_ack_chunk_size}): ", end="")
+                sys.stdout.flush()
+                ack_input = getch()
+                print(ack_input)
+                try:
+                    new_ack_size = int(ack_input)
+                    if new_ack_size > 0:
+                        g_ack_chunk_size = new_ack_size
+                        print(f"ACKチャンクサイズを {g_ack_chunk_size} に設定しました。")
+                    else:
+                        print(f"{RED}無効な入力です。正の整数を入力してください。{RESET}")
+                except ValueError:
+                    print(f"{RED}無効な入力です。数値を入力してください。{RESET}")
+            elif choice == '9':
                 await reset_all(verbose)
             elif choice == '0':
                 print("BLEツールを終了します。")
