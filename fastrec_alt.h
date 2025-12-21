@@ -148,6 +148,18 @@ SemaphoreHandle_t g_buffer_mutex;
 TaskHandle_t g_i2s_reader_task_handle;
 volatile bool g_is_buffering;
 TaskHandle_t g_audio_writer_task_handle = NULL;
+
+// --- New ADPCM buffer for writer task ---
+const int ADPCM_SAMPLES_PER_BLOCK = 505;
+const int ADPCM_BLOCK_SIZE = 256;
+const int ADPCM_BUFFER_BLOCKS = 50; // 50 blocks buffer
+std::vector<uint8_t> g_adpcm_buffer; // VectorCheck:allows
+volatile size_t g_adpcm_buffer_head;
+volatile size_t g_adpcm_buffer_tail;
+SemaphoreHandle_t g_adpcm_buffer_mutex;
+TaskHandle_t g_file_writer_task_handle = NULL;
+// --- End new ADPCM buffer ---
+
 ImaAdpcmState g_adpcm_state;
 uint32_t g_totalSamplesRecorded = 0;
 

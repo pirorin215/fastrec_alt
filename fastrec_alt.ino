@@ -143,19 +143,17 @@ void writeAudioBufferToFile() {
   xSemaphoreGive(g_buffer_mutex);
 }
 
-// --- ADPCM Block-based Encoding ---
-const int ADPCM_SAMPLES_PER_BLOCK = 505;
-const int ADPCM_BLOCK_SIZE = 256;
-int16_t pcm_block_buffer[ADPCM_SAMPLES_PER_BLOCK];
-int pcm_block_idx = 0;
+// --- ADPCM Block-based Encoding (Refactored for dual task) ---
 
-void encode_and_write_adpcm_block(int16_t* pcm_samples, int num_samples) {
+// This function is now only responsible for encoding a block of PCM to ADPCM
+// and pushing it into the intermediate g_adpcm_buffer.
+void encode_and_push_adpcm_block(int16_t* pcm_samples, int num_samples) {
     uint8_t adpcm_block[ADPCM_BLOCK_SIZE];
     memset(adpcm_block, 0, ADPCM_BLOCK_SIZE);
 
     ImaAdpcmState block_state;
     block_state.predictor = pcm_samples[0];
-    block_state.step_index = 0; // Reset step index for each block
+    block_state.step_index = 0;
 
     adpcm_block[0] = block_state.predictor & 0xFF;
     adpcm_block[1] = (block_state.predictor >> 8) & 0xFF;
@@ -174,26 +172,50 @@ void encode_and_write_adpcm_block(int16_t* pcm_samples, int num_samples) {
         }
         high_nibble = !high_nibble;
     }
-
-    g_audioFile.write(adpcm_block, ADPCM_BLOCK_SIZE);
-    g_totalBytesRecorded += ADPCM_BLOCK_SIZE;
+    
+    // --- Push to ADPCM buffer ---
+    xSemaphoreTake(g_adpcm_buffer_mutex, portMAX_DELAY);
+    size_t next_head = (g_adpcm_buffer_head + 1) % ADPCM_BUFFER_BLOCKS;
+    
+    // Wait if the buffer is full
+    while (next_head == g_adpcm_buffer_tail) {
+        xSemaphoreGive(g_adpcm_buffer_mutex);
+        vTaskDelay(pdMS_TO_TICKS(5)); // Wait for the writer task to consume data
+        xSemaphoreTake(g_adpcm_buffer_mutex, portMAX_DELAY);
+        next_head = (g_adpcm_buffer_head + 1) % ADPCM_BUFFER_BLOCKS;
+    }
+    
+    memcpy(&g_adpcm_buffer[g_adpcm_buffer_head * ADPCM_BLOCK_SIZE], adpcm_block, ADPCM_BLOCK_SIZE);
+    g_adpcm_buffer_head = next_head;
+    
+    xSemaphoreGive(g_adpcm_buffer_mutex);
 }
 
-void writeAudioBufferToFileADPCM() {
+// This function is now the core of the audio_encoder_task.
+// It pulls data from the PCM buffer and fills a local block buffer.
+void process_pcm_to_adpcm(int16_t* pcm_block_buffer, int& pcm_block_idx) {
     xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
     if (g_buffer_tail == g_buffer_head) {
         xSemaphoreGive(g_buffer_mutex);
-        return; // No data to write
+        return; // No data to process
     }
 
-    while (g_buffer_tail != g_buffer_head) {
+    while (g_buffer_tail != g_buffer_head && pcm_block_idx < ADPCM_SAMPLES_PER_BLOCK) {
         pcm_block_buffer[pcm_block_idx++] = g_audio_buffer[g_buffer_tail];
         g_buffer_tail = (g_buffer_tail + 1) % g_audio_buffer.size();
         g_totalSamplesRecorded++;
 
         if (pcm_block_idx == ADPCM_SAMPLES_PER_BLOCK) {
-            encode_and_write_adpcm_block(pcm_block_buffer, ADPCM_SAMPLES_PER_BLOCK);
-            pcm_block_idx = 0; // Reset for next block
+            // Release PCM buffer mutex before heavy encoding to avoid holding it for too long
+            xSemaphoreGive(g_buffer_mutex);
+            
+            encode_and_push_adpcm_block(pcm_block_buffer, ADPCM_SAMPLES_PER_BLOCK);
+            
+            // Reset for next block
+            pcm_block_idx = 0; 
+
+            // Re-take mutex to continue processing
+            xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
         }
     }
     xSemaphoreGive(g_buffer_mutex);
@@ -209,52 +231,98 @@ void flushAudioBufferToFile() {
 }
 
 void flushAudioBufferToFileADPCM() {
-  applog("Flushing ADPCM audio buffer to file...");
-  while (g_buffer_head != g_buffer_tail) {
-    writeAudioBufferToFileADPCM();
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-
-  // Handle the last partial block
-  if (pcm_block_idx > 0) {
-      applog("Writing last partial block with %d samples.", pcm_block_idx);
-      // Pad the rest of the block with silence (last sample value)
-      for (int i = pcm_block_idx; i < ADPCM_SAMPLES_PER_BLOCK; i++) {
-          pcm_block_buffer[i] = pcm_block_buffer[pcm_block_idx - 1];
-      }
-      encode_and_write_adpcm_block(pcm_block_buffer, pcm_block_idx);
-      pcm_block_idx = 0;
-  }
-  applog("ADPCM Buffer flushed.");
+  applog("Flushing ADPCM audio buffer is now handled by writer task completion.");
+  // This function is now effectively a no-op. The stopRecording function
+  // will wait for the file_writer_task to finish draining the adpcm_buffer.
 }
 
-void audio_writer_task(void *pvParameters) {
-    applog("Audio writer task started on core %d", xPortGetCoreID());
-    while (g_is_buffering) {
-        if (g_buffer_head != g_buffer_tail) {
-            if (USE_ADPCM) {
-                writeAudioBufferToFileADPCM();
-            } else {
-                writeAudioBufferToFile();
+// New task dedicated to writing encoded ADPCM data from the intermediate buffer to the file
+void file_writer_task(void *pvParameters) {
+    applog("File writer task started on core %d", xPortGetCoreID());
+
+    while (g_is_buffering || g_adpcm_buffer_head != g_adpcm_buffer_tail) {
+        if (g_adpcm_buffer_head == g_adpcm_buffer_tail) {
+            // Buffer is empty, wait a bit
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        xSemaphoreTake(g_adpcm_buffer_mutex, portMAX_DELAY);
+
+        size_t blocks_available = 0;
+        size_t tail = g_adpcm_buffer_tail;
+        size_t head = g_adpcm_buffer_head;
+        
+        if (head >= tail) {
+            blocks_available = head - tail;
+        } else { // Wrapped
+            blocks_available = ADPCM_BUFFER_BLOCKS - tail;
+        }
+
+        if (blocks_available > 0) {
+            size_t bytes_to_write = blocks_available * ADPCM_BLOCK_SIZE;
+            size_t bytes_written = g_audioFile.write(&g_adpcm_buffer[tail * ADPCM_BLOCK_SIZE], bytes_to_write);
+            if (bytes_written > 0) {
+                g_totalBytesRecorded += bytes_written;
+                g_adpcm_buffer_tail = (tail + (bytes_written / ADPCM_BLOCK_SIZE)) % ADPCM_BUFFER_BLOCKS;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+
+        xSemaphoreGive(g_adpcm_buffer_mutex);
     }
 
-    // After buffering stops, drain the remaining samples
-    applog("Draining final audio buffer...");
-    while (g_buffer_head != g_buffer_tail) {
-        if (USE_ADPCM) {
-            writeAudioBufferToFileADPCM();
-        } else {
-            writeAudioBufferToFile();
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    
-    // Final flush for any partial ADPCM block
+    applog("File writer task finished.");
+    g_file_writer_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
+// This task is now the 'encoder' task for ADPCM, or the 'writer' task for PCM
+void audio_writer_task(void *pvParameters) {
     if (USE_ADPCM) {
-        flushAudioBufferToFileADPCM();
+        // --- ADPCM Encoder Task Logic ---
+        applog("Audio encoder task (ADPCM) started on core %d", xPortGetCoreID());
+        
+        int16_t* pcm_block_buffer = (int16_t*)malloc(sizeof(int16_t) * ADPCM_SAMPLES_PER_BLOCK);
+        int pcm_block_idx = 0;
+
+        while (g_is_buffering) {
+            process_pcm_to_adpcm(pcm_block_buffer, pcm_block_idx);
+            vTaskDelay(pdMS_TO_TICKS(10)); // Yield to other tasks
+        }
+
+        // After buffering stops, drain the remaining samples from the PCM buffer
+        applog("Draining final PCM buffer for ADPCM encoding...");
+        process_pcm_to_adpcm(pcm_block_buffer, pcm_block_idx);
+
+        // Handle the very last partial block
+        if (pcm_block_idx > 0) {
+            applog("Encoding last partial ADPCM block with %d samples.", pcm_block_idx);
+            // Pad the rest of the block with silence (last sample value)
+            for (int i = pcm_block_idx; i < ADPCM_SAMPLES_PER_BLOCK; i++) {
+                pcm_block_buffer[i] = pcm_block_buffer[pcm_block_idx > 0 ? pcm_block_idx - 1 : 0];
+            }
+            encode_and_push_adpcm_block(pcm_block_buffer, ADPCM_SAMPLES_PER_BLOCK);
+        }
+        
+        free(pcm_block_buffer);
+        applog("Audio encoder task (ADPCM) finished.");
+
+    } else {
+        // --- PCM Writer Task Logic (Unchanged) ---
+        applog("Audio writer task (PCM) started on core %d", xPortGetCoreID());
+        while (g_is_buffering) {
+            if (g_buffer_head != g_buffer_tail) {
+                writeAudioBufferToFile();
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        // After buffering stops, drain the remaining samples
+        applog("Draining final audio buffer (PCM)...");
+        while (g_buffer_head != g_buffer_tail) {
+            writeAudioBufferToFile();
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
     }
 
     applog("Audio writer task finished.");

@@ -119,6 +119,12 @@ void initI2SMicrophone() {
   g_audio_buffer.resize(I2S_SAMPLE_RATE * buffer_seconds);
   applog("Audio buffer size: %d for %d seconds", g_audio_buffer.size(), buffer_seconds);
   xTaskCreatePinnedToCore(i2s_read_task, "I2SReaderTask", 4096, NULL, 10, &g_i2s_reader_task_handle, 1);
+
+  if (USE_ADPCM) {
+    g_adpcm_buffer_mutex = xSemaphoreCreateMutex();
+    g_adpcm_buffer.resize(ADPCM_BUFFER_BLOCKS * ADPCM_BLOCK_SIZE);
+    applog("ADPCM buffer size: %d bytes for %d blocks", g_adpcm_buffer.size(), ADPCM_BUFFER_BLOCKS);
+  }
 }
 
 void startRecording() {
@@ -132,62 +138,104 @@ void startRecording() {
   g_enable_logging = true;
   applog("%ums", millis() - g_boot_time_ms); // ここのログを増やさないで。高速化のために最小限にしてる
 
-  // --- Start pre-buffering and give immediate feedback ---
+  // --- Reset buffers and state before anything else ---
   xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
   g_buffer_head = 0;
   g_buffer_tail = 0;
-  g_adpcm_state = ImaAdpcmState();
   g_totalSamplesRecorded = 0;
   xSemaphoreGive(g_buffer_mutex);
-  g_is_buffering = true; // Signal I2S task to start buffering
+  
+  g_totalBytesRecorded = 0;
+  g_scheduledStopTimeMillis = 0;
 
+  // --- Give immediate user feedback ---
   startVibrationSync(VIBRA_REC_START_MS); // Vibrate immediately
   onboard_led(true);
   updateDisplay("");
 
-  // --- Perform slower file operations after feedback ---
+  // --- Perform potentially slow file operations ---
   generateFilenameFromRTC(g_audio_filename, sizeof(g_audio_filename));
 
   g_audioFile = LittleFS.open(g_audio_filename, FILE_WRITE);
   if (!g_audioFile) {
     applog("Failed to open file for writing!");
-    g_is_buffering = false; // Stop buffering
-    setAppState(DSLEEP);
+    onboard_led(false); // Turn off LED to indicate failure
+    setAppState(IDLE);  // Revert to IDLE state
     return;
   }
 
+  // --- Prepare file header and state ---
   if (USE_ADPCM) {
     writeWavHeaderADPCM(g_audioFile);
+    g_adpcm_buffer_head = 0;
+    g_adpcm_buffer_tail = 0;
   } else {
     writeWavHeader(g_audioFile, 0); // Write a placeholder header
   }
   g_audioFileCount = countAudioFiles();
 
+  // --- All clear. Start the recording pipeline. ---
   g_scheduledStopTimeMillis = millis() + (unsigned long)REC_MAX_S * 1000;
-  g_totalBytesRecorded = 0;
-  
-  xTaskCreatePinnedToCore(audio_writer_task, "AudioWriterTask", 4096, NULL, 5, &g_audio_writer_task_handle, 0);
+  g_is_buffering = true; // NOW, signal I2S task to start buffering
+
+  if (USE_ADPCM) {
+    // Higher priority for encoder task
+    xTaskCreatePinnedToCore(audio_writer_task, "AudioEncoderTask", 4096, NULL, 6, &g_audio_writer_task_handle, 0);
+    // Lower priority for writer task
+    xTaskCreatePinnedToCore(file_writer_task, "FileWriterTask", 4096, NULL, 4, &g_file_writer_task_handle, 0);
+  } else {
+    xTaskCreatePinnedToCore(audio_writer_task, "AudioWriterTask", 4096, NULL, 6, &g_audio_writer_task_handle, 0);
+  }
 }
 
 void stopRecording() {
   applog("Stopping recording...");
   g_is_buffering = false; // Signal I2S & writer task to stop
 
-  // Wait for writer task to finish processing the buffer
-  if (g_audio_writer_task_handle != NULL) {
-      unsigned long wait_start = millis();
-      while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 2000)) {
-          vTaskDelay(pdMS_TO_TICKS(50));
-      }
-      if (g_audio_writer_task_handle != NULL) {
-          applog("Audio writer task did not terminate, deleting it.");
-          vTaskDelete(g_audio_writer_task_handle);
-          g_audio_writer_task_handle = NULL;
-          // Force flush if task was deleted
-          if (g_buffer_head != g_buffer_tail) {
-              if(USE_ADPCM) flushAudioBufferToFileADPCM(); else flushAudioBufferToFile();
-          }
-      }
+  // Wait for the writer/encoder tasks to finish processing their buffers
+  if (USE_ADPCM) {
+    // For ADPCM, first wait for the encoder task to finish
+    if (g_audio_writer_task_handle != NULL) {
+        unsigned long wait_start = millis();
+        applog("Waiting for encoder task to finish...");
+        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 5000)) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (g_audio_writer_task_handle != NULL) {
+            applog("Encoder task did not terminate, deleting it.");
+            vTaskDelete(g_audio_writer_task_handle);
+            g_audio_writer_task_handle = NULL;
+        }
+    }
+    // Then, wait for the file writer task to finish
+    if (g_file_writer_task_handle != NULL) {
+        unsigned long wait_start = millis();
+        applog("Waiting for file writer task to finish...");
+        while(g_file_writer_task_handle != NULL && (millis() - wait_start < 10000)) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (g_file_writer_task_handle != NULL) {
+            applog("File writer task did not terminate, deleting it.");
+            vTaskDelete(g_file_writer_task_handle);
+            g_file_writer_task_handle = NULL;
+        }
+    }
+  } else {
+    // Original logic for PCM
+    if (g_audio_writer_task_handle != NULL) {
+        unsigned long wait_start = millis();
+        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 10000)) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (g_audio_writer_task_handle != NULL) {
+            applog("Audio writer task did not terminate, deleting it.");
+            vTaskDelete(g_audio_writer_task_handle);
+            g_audio_writer_task_handle = NULL;
+            if (g_buffer_head != g_buffer_tail) {
+                flushAudioBufferToFile();
+            }
+        }
+    }
   }
 
   onboard_led(false);
