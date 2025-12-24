@@ -70,10 +70,11 @@ void transferFileChunked() {
     File file = LittleFS.open(g_file_to_transfer_name.c_str(), "r");
     if (file) {
       applog("Starting to send file: %s, size: %u", g_file_to_transfer_name.c_str(), file.size());
-      const size_t chunkSize = 512;
+      const size_t chunkSize = 508; // Adjusted for 4-byte chunk index to fit in 512-byte packet
       uint8_t buffer[chunkSize];
+      uint8_t packet[chunkSize + 4]; // Total packet size will be 512 bytes
       size_t bytesRead;
-      int chunkIndex = 0;
+      uint32_t chunkCounter = 0; // Use a 32-bit counter for the chunk index.
 
       while (true) {
         if (digitalRead(REC_BUTTON_GPIO) == HIGH) {
@@ -84,8 +85,9 @@ void transferFileChunked() {
 
         int chunksSentInBurst = 0;
         bool eofReachedInBurst = false;
-          int chunk_burst_size_local = g_chunk_burst_size;
-  for (int i = 0; i < chunk_burst_size_local; ++i) {
+        int chunk_burst_size_local = g_chunk_burst_size;
+
+        for (int i = 0; i < chunk_burst_size_local; ++i) {
           bytesRead = file.read(buffer, chunkSize);
           if (bytesRead <= 0) {
             eofReachedInBurst = true;
@@ -93,11 +95,19 @@ void transferFileChunked() {
           }
           chunksSentInBurst++;
 
-          pResponseCharacteristic->setValue(buffer, bytesRead);
+          // Prepend the chunk number (as a 32-bit little-endian integer)
+          packet[0] = (uint8_t)(chunkCounter & 0xFF);
+          packet[1] = (uint8_t)((chunkCounter >> 8) & 0xFF);
+          packet[2] = (uint8_t)((chunkCounter >> 16) & 0xFF);
+          packet[3] = (uint8_t)((chunkCounter >> 24) & 0xFF);
+          memcpy(packet + 4, buffer, bytesRead);
+
+          pResponseCharacteristic->setValue(packet, bytesRead + 4);
           while (!pResponseCharacteristic->notify()) {
             delay(10); // Wait a bit for the buffer to clear
           }
           delay(10); // Add a small delay between burst packets to prevent client-side reordering
+          chunkCounter++;
         }
 
         if (chunksSentInBurst == 0) {
@@ -131,12 +141,12 @@ void transferFileChunked() {
         }
 
         if (!ackReceived) {
-          applog("ACK timeout for chunk burst starting at %d. Aborting file transfer.", chunkIndex);
+          applog("ACK timeout for chunk burst. Aborting file transfer."); // Removed chunkIndex from log
           transferAborted = true;  // Mark as aborted due to timeout
           break;
         }
 
-        chunkIndex += chunksSentInBurst;
+        // chunkIndex is not used anymore in the same way, so we remove its update.
         g_lastActivityTime = millis();  // Reset activity timer
       }
       file.close();
