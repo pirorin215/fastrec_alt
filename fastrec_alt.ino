@@ -80,10 +80,13 @@ void startVibrationSync(unsigned long duration_ms) {
 
 void goDeepSleep() {
   float usagePercentage = getLittleFSUsagePercentage();
-      
+
   stop_ble_advertising();
 
   updateDisplay("");
+
+  // モーターを確実にOFF
+  digitalWrite(MOTOR_GPIO, LOW);
 
   // 録音開始や録音停止ボタンを押したらディープスリープ復帰するコード
   esp_sleep_enable_ext1_wakeup_io(BUTTON_PIN_BITMASK(REC_BUTTON_GPIO), ESP_EXT1_WAKEUP_ANY_HIGH);
@@ -95,7 +98,45 @@ void goDeepSleep() {
   rtc_gpio_pullup_dis(USB_DETECT_PIN);
 
   displaySleep(true); // LCDスリープ
-  esp_sleep_enable_timer_wakeup(DEEP_SLEEP_CYCLE_MS * 1000); // DEEP_SLEEP_CYCLE_MS is in milliseconds, convert to microseconds
+
+  // I2CピンをハイインピーダンスにしてLCDのリーク電流を削減
+  pinMode(LCD_SDA_GPIO, INPUT);
+  pinMode(LCD_SCL_GPIO, INPUT);
+
+  // I2Sピンをディスエーブル（マイクのリーク電流対策）
+  gpio_reset_pin(I2S_BCLK_PIN);
+  gpio_reset_pin(I2S_DOUT_PIN);
+  gpio_reset_pin(I2S_LRCK_PIN);
+
+  // DEEP_SLEEP_CYCLE_MINUTESの値で動作を切り替え
+  if (DEEP_SLEEP_CYCLE_MINUTES == 0) {
+    // 毎正時に復帰するモード
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    // 次の正時まで何秒か計算
+    int minutes_until_next_hour = 59 - timeinfo.tm_min;
+    int seconds_until_next_hour = 60 - timeinfo.tm_sec;
+    int total_seconds = (minutes_until_next_hour * 60) + seconds_until_next_hour;
+
+    // 残り時間が5分未満の場合は、次の次の正時まで待つ（頻繁な復帰を避ける）
+    if (total_seconds < 300) {
+      total_seconds += 3600; // 1時間追加
+    }
+
+    // マイクロ秒に変換
+    uint64_t sleep_time_us = (uint64_t)total_seconds * 1000000ULL;
+
+    applog("Next wakeup in %d seconds (at next hour: %02d:00)", total_seconds, (timeinfo.tm_hour + (total_seconds / 3600)) % 24);
+    esp_sleep_enable_timer_wakeup(sleep_time_us);
+  } else {
+    // 従来の固定時間モード
+    applog("Next wakeup in %lu minutes", DEEP_SLEEP_CYCLE_MINUTES);
+    esp_sleep_enable_timer_wakeup(DEEP_SLEEP_CYCLE_MS * 1000); // DEEP_SLEEP_CYCLE_MS is in milliseconds, convert to microseconds
+  }
+
   esp_deep_sleep_start();
 }
 
