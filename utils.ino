@@ -177,8 +177,51 @@ void initLittleFS() {
 float getBatteryVoltage() {
   int analogValue = analogRead(BATTERY_DIV_PIN);
   float voltage = analogValue * (3.3 / 4095.0); //(0-4095 maps to 0-3.3V with ADC_11db)
-  g_currentBatteryVoltage = voltage * BAT_VOL_MULT; // Update global variable
-  return g_currentBatteryVoltage; // Always return the (potentially updated) global variable
+  return voltage * BAT_VOL_MULT; // Return raw voltage without updating global
+}
+
+void updateBatteryVoltageTracking() {
+  if (millis() - g_lastVoltageSampleTime >= 1000) {
+    float rawVoltage = getBatteryVoltage();
+
+    // Add to ring buffer
+    g_voltageHistory[g_voltageHistoryIndex] = rawVoltage;
+    g_voltageHistoryIndex = (g_voltageHistoryIndex + 1) % VOLTAGE_HISTORY_SIZE;
+
+    // Find maximum value in the last n samples
+    float maxVoltage = 0.0f;
+    for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+      if (g_voltageHistory[i] > maxVoltage) {
+        maxVoltage = g_voltageHistory[i];
+      }
+    }
+
+    g_currentBatteryVoltage = maxVoltage;
+    g_lastVoltageSampleTime = millis();
+  }
+}
+
+void handleUsbStateChange() {
+  bool currentUsbConnected = isConnectUSB();
+
+  // Detect state change
+  if (currentUsbConnected != g_lastUsbConnected) {
+    applog("USB connection state changed: %s -> %s",
+           g_lastUsbConnected ? "connected" : "disconnected",
+           currentUsbConnected ? "connected" : "disconnected");
+
+    // Clear voltage history and reset with current voltage
+    float rawVoltage = getBatteryVoltage();
+    for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+      g_voltageHistory[i] = rawVoltage;
+    }
+    g_currentBatteryVoltage = rawVoltage;
+    g_voltageHistoryIndex = 0;
+    applog("Voltage history cleared and reset to: %.2fV", rawVoltage);
+
+    // Update last state
+    g_lastUsbConnected = currentUsbConnected;
+  }
 }
 
 // Function to count audio files and return the count. Updates the global audioFileCount at call site.

@@ -137,7 +137,13 @@ volatile AppState g_currentAppState;
 unsigned long g_boot_time_ms = 0;
 unsigned long g_lastActivityTime;
 float g_currentBatteryVoltage;
+bool g_lastUsbConnected;  // Track previous USB connection state for change detection
 volatile unsigned long g_scheduledStopTimeMillis;
+
+const int VOLTAGE_HISTORY_SIZE = 30; // Voltage tracking with rolling history
+float g_voltageHistory[VOLTAGE_HISTORY_SIZE];
+int g_voltageHistoryIndex;
+unsigned long g_lastVoltageSampleTime;
 NimBLEServer* pBLEServer; // Global pointer to the BLE server instance
 
 // audio

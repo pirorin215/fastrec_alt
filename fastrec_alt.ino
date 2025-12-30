@@ -463,7 +463,7 @@ void wakeupLogic() {
     case ESP_SLEEP_WAKEUP_ULP:
       break;
     default:
-      startVibrationSync(VIBRA_STARTUP_MS);
+      applog("wakeup_reason not clear: %d", wakeup_reason);
       break;
   }
 }
@@ -529,13 +529,22 @@ void setup() {
   start_ble_server();
   initAdc();
 
+  // Initialize voltage history buffer with current voltage
+  float initialVoltage = getBatteryVoltage();
+  for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+    g_voltageHistory[i] = initialVoltage;
+  }
+  g_currentBatteryVoltage = initialVoltage;
+  g_voltageHistoryIndex = 0;
+  g_lastVoltageSampleTime = millis();
+  g_lastUsbConnected = isConnectUSB();  // Initialize USB state tracking
+
   wakeupLogic();
 
   g_lastActivityTime = millis();  // Reset activity timer after setup or deletion
 }
 
 void loop() {
-  transferFileChunked();
   switch (g_currentAppState) {
     case IDLE:
       handleIdle();
@@ -550,5 +559,9 @@ void loop() {
       goDeepSleep();
       break;
   }
-  g_currentBatteryVoltage = getBatteryVoltage();
+
+  handleUsbStateChange();
+  updateBatteryVoltageTracking();
+
+  transferFileChunked();
 }
