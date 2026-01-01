@@ -2,7 +2,6 @@
 
 #include <time.h>
 #include <sys/time.h>
-#include <Base64.h>
 #include "driver/rtc_io.h"
 #include "esp_bt.h"
 

@@ -94,7 +94,7 @@ void displayStatus(const char* msg) {
   // 4行目
   char line4[MAX_CHARS_PER_LINE+1];
   if(msg[0] == '\0') {
-
+    line4[0] = '\0';
   } else {
     strncpy(line4, msg, MAX_CHARS_PER_LINE);
   }
