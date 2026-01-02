@@ -143,8 +143,9 @@ void startRecording() {
   g_buffer_head = 0;
   g_buffer_tail = 0;
   g_totalSamplesRecorded = 0;
+  g_buffer_overflow_count = 0;  // Reset overflow counter for new recording
   xSemaphoreGive(g_buffer_mutex);
-  
+
   g_totalBytesRecorded = 0;
   g_scheduledStopTimeMillis = 0;
 
@@ -198,11 +199,22 @@ void stopRecording() {
     if (g_audio_writer_task_handle != NULL) {
         unsigned long wait_start = millis();
         applog("Waiting for encoder task to finish...");
-        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 5000)) {
+        // Extended timeout: 10 seconds to allow normal completion
+        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 10000)) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
         if (g_audio_writer_task_handle != NULL) {
-            applog("Encoder task did not terminate, deleting it.");
+            applog("ERROR: Encoder task did not terminate within timeout. Forcing cleanup...");
+            // Cleanup: Clear PCM buffer to prevent mutex deadlock
+            xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+            size_t remaining_samples = (g_buffer_head >= g_buffer_tail) ?
+                (g_buffer_head - g_buffer_tail) :
+                (g_audio_buffer.size() - g_buffer_tail + g_buffer_head);
+            applog("Clearing %u remaining PCM samples before task deletion", remaining_samples);
+            g_buffer_head = 0;
+            g_buffer_tail = 0;
+            xSemaphoreGive(g_buffer_mutex);
+
             vTaskDelete(g_audio_writer_task_handle);
             g_audio_writer_task_handle = NULL;
         }
@@ -211,11 +223,22 @@ void stopRecording() {
     if (g_file_writer_task_handle != NULL) {
         unsigned long wait_start = millis();
         applog("Waiting for file writer task to finish...");
-        while(g_file_writer_task_handle != NULL && (millis() - wait_start < 10000)) {
+        // Extended timeout: 15 seconds for file writing
+        while(g_file_writer_task_handle != NULL && (millis() - wait_start < 15000)) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
         if (g_file_writer_task_handle != NULL) {
-            applog("File writer task did not terminate, deleting it.");
+            applog("ERROR: File writer task did not terminate within timeout. Forcing cleanup...");
+            // Cleanup: Clear ADPCM buffer to prevent mutex deadlock
+            xSemaphoreTake(g_adpcm_buffer_mutex, portMAX_DELAY);
+            size_t remaining_blocks = (g_adpcm_buffer_head >= g_adpcm_buffer_tail) ?
+                (g_adpcm_buffer_head - g_adpcm_buffer_tail) :
+                (ADPCM_BUFFER_BLOCKS - g_adpcm_buffer_tail + g_adpcm_buffer_head);
+            applog("Clearing %u remaining ADPCM blocks before task deletion", remaining_blocks);
+            g_adpcm_buffer_head = 0;
+            g_adpcm_buffer_tail = 0;
+            xSemaphoreGive(g_adpcm_buffer_mutex);
+
             vTaskDelete(g_file_writer_task_handle);
             g_file_writer_task_handle = NULL;
         }
@@ -224,16 +247,25 @@ void stopRecording() {
     // Original logic for PCM
     if (g_audio_writer_task_handle != NULL) {
         unsigned long wait_start = millis();
-        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 10000)) {
+        applog("Waiting for audio writer task to finish...");
+        // Extended timeout: 15 seconds
+        while(g_audio_writer_task_handle != NULL && (millis() - wait_start < 15000)) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
         if (g_audio_writer_task_handle != NULL) {
-            applog("Audio writer task did not terminate, deleting it.");
+            applog("ERROR: Audio writer task did not terminate within timeout. Forcing cleanup...");
+            // Cleanup: Clear buffer and try to flush if possible
+            xSemaphoreTake(g_buffer_mutex, portMAX_DELAY);
+            size_t remaining_samples = (g_buffer_head >= g_buffer_tail) ?
+                (g_buffer_head - g_buffer_tail) :
+                (g_audio_buffer.size() - g_buffer_tail + g_buffer_head);
+            applog("Clearing %u remaining samples before task deletion", remaining_samples);
+            g_buffer_head = 0;
+            g_buffer_tail = 0;
+            xSemaphoreGive(g_buffer_mutex);
+
             vTaskDelete(g_audio_writer_task_handle);
             g_audio_writer_task_handle = NULL;
-            if (g_buffer_head != g_buffer_tail) {
-                flushAudioBufferToFile();
-            }
         }
     }
   }
@@ -306,9 +338,12 @@ void i2s_read_task(void *pvParameters) { // check_unused:ignore
             g_audio_buffer[g_buffer_head] = (int16_t)val;
             g_buffer_head = next_head;
           } else {
-            // Buffer is full, log an error. Oldest data is overwritten.
-            // To prevent this, you might want to increase the buffer size or improve writing speed.
-            // For now, we just lose a sample.
+            // Buffer is full - increment counter and log periodically
+            g_buffer_overflow_count++;
+            // Log every 1000 overflows to avoid flooding the log
+            if (g_buffer_overflow_count % 1000 == 1) {
+              applog("ERROR: Audio buffer overflow! Count: %u (sample lost)", g_buffer_overflow_count);
+            }
           }
         }
         xSemaphoreGive(g_buffer_mutex);

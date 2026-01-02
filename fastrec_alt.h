@@ -53,6 +53,9 @@ const char* LOG_FILE_0 = "/log.0.txt";
 const char* LOG_FILE_1 = "/log.1.txt";
 const unsigned long MAX_LOG_SIZE = 100 * 1024; // 100KB
 
+// Time Validation
+const long long MIN_VALID_TIMESTAMP = 1704067200; // 2024-01-01 00:00:00 UTC
+
 // Vibration
 unsigned long VIBRA_STARTUP_MS = 500;
 unsigned long VIBRA_REC_START_MS = 300;
@@ -154,6 +157,7 @@ SemaphoreHandle_t g_buffer_mutex;
 TaskHandle_t g_i2s_reader_task_handle;
 volatile bool g_is_buffering;
 TaskHandle_t g_audio_writer_task_handle = NULL;
+volatile uint32_t g_buffer_overflow_count = 0; // Counter for buffer overflow errors
 
 // --- New ADPCM buffer for writer task ---
 const int ADPCM_SAMPLES_PER_BLOCK = 505;

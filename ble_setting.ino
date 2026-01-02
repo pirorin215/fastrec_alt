@@ -358,6 +358,7 @@ static std::string handle_get_info() {
   doc["littlefs_total_bytes"] = totalBytes;
   doc["littlefs_used_bytes"] = usedBytes;
   doc["littlefs_usage_percent"] = (totalBytes > 0) ? (int)((float)usedBytes / totalBytes * 100) : 0;
+  doc["buf_ovf"] = g_buffer_overflow_count;
   std::string jsonResponseStd;
   serializeJson(doc, jsonResponseStd);
   return jsonResponseStd;
@@ -408,7 +409,7 @@ static std::string handle_set_time(const std::string& value) {
   std::string timestamp_str = value.substr(std::string("SET:time:").length());
   if (!timestamp_str.empty()) {
     long long timestamp_ll = atoll(timestamp_str.c_str());
-    if (timestamp_ll > 1704067200) {  // Basic validation (after 2024-01-01)
+    if (timestamp_ll > MIN_VALID_TIMESTAMP) {  // Basic validation (after 2024-01-01)
       struct timeval tv;
       tv.tv_sec = (time_t)timestamp_ll;  // atollからtime_tへのキャストを明確化
       tv.tv_usec = 0;
